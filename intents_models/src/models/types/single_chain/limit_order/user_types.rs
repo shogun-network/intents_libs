@@ -3,10 +3,10 @@ use crate::models::types::single_chain::{SingleChainChainSpecificData, SingleCha
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
 
-/// Single chain Limit order intent structure
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Single chain Limit order intent structure, provided by the user
 pub struct SingleChainLimitOrderIntentRequest {
     /// Contains the common data for the intent
     pub generic_data: SingleChainLimitOrderGenericData,
@@ -14,10 +14,10 @@ pub struct SingleChainLimitOrderIntentRequest {
     pub chain_specific_data: SingleChainChainSpecificData,
 }
 
-/// A structure to hold generic data related to the intent
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Generic data of single chain Limit order intent structure, provided by the user
 pub struct SingleChainLimitOrderGenericData {
     /// User address initiating the intent
     #[serde(flatten)]

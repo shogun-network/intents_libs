@@ -1,11 +1,13 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
-use crate::models::types::common::{CommonLimitOrderData, CommonLimitOrderUserRequestData};
+use crate::models::types::common::{
+    CommonLimitOrderData, CommonLimitOrderUserRequestData, TransferDetails,
+};
 use crate::models::types::cross_chain::{
     CrossChainChainSpecificData, CrossChainGenericData, CrossChainLimitOrderGenericData,
     CrossChainLimitOrderIntentRequest,
 };
-use crate::models::types::user_types::{IntentRequest, TransferDetails};
+use crate::models::types::user_types::IntentRequest;
 use error_stack::{ResultExt, report};
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
@@ -14,7 +16,7 @@ use sha2::Digest;
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// Intent request, received from the user
+/// Cross chain limit order intent request, received from the user
 pub struct CrossChainLimitOrderUserIntentRequest {
     /// Contains the common data for the intent
     pub generic_data: CrossChainLimitOrderGenericRequestData,
@@ -27,7 +29,7 @@ pub struct CrossChainLimitOrderUserIntentRequest {
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// A structure to hold generic data related to the intent
+/// A structure to hold generic data related to the cross chain limit order intent
 pub struct CrossChainLimitOrderGenericRequestData {
     /// User address initiating the intent
     pub user: String,
@@ -74,7 +76,7 @@ impl From<CrossChainLimitOrderGenericData> for CrossChainLimitOrderGenericReques
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// A structure to hold generic data related to the intent
+/// A structure to hold execution details of cross chain limit order, provided by the user
 pub struct CrossChainLimitOrderExecutionDetails {
     /// Destination chain identifier
     pub dest_chain_id: ChainId,

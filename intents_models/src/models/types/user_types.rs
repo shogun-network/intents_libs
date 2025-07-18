@@ -1,18 +1,17 @@
-use crate::error::{Error, ModelResult};
-use crate::models::types::order::OrderType;
-use error_stack::report;
-
 use crate::constants::chains::ChainId;
+use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::CrossChainGenericData;
 use crate::models::types::cross_chain::CrossChainIntentRequest;
 use crate::models::types::cross_chain::CrossChainLimitOrderIntentRequest;
+use crate::models::types::order::OrderType;
 use crate::models::types::single_chain::SingleChainIntentRequest;
 use crate::models::types::single_chain::SingleChainLimitOrderIntentRequest;
+use error_stack::report;
 use serde::{Deserialize, Serialize};
-use serde_with::{DisplayFromStr, PickFirst, serde_as};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
+/// Main intent request struct.
 pub enum IntentRequest {
     SingleChainLimitOrder(SingleChainLimitOrderIntentRequest),
     // SingleChainDcaOrder(SingleChainDcaOrderIntentRequest), todo
@@ -22,6 +21,7 @@ pub enum IntentRequest {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
+/// Main intent request struct. (sorted by chains number)
 pub enum IntentRequestChainsNum {
     SingleChain(SingleChainIntentRequest),
     CrossChain(CrossChainIntentRequest),
@@ -92,6 +92,7 @@ impl IntentRequest {
             }
         }
     }
+    /// Total amount of tokens that may be spent during order execution
     pub fn get_total_amount_in(&self) -> u128 {
         match self {
             IntentRequest::SingleChainLimitOrder(intent) => intent.generic_data.amount_in,
@@ -146,9 +147,9 @@ impl IntentRequest {
     }
 }
 
-/// EVM-specific data
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// EVM-specific data of intent request
 pub struct EVMData {
     /// Nonce for Permit2 signature
     pub nonce: String,
@@ -156,23 +157,10 @@ pub struct EVMData {
     pub signature: String,
 }
 
-/// Sui-specific data
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Sui-specific data of intent request
 pub struct SuiData {
     /// Transaction hash for the Sui transaction
     pub transaction_hash: String,
-}
-
-/// Transfer details with fixed amount
-#[serde_as]
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TransferDetails {
-    /// Address of token to send
-    pub token: String,
-    /// Tokens receiver address
-    pub receiver: String,
-    /// Amount of tokens to send
-    #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
-    pub amount: u128,
 }

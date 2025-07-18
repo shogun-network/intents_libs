@@ -2,10 +2,10 @@ use crate::models::types::cross_chain::{CrossChainChainSpecificData, CrossChainG
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
 
-/// Cross chain DCA order intent structure
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Cross chain DCA order intent structure
 pub struct CrossChainDcaOrderIntentRequest {
     /// Contains the common data for the intent
     pub generic_data: CrossChainDcaOrderGenericData,
@@ -13,10 +13,10 @@ pub struct CrossChainDcaOrderIntentRequest {
     pub chain_specific_data: CrossChainChainSpecificData,
 }
 
-/// A structure to hold generic data related to cross chain DCA order intent
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// A structure to hold generic data related to cross chain DCA order intent
 pub struct CrossChainDcaOrderGenericData {
     /// User address initiating the intent
     #[serde(flatten)]

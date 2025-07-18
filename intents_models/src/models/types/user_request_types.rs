@@ -40,51 +40,52 @@ impl UserIntentRequest {
     }
 }
 
-pub enum GenericData {
+/// Generic data of request struct, received by the user
+pub enum UserRequestGenericData {
     SingleChain(SingleChainLimitOrderGenericRequestData),
     CrossChain(CrossChainLimitOrderGenericRequestData),
 }
 
-impl GenericData {
+impl UserRequestGenericData {
     pub fn get_src_chain_id(&self) -> ChainId {
         match self {
-            GenericData::SingleChain(data) => data.common_data.chain_id,
-            GenericData::CrossChain(data) => data.src_chain_id,
+            UserRequestGenericData::SingleChain(data) => data.common_data.chain_id,
+            UserRequestGenericData::CrossChain(data) => data.src_chain_id,
         }
     }
 
     pub fn get_token_in(&self) -> String {
         match self {
-            GenericData::SingleChain(data) => data.common_data.token_in.clone(),
-            GenericData::CrossChain(data) => data.token_in.clone(),
+            UserRequestGenericData::SingleChain(data) => data.common_data.token_in.clone(),
+            UserRequestGenericData::CrossChain(data) => data.token_in.clone(),
         }
     }
 
     pub fn set_token_in(&mut self, token_in: String) {
         match self {
-            GenericData::SingleChain(data) => data.common_data.token_in = token_in,
-            GenericData::CrossChain(data) => data.token_in = token_in,
+            UserRequestGenericData::SingleChain(data) => data.common_data.token_in = token_in,
+            UserRequestGenericData::CrossChain(data) => data.token_in = token_in,
         }
     }
 
     pub fn get_amount_in(&self) -> u128 {
         match self {
-            GenericData::SingleChain(data) => data.amount_in,
-            GenericData::CrossChain(data) => data.amount_in,
+            UserRequestGenericData::SingleChain(data) => data.amount_in,
+            UserRequestGenericData::CrossChain(data) => data.amount_in,
         }
     }
 
     pub fn get_user(&self) -> String {
         match self {
-            GenericData::SingleChain(data) => data.common_data.user.clone(),
-            GenericData::CrossChain(data) => data.user.clone(),
+            UserRequestGenericData::SingleChain(data) => data.common_data.user.clone(),
+            UserRequestGenericData::CrossChain(data) => data.user.clone(),
         }
     }
 
     pub fn get_deadline(&self) -> u64 {
         match self {
-            GenericData::SingleChain(data) => data.common_data.deadline,
-            GenericData::CrossChain(data) => data.deadline,
+            UserRequestGenericData::SingleChain(data) => data.common_data.deadline,
+            UserRequestGenericData::CrossChain(data) => data.deadline,
         }
     }
 }

@@ -61,8 +61,8 @@ impl fmt::Display for OrderType {
     }
 }
 
-/// Represents the lifecycle status of an order from a domain perspective.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+/// Represents the lifecycle status of an order from a domain perspective.
 pub enum OrderStatus {
     /// In auction stage, waiting for bids.
     Auction,
@@ -85,6 +85,7 @@ pub enum OrderStatus {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// List of orders provided to user on request
 pub struct UserOrders {
     pub single_chain_limit_orders: Vec<SingleChainUserLimitOrderResponse>,
     pub cross_chain_limit_orders: Vec<CrossChainUserLimitOrderResponse>,

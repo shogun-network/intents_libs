@@ -3,10 +3,10 @@ use crate::models::types::cross_chain::{CrossChainChainSpecificData, CrossChainG
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
 
-/// Cross chain Limit order intent structure
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Cross chain Limit order intent structure
 pub struct CrossChainLimitOrderIntentRequest {
     /// Contains the common data for the intent
     pub generic_data: CrossChainLimitOrderGenericData,
@@ -14,10 +14,10 @@ pub struct CrossChainLimitOrderIntentRequest {
     pub chain_specific_data: CrossChainChainSpecificData,
 }
 
-/// A structure to hold generic data related to cross chain limit order intent
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Generic data related to cross chain limit order intent
 pub struct CrossChainLimitOrderGenericData {
     /// User address initiating the intent
     #[serde(flatten)]

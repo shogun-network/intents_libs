@@ -10,7 +10,7 @@ use serde_with::{DisplayFromStr, PickFirst, serde_as};
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// Intent request, received from the user
+/// Single chain limit order intent request, received from the user
 pub struct SingleChainLimitOrderUserIntentRequest {
     /// Contains the common data for the intent
     pub generic_data: SingleChainLimitOrderGenericRequestData,
@@ -21,7 +21,7 @@ pub struct SingleChainLimitOrderUserIntentRequest {
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// A structure to hold generic data related to the intent
+/// A structure to hold generic data related to the single chain limit order intent
 pub struct SingleChainLimitOrderGenericRequestData {
     /// User address initiating the intent
     #[serde(flatten)]

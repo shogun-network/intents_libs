@@ -7,6 +7,7 @@ use crate::models::types::order::OrderStatus;
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Cross chain limit order data, provided to user on request
 pub struct CrossChainUserLimitOrderResponse {
     /// Unique identifier for the order (intent ID).
     pub order_id: String,
