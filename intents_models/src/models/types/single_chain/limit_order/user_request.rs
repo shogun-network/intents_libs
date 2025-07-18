@@ -1,8 +1,11 @@
+use crate::models::types::common::{CommonLimitOrderData, CommonLimitOrderUserRequestData};
+use crate::models::types::single_chain::{
+    SingleChainChainSpecificData, SingleChainGenericData, SingleChainLimitOrderGenericData,
+    SingleChainLimitOrderIntentRequest,
+};
+use crate::models::types::user_types::IntentRequest;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
-use crate::models::types::common::{CommonLimitOrderData, CommonLimitOrderUserRequestData};
-use crate::models::types::single_chain::{SingleChainChainSpecificData, SingleChainGenericData, SingleChainLimitOrderGenericData, SingleChainLimitOrderIntentRequest};
-use crate::models::types::user_types::IntentRequest;
 
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -30,6 +33,7 @@ pub struct SingleChainLimitOrderGenericRequestData {
     #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
     pub amount_in: u128,
 }
+
 impl SingleChainLimitOrderUserIntentRequest {
     pub fn into_into_intent_request(self) -> IntentRequest {
         let generic_data = SingleChainLimitOrderGenericData {

@@ -2,6 +2,7 @@ use crate::error::{Error, ModelResult};
 use crate::models::types::order::OrderType;
 use error_stack::report;
 
+use crate::constants::chains::ChainId;
 use crate::models::types::cross_chain::CrossChainGenericData;
 use crate::models::types::cross_chain::CrossChainIntentRequest;
 use crate::models::types::cross_chain::CrossChainLimitOrderIntentRequest;
@@ -9,7 +10,6 @@ use crate::models::types::single_chain::SingleChainIntentRequest;
 use crate::models::types::single_chain::SingleChainLimitOrderIntentRequest;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
-use crate::constants::chains::ChainId;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]

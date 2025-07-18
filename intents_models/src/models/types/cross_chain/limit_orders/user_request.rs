@@ -1,17 +1,20 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
-use crate::models::types::cross_chain::{CrossChainChainSpecificData, CrossChainGenericData, CrossChainLimitOrderGenericData, CrossChainLimitOrderIntentRequest};
+use crate::models::types::common::{CommonLimitOrderData, CommonLimitOrderUserRequestData};
+use crate::models::types::cross_chain::{
+    CrossChainChainSpecificData, CrossChainGenericData, CrossChainLimitOrderGenericData,
+    CrossChainLimitOrderIntentRequest,
+};
 use crate::models::types::user_types::{IntentRequest, TransferDetails};
-use error_stack::{report, ResultExt};
+use error_stack::{ResultExt, report};
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
 use sha2::Digest;
-use crate::models::types::common::{CommonLimitOrderData, CommonLimitOrderUserRequestData};
 
-/// Intent request, received from the user
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Intent request, received from the user
 pub struct CrossChainLimitOrderUserIntentRequest {
     /// Contains the common data for the intent
     pub generic_data: CrossChainLimitOrderGenericRequestData,
@@ -21,10 +24,10 @@ pub struct CrossChainLimitOrderUserIntentRequest {
     pub execution_details: String,
 }
 
-/// A structure to hold generic data related to the intent
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// A structure to hold generic data related to the intent
 pub struct CrossChainLimitOrderGenericRequestData {
     /// User address initiating the intent
     pub user: String,
@@ -50,10 +53,28 @@ pub struct CrossChainLimitOrderGenericRequestData {
     pub common_limit_order_data: CommonLimitOrderUserRequestData,
 }
 
-/// A structure to hold generic data related to the intent
+impl From<CrossChainLimitOrderGenericData> for CrossChainLimitOrderGenericRequestData {
+    fn from(value: CrossChainLimitOrderGenericData) -> Self {
+        Self {
+            user: value.common_data.user,
+            src_chain_id: value.common_data.src_chain_id,
+            token_in: value.common_data.token_in,
+            amount_in: value.amount_in,
+            min_stablecoins_amount: value.common_data.min_stablecoins_amount,
+            deadline: value.common_data.deadline,
+            execution_details_hash: value.common_data.execution_details_hash,
+            common_limit_order_data: CommonLimitOrderUserRequestData {
+                take_profit_min_out: value.common_limit_order_data.take_profit_min_out,
+                stop_loss_max_out: value.common_limit_order_data.stop_loss_max_out,
+            },
+        }
+    }
+}
+
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// A structure to hold generic data related to the intent
 pub struct CrossChainLimitOrderExecutionDetails {
     /// Destination chain identifier
     pub dest_chain_id: ChainId,

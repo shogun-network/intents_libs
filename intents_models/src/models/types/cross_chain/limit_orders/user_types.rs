@@ -38,6 +38,7 @@ pub struct CrossChainLimitOrderGenericData {
 
 impl CrossChainLimitOrderGenericData {
     pub fn get_amount_out_min(&self) -> u128 {
-        self.common_limit_order_data.get_amount_out_min(self.common_data.amount_out_min)
+        self.common_limit_order_data
+            .get_amount_out_min(self.common_data.amount_out_min)
     }
 }

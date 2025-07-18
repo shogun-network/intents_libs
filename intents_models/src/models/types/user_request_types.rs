@@ -4,12 +4,11 @@ use crate::models::types::cross_chain::{
     CrossChainLimitOrderGenericRequestData, CrossChainLimitOrderUserIntentRequest,
 };
 use crate::models::types::single_chain::{
-    SingleChainLimitOrderGenericData, SingleChainLimitOrderUserIntentRequest,
+    SingleChainLimitOrderGenericRequestData, SingleChainLimitOrderUserIntentRequest,
 };
-use crate::models::types::user_types::{IntentRequest, TransferDetails};
+use crate::models::types::user_types::IntentRequest;
 use error_stack::report;
 use serde::{Deserialize, Serialize};
-use serde_with::{DisplayFromStr, PickFirst, serde_as};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
@@ -42,7 +41,7 @@ impl UserIntentRequest {
 }
 
 pub enum GenericData {
-    SingleChain(SingleChainLimitOrderGenericData),
+    SingleChain(SingleChainLimitOrderGenericRequestData),
     CrossChain(CrossChainLimitOrderGenericRequestData),
 }
 
@@ -88,23 +87,4 @@ impl GenericData {
             GenericData::CrossChain(data) => data.deadline,
         }
     }
-}
-
-/// A structure to hold generic data related to the intent
-#[serde_as]
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ExecutionDetails {
-    /// Destination chain identifier
-    pub dest_chain_id: ChainId,
-    /// Token to be received after the operation (e.g., "USDT", "DAI")
-    pub token_out: String,
-    /// The minimum amount of the output token to be received after the operation
-    #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
-    pub amount_out_min: u128,
-    /// Destination address for the operation (e.g., recipient address)
-    pub destination_address: String,
-    /// Requested array of extra transfers with fixed amounts
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub extra_transfers: Option<Vec<TransferDetails>>,
 }
