@@ -1,7 +1,7 @@
 use crate::error::{Error, ModelResult};
-use crate::models::types::cross_chain::user_order::CrossChainUserLimitOrderResponse;
 use crate::models::types::cross_chain::{
     CrossChainOnChainLimitOrderData, CrossChainOnChainOrderDataEnum,
+    CrossChainUserLimitOrderResponse,
 };
 use crate::models::types::single_chain::{
     SingleChainOnChainLimitOrderData, SingleChainOnChainOrderDataEnum,
@@ -76,11 +76,9 @@ pub enum OrderStatus {
     /// The order was correctly executed.
     Fulfilled,
 
-    // TODO: Check for order cancellation
     /// The order was cancelled before execution.
     Cancelled,
 
-    // TODO: Check for order outdated
     /// The order was not fulfilled before its deadline.
     Outdated,
 }

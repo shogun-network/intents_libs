@@ -24,6 +24,9 @@ pub enum Error {
     #[error("Too large request body: {0}")]
     TooLargeRequestBody(String),
 
+    #[error("Validation error")]
+    ValidationError,
+
     #[error("Logic Error: {0}")]
     LogicError(String),
 

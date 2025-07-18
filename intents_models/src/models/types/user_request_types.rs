@@ -1,11 +1,13 @@
+use crate::constants::chains::ChainId;
+use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::{
     CrossChainLimitOrderGenericRequestData, CrossChainLimitOrderUserIntentRequest,
 };
-use crate::models::types::single_chain::SingleChainLimitOrderGenericData;
-use crate::models::types::user_types::TransferDetails;
-use crate::{
-    constants::chains::ChainId, models::types::single_chain::SingleChainLimitOrderIntentRequest,
+use crate::models::types::single_chain::{
+    SingleChainLimitOrderGenericData, SingleChainLimitOrderUserIntentRequest,
 };
+use crate::models::types::user_types::{IntentRequest, TransferDetails};
+use error_stack::report;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
 
@@ -14,10 +16,29 @@ use serde_with::{DisplayFromStr, PickFirst, serde_as};
 /// Intent request, received from the user, but not converted to `IntentRequest` enum yet
 /// Main purpose is to pass data which `IntentRequest` doesn't have (like `execution_details`)
 pub enum UserIntentRequest {
-    SingleChainLimitOrder(SingleChainLimitOrderIntentRequest),
+    SingleChainLimitOrder(SingleChainLimitOrderUserIntentRequest),
     // SingleChainDcaOrder(SingleChainDcaOrderIntentRequest),
     CrossChainLimitOrder(CrossChainLimitOrderUserIntentRequest),
     // CrossChainDcaOrder(CrossChainDcaOrderUserIntentRequest),
+}
+
+impl UserIntentRequest {
+    pub fn try_into_intent_request(self) -> ModelResult<IntentRequest> {
+        Ok(match self {
+            UserIntentRequest::SingleChainLimitOrder(intent) => intent.into_into_intent_request(),
+            UserIntentRequest::CrossChainLimitOrder(intent) => {
+                intent.try_into_into_intent_request()?
+            }
+        })
+    }
+    pub fn try_get_cross_chain_execution_details(&self) -> ModelResult<String> {
+        match self {
+            UserIntentRequest::SingleChainLimitOrder(_) => Err(report!(Error::LogicError(
+                "Non-cross-chain data passed".to_string()
+            ))),
+            UserIntentRequest::CrossChainLimitOrder(intent) => Ok(intent.execution_details.clone()),
+        }
+    }
 }
 
 pub enum GenericData {
@@ -86,12 +107,4 @@ pub struct ExecutionDetails {
     /// Requested array of extra transfers with fixed amounts
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_transfers: Option<Vec<TransferDetails>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Eq, Hash, Copy)]
-pub enum OrderType {
-    CrossChainLimitOrder,
-    // CrossChainDCAOrder,
-    SingleChainLimitOrder,
-    // SingleChainDCAOrder,
 }

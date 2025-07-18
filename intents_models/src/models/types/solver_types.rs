@@ -55,6 +55,16 @@ pub enum SolverStartPermissionChainNumber {
 }
 
 impl SolverStartPermission {
+    pub fn get_solver_amount_out(&self) -> u128 {
+        match self {
+            SolverStartPermission::SingleChainLimit(permission) => {
+                permission.common_data.expected_amount_out
+            }
+            SolverStartPermission::CrossChainLimit(permission) => {
+                permission.common_data.expected_amount_out
+            }
+        }
+    }
     pub fn get_src_chain_id(&self) -> ChainId {
         match self {
             SolverStartPermission::SingleChainLimit(permission) => {
