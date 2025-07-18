@@ -6,10 +6,10 @@ use strum_macros::EnumIter;
 
 use crate::error::Error;
 
-pub const NATIVE_TOKEN_EVM_ADDRESSES: [&str; 2] = [
-    "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-    "0x0000000000000000000000000000000000000000",
-];
+pub const NATIVE_TOKEN_EVM_ADDRESS: &str = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+pub const EVM_NULL_ADDRESS: &str = "0x0000000000000000000000000000000000000000";
+
+pub const NATIVE_TOKEN_EVM_ADDRESSES: [&str; 2] = [NATIVE_TOKEN_EVM_ADDRESS, EVM_NULL_ADDRESS];
 
 pub fn is_native_token_evm_address(address: &str) -> bool {
     NATIVE_TOKEN_EVM_ADDRESSES.contains(&address.to_lowercase().as_str())

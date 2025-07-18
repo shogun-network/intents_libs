@@ -1,17 +1,17 @@
 use crate::error::{Error, EstimatorResult};
 use error_stack::{ResultExt, report};
+use intents_models::{
+    constants::chains::{
+        ChainId, EVM_NULL_ADDRESS, WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS,
+        is_native_token_evm_address, is_native_token_solana_address,
+    },
+    network::http::handle_reqwest_response,
+};
 use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
 
-use crate::constants::chains::is_native_token_solana_address;
 use crate::utils::number_conversion::u128_to_f64;
-use crate::{
-    constants::chains::{
-        ChainId, EVM_NULL_ADDRESS, WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS, is_native_token_evm_address,
-    },
-    network::http::handle_reqwest_response,
-};
 
 const TOKEN_PRICE_BASE_URL: &str = "https://coins.llama.fi/prices/current/";
 
@@ -141,7 +141,9 @@ pub async fn get_tokens_data(
         .change_context(Error::ReqwestError)
         .attach_printable("Failed to fetch token prices")?;
 
-    let data: DefiLlamaTokensResponse = handle_reqwest_response(response).await?;
+    let data: DefiLlamaTokensResponse = handle_reqwest_response(response)
+        .await
+        .change_context(Error::ModelsError)?;
 
     Ok(data)
 }

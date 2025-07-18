@@ -1,4 +1,4 @@
-use crate::constants::chains::ChainId;
+use intents_models::constants::chains::ChainId;
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]

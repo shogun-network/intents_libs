@@ -15,6 +15,9 @@ pub enum Error {
     #[error("Response error")]
     ResponseError,
 
+    #[error("Models error")]
+    ModelsError,
+
     #[error("Unknown error")]
     Unknown,
 }
