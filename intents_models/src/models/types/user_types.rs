@@ -1,7 +1,7 @@
 use crate::error::{Error, ModelResult};
+use crate::models::types::order::OrderType;
 use error_stack::report;
 
-use crate::models::types::OrderType;
 use crate::models::types::cross_chain::CrossChainGenericData;
 use crate::models::types::cross_chain::CrossChainIntentRequest;
 use crate::models::types::cross_chain::CrossChainLimitOrderIntentRequest;

@@ -6,7 +6,7 @@ mod limit_order;
 mod solver_types;
 
 use crate::constants::chains::ChainId;
-use crate::models::types::OrderType;
+use crate::models::types::order::OrderType;
 use crate::models::types::solver_types::SolverStartPermission;
 use crate::models::types::user_types::IntentRequest;
 pub use common::*;

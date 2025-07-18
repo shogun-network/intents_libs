@@ -1,4 +1,5 @@
 use crate::constants::chains::ChainId;
+use crate::models::types::order::OrderType;
 use serde::{Deserialize, Serialize};
 
 mod common;
@@ -6,7 +7,6 @@ mod dca_orders;
 mod limit_orders;
 mod order;
 
-use crate::models::types::OrderType;
 use crate::models::types::solver_types::SolverStartPermission;
 use crate::models::types::user_types::IntentRequest;
 pub use common::*;

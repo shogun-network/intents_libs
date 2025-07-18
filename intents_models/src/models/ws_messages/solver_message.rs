@@ -1,5 +1,4 @@
-use crate::models::types::OrderType;
-use crate::models::types::single_chain::SingleChainSolverExecutionDetailsEnum;
+use crate::models::types::{order::OrderType, single_chain::SingleChainSolverExecutionDetailsEnum};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
