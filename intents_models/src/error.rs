@@ -18,6 +18,12 @@ pub enum Error {
     #[error("Serde serialize error: {0}")]
     SerdeSerialize(String),
 
+    #[error("Reqwest error: {0}")]
+    ReqwestError(String),
+
+    #[error("Too large request body: {0}")]
+    TooLargeRequestBody(String),
+
     #[error("Logic Error: {0}")]
     LogicError(String),
 
