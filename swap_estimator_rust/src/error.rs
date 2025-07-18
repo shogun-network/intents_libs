@@ -15,8 +15,17 @@ pub enum Error {
     #[error("Response error")]
     ResponseError,
 
+    #[error("Chain error: {0}")]
+    ChainError(String),
+
+    #[error("Aggregator error: {0}")]
+    AggregatorError(String),
+
     #[error("Models error")]
     ModelsError,
+
+    #[error("Serde serialize error: {0}")]
+    SerdeSerialize(String),
 
     #[error("Unknown error")]
     Unknown,

@@ -38,13 +38,15 @@ pub struct GenericEstimateRequest {
     pub chain_id: ChainId,
 
     /// Token IN address
-    pub src_token: TokenType,
+    pub src_token: String,
     /// Token OUT address
-    pub dest_token: TokenType,
+    pub dest_token: String,
     /// Amount IN for exact IN trade and amount OUT for exact OUT trade
     pub amount_fixed: u128,
     /// Decimal slippage
     pub slippage: f64,
+    pub src_token_decimals: u8,
+    pub dst_token_decimals: u8,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
