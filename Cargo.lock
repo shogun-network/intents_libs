@@ -299,6 +299,7 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "curve25519-dalek"
 version = "4.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -325,6 +326,8 @@ dependencies = [
 ]
 
 [[package]]
+=======
+>>>>>>> 876987f77f56de06d8922fc403b52b4ac2d2b283
 name = "darling"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1007,6 +1010,7 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "serde_with",
+ "sha2",
  "strum",
  "strum_macros",
  "thiserror 2.0.12",
@@ -2433,6 +2437,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+<<<<<<< HEAD
 name = "tryhard"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2443,6 +2448,8 @@ dependencies = [
 ]
 
 [[package]]
+=======
+>>>>>>> 876987f77f56de06d8922fc403b52b4ac2d2b283
 name = "typenum"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

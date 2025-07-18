@@ -71,11 +71,11 @@ impl ChainId {
 }
 
 impl TryFrom<u32> for ChainId {
-    type Error = error_stack::Report<Error>;
+    type Error = Report<Error>;
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         serde_json::from_str(&value.to_string()).map_err(|e| {
-            error_stack::Report::new(Error::ParseError)
+            Report::new(Error::ParseError)
                 .attach_printable(format!("Failed to parse chain ID: {e}"))
         })
     }

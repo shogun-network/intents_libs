@@ -11,6 +11,7 @@ use serde_with::serde_as;
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Permission, granted to Solver to start single-chain limit order execution
 pub struct SingleChainLimitOrderSolverStartPermission {
     #[serde(flatten)]
     pub common_data: SingleChainSolverStartPermission,

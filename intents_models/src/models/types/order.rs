@@ -1,7 +1,7 @@
 use crate::error::{Error, ModelResult};
-use crate::models::types::cross_chain::user_order::CrossChainUserLimitOrderResponse;
 use crate::models::types::cross_chain::{
     CrossChainOnChainLimitOrderData, CrossChainOnChainOrderDataEnum,
+    CrossChainUserLimitOrderResponse,
 };
 use crate::models::types::single_chain::{
     SingleChainOnChainLimitOrderData, SingleChainOnChainOrderDataEnum,
@@ -61,8 +61,8 @@ impl fmt::Display for OrderType {
     }
 }
 
-/// Represents the lifecycle status of an order from a domain perspective.
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+/// Represents the lifecycle status of an order from a domain perspective.
 pub enum OrderStatus {
     /// In auction stage, waiting for bids.
     Auction,
@@ -76,17 +76,16 @@ pub enum OrderStatus {
     /// The order was correctly executed.
     Fulfilled,
 
-    // TODO: Check for order cancellation
     /// The order was cancelled before execution.
     Cancelled,
 
-    // TODO: Check for order outdated
     /// The order was not fulfilled before its deadline.
     Outdated,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// List of orders provided to user on request
 pub struct UserOrders {
     pub single_chain_limit_orders: Vec<SingleChainUserLimitOrderResponse>,
     pub cross_chain_limit_orders: Vec<CrossChainUserLimitOrderResponse>,
