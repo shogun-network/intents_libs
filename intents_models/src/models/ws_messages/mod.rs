@@ -19,14 +19,12 @@ pub fn handle_ws_auctioneer_request_msg(bytes: &[u8]) -> ModelResult<WsAuctionee
         )))),
     }
 }
-pub fn serialize_solver_response_message(
-    msg: solver_message::WsSolverMessage,
-) -> ModelResult<Vec<u8>> {
+pub fn serialize_solver_response_message(msg: WsSolverMessage) -> ModelResult<Vec<u8>> {
     to_vec(&msg)
-        .change_context(Error::SerdeSerialize(format!(
-            "Failed to serialize WsSolverMessage:"
-        )))
-        .attach_printable_lazy(|| format!("Failed to serialize message: {:?}", msg))
+        .change_context(Error::SerdeSerialize(
+            "Failed to serialize WsSolverMessage:".to_string(),
+        ))
+        .attach_printable_lazy(|| format!("Failed to serialize message: {msg:?}"))
 }
 
 pub fn handle_ws_solver_request_msg(bytes: &[u8]) -> ModelResult<WsSolverMessage> {

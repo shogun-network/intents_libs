@@ -1,14 +1,15 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
-use crate::models::types::user_types::{EVMData, SuiData, TransferDetails};
+use crate::models::types::common::TransferDetails;
+use crate::models::types::user_types::{EVMData, SuiData};
 use error_stack::report;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
 
-/// A structure to hold generic data related to cross chain intent
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Common data for all cross chain orders
 pub struct CrossChainGenericData {
     /// User address initiating the intent
     pub user: String,
@@ -39,8 +40,8 @@ pub struct CrossChainGenericData {
     pub execution_details_hash: String,
 }
 
-/// Enum for the chain-independent data
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Chain-specific data cross chain orders
 pub enum CrossChainChainSpecificData {
     /// EVM-based chain data (e.g., Ethereum, Binance Smart Chain)
     EVM(EVMData),
@@ -50,9 +51,9 @@ pub enum CrossChainChainSpecificData {
     Solana(CrossChainSolanaData),
 }
 
-/// Solana-specific data
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Solana-specific data cross chain orders
 pub struct CrossChainSolanaData {
     /// Order account public key
     pub order_pubkey: String,

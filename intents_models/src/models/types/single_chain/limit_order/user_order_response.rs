@@ -6,6 +6,7 @@ use crate::models::types::{order::OrderStatus, single_chain::SingleChainLimitOrd
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Single chain limit order data, provided to user on request
 pub struct SingleChainUserLimitOrderResponse {
     /// Unique identifier for the order (intent ID).
     pub order_id: String,

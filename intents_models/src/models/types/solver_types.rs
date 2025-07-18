@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
+/// Terms of execution of specific intent
 pub enum ExecutionTerms {
     CrossChain(CrossChainExecutionTerms),
     SingleChain(SingleChainExecutionTerms),
@@ -40,6 +41,7 @@ impl ExecutionTerms {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
+/// Data, used by Solver to start order execution
 pub enum SolverStartPermission {
     SingleChainLimit(SingleChainLimitOrderSolverStartPermission),
     // SingleChainDca(SingleChainDcaOrderSolverStartPermission), todo
@@ -49,12 +51,23 @@ pub enum SolverStartPermission {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
+/// Data, used by Solver to start order execution (sorted by chain number)
 pub enum SolverStartPermissionChainNumber {
     SingleChain(SingleChainSolverStartPermissionEnum),
     CrossChain(CrossChainSolverStartPermissionEnum),
 }
 
 impl SolverStartPermission {
+    pub fn get_solver_amount_out(&self) -> u128 {
+        match self {
+            SolverStartPermission::SingleChainLimit(permission) => {
+                permission.common_data.expected_amount_out
+            }
+            SolverStartPermission::CrossChainLimit(permission) => {
+                permission.common_data.expected_amount_out
+            }
+        }
+    }
     pub fn get_src_chain_id(&self) -> ChainId {
         match self {
             SolverStartPermission::SingleChainLimit(permission) => {
@@ -101,9 +114,9 @@ impl SolverStartPermission {
     }
 }
 
-/// EVM-specific data
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// EVM-specific data for start order execution
 pub struct StartOrderEVMData {
     /// Guard contract that should be called by the solver
     pub guard_contract: String,
@@ -117,8 +130,8 @@ pub struct StartOrderEVMData {
     pub auctioneer_signature: String,
 }
 
-/// Solana-specific data
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Solana-specific data for start order execution
 pub struct StartOrderSolanaData {
     /// Program ID, that should be interacted with
     pub program_id: String,

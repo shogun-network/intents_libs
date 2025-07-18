@@ -8,6 +8,7 @@ use serde_with::{DisplayFromStr, serde_as};
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Data, used by Solver to start cross chain order execution
 pub struct CrossChainSolverStartPermission {
     /// Solver wallet address on source chain, that will start order execution
     pub src_chain_solver_address: String,
@@ -29,8 +30,8 @@ pub struct CrossChainSolverStartPermission {
     pub chain_specific_data: CrossChainSolverStartOrderData,
 }
 
-/// Enum for the chain-independent data
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Chain-specific data, used by Solver to start cross chain order execution
 pub enum CrossChainSolverStartOrderData {
     /// EVM-based chain data (e.g., Ethereum, Binance Smart Chain)
     EVM(StartOrderEVMData),
@@ -67,8 +68,8 @@ impl CrossChainSolverStartOrderData {
     }
 }
 
-/// Sui-specific data
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Sui-specific chain data, used by Solver to start cross chain order execution
 pub struct CrossChainStartOrderSuiData {
     /// Package ID, that should be interacted with
     pub package_id: String,
@@ -90,6 +91,7 @@ pub struct CrossChainStartOrderSuiData {
 
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Terms of execution of cross-chain intent, provided to Solver, used for bidding estimations and execution
 pub struct CrossChainExecutionTerms {
     /// Amount of collateral for as solver to lock
     #[serde_as(as = "DisplayFromStr")]
@@ -122,6 +124,7 @@ pub struct CrossChainExecutionTerms {
 
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Auctioneer data collected after checking cross-chain order execution
 pub struct DestChainFulfillmentDetails {
     /// Actually received main amount OUT
     #[serde_as(as = "DisplayFromStr")]
@@ -139,6 +142,7 @@ pub struct DestChainFulfillmentDetails {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Auctioneer data collected after checking cross-chain extra transfer execution
 pub struct TransferFulfillmentDetails {
     /// `true` - transaction was signed by the Solver
     pub has_valid_tx_signer: bool,
@@ -148,6 +152,8 @@ pub struct TransferFulfillmentDetails {
 
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Auctioneer data collected after checking cross-chain extra transfer execution.
+/// Contains inconsistencies of expected/received tokens amounts
 pub struct AmountInconsistency {
     /// Transaction hash provided
     pub tx_hash: String,
@@ -170,6 +176,8 @@ pub struct AmountInconsistency {
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Success confirmation, provided to Solver after successful order execution.
+/// Allows Solver to claim tokens in source chain
 pub struct CrossChainSolverSuccessConfirmation {
     /// Solver address that executed the intent
     pub src_chain_solver_address: String,
@@ -179,8 +187,9 @@ pub struct CrossChainSolverSuccessConfirmation {
     pub chain_specific_data: SolverSuccessConfirmationData,
 }
 
-/// Enum for the chain-independent data
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Enum for the chain-specific data of success confirmation, provided to Solver after successful
+/// cross-chain order execution. Allows Solver to claim tokens in source chain
 pub enum SolverSuccessConfirmationData {
     /// EVM-based chain data (e.g., Ethereum, Binance Smart Chain)
     EVM(SuccessConfirmationEVMData),
@@ -190,9 +199,9 @@ pub enum SolverSuccessConfirmationData {
     Solana(SuccessConfirmationSolanaData),
 }
 
-/// EVM-specific data
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// EVM-specific data of success confirmation, provided to Solver after successful cross-chain order execution
 pub struct SuccessConfirmationEVMData {
     /// Guard contract that should be called by the solver
     pub guard_contract: String,
@@ -204,8 +213,8 @@ pub struct SuccessConfirmationEVMData {
     pub auctioneer_signature: String,
 }
 
-/// Sui-specific data
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Sui-specific data of success confirmation, provided to Solver after successful cross-chain order execution
 pub struct SuccessConfirmationSuiData {
     /// Package ID, that should be interacted with
     pub package_id: String,
@@ -221,8 +230,8 @@ pub struct SuccessConfirmationSuiData {
     pub types: [String; 3],
 }
 
-/// Solana-specific data
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Solana-specific data of success confirmation, provided to Solver after successful cross-chain order execution
 pub struct SuccessConfirmationSolanaData {
     /// Program ID, that should be interacted with
     pub program_id: String,

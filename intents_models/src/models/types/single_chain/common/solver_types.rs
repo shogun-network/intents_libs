@@ -1,7 +1,7 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
+use crate::models::types::common::TransferDetails;
 use crate::models::types::solver_types::{StartOrderEVMData, StartOrderSolanaData};
-use crate::models::types::user_types::TransferDetails;
 use error_stack::report;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -11,6 +11,7 @@ use serde_with::{DisplayFromStr, serde_as};
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
+/// Permission, granted to Solver to start single chain order execution
 pub struct SingleChainSolverStartPermission {
     /// Solver wallet address that will start order execution
     pub solver_address: String,
@@ -25,8 +26,8 @@ pub struct SingleChainSolverStartPermission {
     pub chain_specific_data: SingleChainSolverStartOrderData,
 }
 
-/// Enum for the chain-independent data
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Chain-specific data of permission, granted to Solver to start single chain order execution
 pub enum SingleChainSolverStartOrderData {
     /// EVM-based chain data (e.g., Ethereum, Binance Smart Chain)
     EVM(StartOrderEVMData),
@@ -54,6 +55,7 @@ impl SingleChainSolverStartOrderData {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Single chain order execution terms, provided to the Solver during auction
 pub struct SingleChainExecutionTerms {
     /// Address of protocol fee token, receiver and protocol fee amount
     pub protocol_fee_transfer: TransferDetails,

@@ -67,6 +67,7 @@ impl SingleChainIntentRequest {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
+/// Permission, granted to Solver single-chain order execution
 pub enum SingleChainSolverStartPermissionEnum {
     Limit(SingleChainLimitOrderSolverStartPermission),
     // Dca(SingleChainDcaOrderSolverStartPermission), todo
