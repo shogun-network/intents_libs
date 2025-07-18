@@ -9,7 +9,7 @@ use intents_models::{
 };
 use reqwest::Client;
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::utils::number_conversion::u128_to_f64;
 
@@ -124,7 +124,7 @@ pub async fn evaluate_coins(
 ///
 /// * `tokens` - Array of (`ChainId`, `Token Address`) tuples
 pub async fn get_tokens_data(
-    tokens: Vec<(ChainId, &str)>,
+    tokens: HashSet<(ChainId, &str)>,
 ) -> EstimatorResult<DefiLlamaTokensResponse> {
     let client = Client::new();
 
@@ -175,7 +175,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_token_prices() {
-        let tokens: Vec<(ChainId, &str)> = vec![
+        let tokens: HashSet<(ChainId, &str)> = vec![
             (
                 ChainId::Sui,
                 "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
@@ -186,13 +186,44 @@ mod tests {
                 "So11111111111111111111111111111111111111112",
             ),
             (ChainId::Base, "0x0000000000000000000000000000000000000000"),
-        ];
+        ]
+        .into_iter()
+        .collect();
 
         let data = get_tokens_data(tokens).await.unwrap();
 
         let sui_native = data.get((ChainId::Sui, "0x2::sui::SUI"));
         assert!(sui_native.is_some());
         assert_eq!(sui_native.unwrap().decimals, 9);
+    }
+
+    #[tokio::test]
+    async fn test_get_token_prices_wrong_token() {
+        let tokens: HashSet<(ChainId, &str)> = vec![
+            (
+                ChainId::Sui,
+                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c159aaa42c9f7cb846e2f900e7::usdc::USDC",
+            ),
+            (ChainId::Sui, "0x2::sui::SUI"),
+            (
+                ChainId::Solana,
+                "So11111111111111111111111111111111111111112",
+            ),
+            (ChainId::Base, "0x0000000000000000000000000000000000000000"),
+        ]
+        .into_iter()
+        .collect();
+
+        let data = get_tokens_data(tokens).await.unwrap();
+
+        let sui_native = data.get((ChainId::Sui, "0x2::sui::SUI"));
+        assert!(sui_native.is_some());
+        assert_eq!(sui_native.unwrap().decimals, 9);
+        let wrong_token = data.get((
+            ChainId::Sui,
+            "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c159aaa42c9f7cb846e2f900e7::usdc::USDC",
+        ));
+        assert!(wrong_token.is_none());
     }
 
     #[tokio::test]

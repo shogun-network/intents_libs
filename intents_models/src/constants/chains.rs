@@ -32,7 +32,7 @@ pub const NATIVE_TOKEN_SUI_ADDRESS: &str = "0x2::sui::SUI";
 
 pub const WRAPPED_NATIVE_TOKEN_HYPE_ADDRESS: &str = "0x5555555555555555555555555555555555555555";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr, EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr, EnumIter, Hash)]
 #[repr(u32)]
 pub enum ChainId {
     Ethereum = 1,

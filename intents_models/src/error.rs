@@ -21,6 +21,9 @@ pub enum Error {
     #[error("Reqwest error: {0}")]
     ReqwestError(String),
 
+    #[error("Nats error: {0}")]
+    NatsError(String),
+
     #[error("Too large request body: {0}")]
     TooLargeRequestBody(String),
 

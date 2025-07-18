@@ -16,3 +16,6 @@ strum              = "0.27.1"
 strum_macros       = "0.27"
 serde_with         = "3.12.0"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
+async-nats         = "0.42.0"
+futures            = "0.3.31"
+rustls             = { version = "0.23.28", features = ["ring"] }
