@@ -1,0 +1,17 @@
+[workspace]
+members  = ["intents_models", "swap_estimator_rust"]
+resolver = "3"
+
+[workspace.dependencies]
+tokio        = { version = "1", features = ["full"] }
+serde        = { version = "1", features = ["derive"] }
+serde_json   = { version = "1.0.140", features = ["arbitrary_precision"] }
+futures-util = "0.3"
+tracing      = "0.1.41"
+error-stack  = { version = "0.5.0", features = ["serde"] }
+thiserror    = "2.0.11"
+reqwest      = { version = "0.12.11", features = ["json"] }
+serde_repr   = "0.1.20"
+strum        = "0.27.1"
+strum_macros = "0.27"
+serde_with   = "3.12.0"

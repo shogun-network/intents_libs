@@ -1,0 +1,16 @@
+[package]
+name    = "swap_estimator_rust"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio          = { workspace = true }
+serde          = { workspace = true }
+serde_json     = { workspace = true }
+futures-util   = { workspace = true }
+tracing        = { workspace = true }
+error-stack    = { workspace = true }
+thiserror      = { workspace = true }
+reqwest        = { workspace = true }
+serde_repr     = { workspace = true }
+intents_models = { path = "../intents_models" }
