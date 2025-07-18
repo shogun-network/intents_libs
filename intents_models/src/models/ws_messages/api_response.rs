@@ -98,8 +98,7 @@ impl TryFrom<ApiResponse> for WsAuctioneerMessage {
             Err(error) => {
                 tracing::error!("Failed to deserialize ApiResponse data: {}", error);
                 Err(report!(Error::SerdeDeserialize(format!(
-                    "Failed to deserialize ApiResponse data: {}",
-                    error
+                    "Failed to deserialize ApiResponse data: {error}"
                 ))))
             }
         }

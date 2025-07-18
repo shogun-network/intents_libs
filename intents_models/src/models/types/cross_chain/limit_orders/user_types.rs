@@ -1,11 +1,5 @@
 use crate::models::types::common::CommonLimitOrderData;
-use crate::{
-    constants::chains::ChainId,
-    models::types::{
-        cross_chain::{CrossChainChainSpecificData, CrossChainGenericData},
-        user_types::TransferDetails,
-    },
-};
+use crate::models::types::cross_chain::{CrossChainChainSpecificData, CrossChainGenericData};
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
 

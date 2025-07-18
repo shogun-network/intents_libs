@@ -44,9 +44,9 @@ impl ReportDisplayExt for Report<Error> {
 
         let frames = self.current_frames();
 
-        for frame in frames.into_iter() {
+        for frame in frames.iter() {
             if let FrameKind::Attachment(AttachmentKind::Printable(attachment)) = frame.kind() {
-                output.push_str(&format!(" {} ", attachment));
+                output.push_str(&format!(" {attachment} "));
             }
         }
 

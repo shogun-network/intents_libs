@@ -95,7 +95,7 @@ impl CrossChainLimitOrderUserIntentRequest {
         let mut hasher = sha2::Sha256::new();
         hasher.update(&self.execution_details);
         let result = hasher.finalize();
-        let execution_details_hash = format!("0x{:x}", result);
+        let execution_details_hash = format!("0x{result:x}");
 
         if !execution_details_hash.eq_ignore_ascii_case(&self.generic_data.execution_details_hash) {
             tracing::error!(

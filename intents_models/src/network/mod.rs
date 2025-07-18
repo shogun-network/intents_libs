@@ -91,9 +91,9 @@ fn calculate_json_depth(
     }
 
     if inside_string {
-        return Err(report!(Error::SerdeDeserialize(format!(
-            "Invalid JSON: unterminated string literal"
-        ))));
+        return Err(report!(Error::SerdeDeserialize(
+            "Invalid JSON: unterminated string literal".to_string()
+        )));
     }
 
     Ok(max_depth_seen)
