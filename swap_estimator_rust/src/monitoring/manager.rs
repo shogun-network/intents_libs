@@ -16,6 +16,9 @@ use crate::{
     utils::number_conversion::u128_to_f64,
 };
 
+// For limit order on solver src_token and dst_tokens are same as order,
+// and for stop loss on auctioneer, src_token and dst_token are switched to check when the
+// stop_loss_max_out of dst_token can buy amount_in of src_token
 #[derive(Debug, Clone)]
 pub struct PendingSwap {
     pub src_chain: ChainId,
