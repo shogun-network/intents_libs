@@ -8,7 +8,7 @@ use intents_models::{
     network::http::handle_reqwest_response,
 };
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use crate::utils::number_conversion::u128_to_f64;
@@ -20,7 +20,7 @@ pub struct DefiLlamaTokensResponse {
     pub coins: HashMap<String, DefiLlamaCoinData>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct DefiLlamaCoinData {
     pub decimals: u8,
     pub symbol: String,
@@ -66,7 +66,7 @@ impl DefiLlamaChain for ChainId {
     }
 }
 
-trait DefiLlamaCoinHashMap {
+pub trait DefiLlamaCoinHashMap {
     fn get(&self, token: (ChainId, &str)) -> Option<&DefiLlamaCoinData>;
 }
 
@@ -87,7 +87,7 @@ impl DefiLlamaCoinHashMap for DefiLlamaTokensResponse {
 /// * Array of token values
 /// * Total value
 pub async fn evaluate_coins(
-    tokens: Vec<(ChainId, &str, u128)>,
+    tokens: Vec<(ChainId, String, u128)>,
 ) -> EstimatorResult<(Vec<f64>, f64)> {
     if tokens.is_empty() {
         return Ok((vec![], 0.0));
@@ -99,12 +99,12 @@ pub async fn evaluate_coins(
     let tokens_data = get_tokens_data(
         tokens
             .iter()
-            .map(|(chain_id, token_addr, _)| (*chain_id, *token_addr))
+            .map(|(chain_id, token_addr, _)| (*chain_id, token_addr.clone()))
             .collect(),
     )
     .await?;
     for (chain_id, token_addr, amount) in tokens {
-        let token_data = tokens_data.get((chain_id, token_addr)).ok_or(
+        let token_data = tokens_data.get((chain_id, &token_addr)).ok_or(
             report!(Error::ResponseError).attach_printable(format!(
                 "Token {token_addr} for chain {chain_id} not found in DefiLlama response"
             )),
@@ -124,13 +124,13 @@ pub async fn evaluate_coins(
 ///
 /// * `tokens` - Array of (`ChainId`, `Token Address`) tuples
 pub async fn get_tokens_data(
-    tokens: HashSet<(ChainId, &str)>,
+    tokens: HashSet<(ChainId, String)>,
 ) -> EstimatorResult<DefiLlamaTokensResponse> {
     let client = Client::new();
 
     let tokens_str: String = tokens
         .into_iter()
-        .map(|(chain_id, token)| chain_id.to_defillama_format(token))
+        .map(|(chain_id, token)| chain_id.to_defillama_format(&token))
         .collect::<Vec<String>>()
         .join(",");
 
@@ -175,17 +175,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_token_prices() {
-        let tokens: HashSet<(ChainId, &str)> = vec![
+        let tokens: HashSet<(ChainId, String)> = vec![
             (
                 ChainId::Sui,
-                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
+                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+                    .to_string(),
             ),
-            (ChainId::Sui, "0x2::sui::SUI"),
+            (ChainId::Sui, "0x2::sui::SUI".to_string()),
             (
                 ChainId::Solana,
-                "So11111111111111111111111111111111111111112",
+                "So11111111111111111111111111111111111111112".to_string(),
             ),
-            (ChainId::Base, "0x0000000000000000000000000000000000000000"),
+            (
+                ChainId::Base,
+                "0x0000000000000000000000000000000000000000".to_string(),
+            ),
         ]
         .into_iter()
         .collect();
@@ -199,17 +203,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_token_prices_wrong_token() {
-        let tokens: HashSet<(ChainId, &str)> = vec![
+        let tokens: HashSet<(ChainId, String)> = vec![
             (
                 ChainId::Sui,
-                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c159aaa42c9f7cb846e2f900e7::usdc::USDC",
+                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c159aaa42c9f7cb846e2f900e7::usdc::USDC"
+                    .to_string(),
             ),
-            (ChainId::Sui, "0x2::sui::SUI"),
+            (ChainId::Sui, "0x2::sui::SUI".to_string()),
             (
                 ChainId::Solana,
-                "So11111111111111111111111111111111111111112",
+                "So11111111111111111111111111111111111111112".to_string(),
             ),
-            (ChainId::Base, "0x0000000000000000000000000000000000000000"),
+            (
+                ChainId::Base,
+                "0x0000000000000000000000000000000000000000".to_string(),
+            ),
         ]
         .into_iter()
         .collect();
@@ -236,12 +244,16 @@ mod tests {
         let native_eth1 = String::from("0x0000000000000000000000000000000000000000");
         let native_eth2 = String::from("0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
 
-        let tokens_amounts: Vec<(ChainId, &str, u128)> = vec![
-            (ChainId::Sui, &sui_usdc, 10_000_000),
-            (ChainId::Sui, &native_sui, 1_000_000_000),
-            (ChainId::Solana, &native_sol, 1_000_000_000),
-            (ChainId::Base, &native_eth1, 1000000000000000000),
-            (ChainId::ArbitrumOne, &native_eth2, 1000000000000000000),
+        let tokens_amounts: Vec<(ChainId, String, u128)> = vec![
+            (ChainId::Sui, sui_usdc.clone(), 10_000_000),
+            (ChainId::Sui, native_sui.clone(), 1_000_000_000),
+            (ChainId::Solana, native_sol.clone(), 1_000_000_000),
+            (ChainId::Base, native_eth1.clone(), 1000000000000000000),
+            (
+                ChainId::ArbitrumOne,
+                native_eth2.clone(),
+                1000000000000000000,
+            ),
         ];
 
         let (values_array, _) = evaluate_coins(tokens_amounts).await.unwrap();

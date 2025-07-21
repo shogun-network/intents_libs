@@ -18,6 +18,9 @@ pub enum Error {
     #[error("Chain error: {0}")]
     ChainError(String),
 
+    #[error("Token not found: {0}")]
+    TokenNotFound(String),
+
     #[error("Aggregator error: {0}")]
     AggregatorError(String),
 

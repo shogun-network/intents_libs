@@ -1,13 +1,23 @@
-use serde::{Deserialize, Serialize};
+use intents_models::constants::chains::ChainId;
+use tokio::sync::oneshot;
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+use crate::{error::Error, prices::defillama::pricing::DefiLlamaCoinData};
+
+type Responder<T> = oneshot::Sender<Result<T, Error>>;
+
+#[derive(Debug)]
 pub enum MonitorRequest {
-    GetCoinData { chain: String, address: String },
+    GetCoinData {
+        chain: ChainId,
+        address: String,
+        resp: Responder<DefiLlamaCoinData>,
+    },
 }
 
+#[derive(Debug)]
 pub enum MonitorResponse {
     CoinData, // TODO: Add actual data structure
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone)]
 pub enum MonitorAlert {}

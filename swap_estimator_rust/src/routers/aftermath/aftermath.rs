@@ -25,7 +25,7 @@ use serde_json::{Value, json};
 /// * Generic estimate response
 /// * Response value
 pub async fn quote_aftermath_swap(
-    generic_estimate_request: &GenericEstimateRequest,
+    generic_estimate_request: GenericEstimateRequest,
 ) -> EstimatorResult<(GenericEstimateResponse, Value)> {
     let GenericEstimateRequest {
         trade_type,
@@ -36,7 +36,7 @@ pub async fn quote_aftermath_swap(
         chain_id: _,
     } = generic_estimate_request;
     // subtracting 1.0 since Aftermath already adds 1% by default
-    let aftermath_slippage = get_aftermath_slippage(*slippage);
+    let aftermath_slippage = get_aftermath_slippage(slippage);
 
     let body: Value = match generic_estimate_request.trade_type {
         TradeType::ExactIn => json!({
@@ -72,7 +72,7 @@ pub async fn quote_aftermath_swap(
         .parse::<u64>()
         .change_context(Error::ParseError)?;
 
-    if *trade_type == TradeType::ExactOut && (amount_out as u128) < *amount_fixed {
+    if trade_type == TradeType::ExactOut && (amount_out as u128) < amount_fixed {
         return Err(report!(Error::Unknown).attach_printable(format!(
             "Aftermath returned amount_out {amount_out} < amount_fixed {amount_fixed}"
         )));
@@ -81,11 +81,11 @@ pub async fn quote_aftermath_swap(
     let generic_response = match trade_type {
         TradeType::ExactIn => GenericEstimateResponse {
             amount_quote: amount_out as u128,
-            amount_limit: get_limit_amount_u64(*trade_type, amount_out, *slippage) as u128,
+            amount_limit: get_limit_amount_u64(trade_type, amount_out, slippage) as u128,
         },
         TradeType::ExactOut => GenericEstimateResponse {
             amount_quote: amount_in as u128,
-            amount_limit: get_limit_amount_u64(*trade_type, amount_in, *slippage) as u128,
+            amount_limit: get_limit_amount_u64(trade_type, amount_in, slippage) as u128,
         },
     };
 
@@ -97,7 +97,7 @@ pub async fn prepare_swap_ptb_with_aftermath(
     seralized_tx_and_coin_id: Option<(Value, Value)>,
 ) -> EstimatorResult<Value> {
     let generic_estimate_request = generic_swap_request.clone().into();
-    let (estimate_response, routes_value) = quote_aftermath_swap(&generic_estimate_request).await?;
+    let (estimate_response, routes_value) = quote_aftermath_swap(generic_estimate_request).await?;
 
     let GenericSwapRequest {
         trade_type: _,
