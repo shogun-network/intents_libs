@@ -36,3 +36,11 @@ pub struct GenericSwapResponse {
     /// Does not send tokens to required destination. Requires additional transfer
     pub require_transfer: bool,
 }
+
+#[derive(Copy, Clone)]
+pub enum SolanaPriorityFeeType {
+    /// (lamports)
+    JitoTip(u64),
+    /// (max lamports)
+    PriorityFee(u64),
+}

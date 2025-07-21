@@ -27,6 +27,9 @@ pub enum Error {
     #[error("Serde serialize error: {0}")]
     SerdeSerialize(String),
 
+    #[error("Serde deserialize error: {0}")]
+    SerdeDeserialize(String),
+
     #[error("Unknown error")]
     Unknown,
 }

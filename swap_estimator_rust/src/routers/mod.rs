@@ -1,5 +1,7 @@
+pub mod aftermath;
 pub mod constants;
 pub mod estimate;
+pub mod jupiter;
 pub mod liquidswap;
 pub mod paraswap;
 pub mod swap;
