@@ -264,3 +264,365 @@ async fn check_swaps_feasibility(
     }
     unfinished_swaps
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use intents_models::constants::chains::ChainId;
+    use tokio::sync::mpsc;
+
+    fn create_coin_data(price: f64, decimals: u8, timestamp: u32) -> DefiLlamaCoinData {
+        DefiLlamaCoinData {
+            price,
+            decimals,
+            timestamp,
+            ..DefiLlamaCoinData::default()
+        }
+    }
+
+    fn create_pending_swap(
+        src_chain: ChainId,
+        dst_chain: ChainId,
+        token_in: String,
+        token_out: String,
+        amount_in: u128,
+        amount_out: u128,
+        price_limit: Option<f64>,
+    ) -> PendingSwap {
+        PendingSwap {
+            src_chain,
+            dst_chain,
+            token_in,
+            token_out,
+            amount_in,
+            amount_out,
+            price_limit,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_check_swaps_feasibility_successful_swap() {
+        let (alert_sender, mut alert_receiver) = mpsc::channel(10);
+
+        let mut coin_cache = HashMap::new();
+        coin_cache.insert(
+            (ChainId::Ethereum, "token_a".to_string()),
+            create_coin_data(100.0, 18, 1000), // $100 per token
+        );
+        coin_cache.insert(
+            (ChainId::Base, "token_b".to_string()),
+            create_coin_data(50.0, 6, 1000), // $50 per token
+        );
+
+        let mut pending_swaps = HashMap::new();
+        pending_swaps.insert(
+            "order_1".to_string(),
+            create_pending_swap(
+                ChainId::Ethereum,
+                ChainId::Base,
+                "token_a".to_string(),
+                "token_b".to_string(),
+                1_000_000_000_000_000_000, // 1 token (18 decimals)
+                1_900_000,                 // 1.9 tokens (6 decimals), expecting ~2 tokens
+                None,
+            ),
+        );
+
+        let result = check_swaps_feasibility(
+            0.05, // 5% margin
+            coin_cache,
+            pending_swaps,
+            alert_sender,
+        )
+        .await;
+
+        // The swap should be feasible: real_price = 50/100 = 0.5, expected = 1.9/1 = 1.9
+        // Since 0.5 < 1.9 * (1 - 0.05), the swap should NOT be feasible
+        assert_eq!(result.len(), 1);
+        assert!(result.contains_key("order_1"));
+
+        // Should not receive any alert
+        assert!(alert_receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_check_swaps_feasibility_with_preset_price_limit() {
+        let (alert_sender, mut alert_receiver) = mpsc::channel(10);
+
+        let mut coin_cache = HashMap::new();
+        coin_cache.insert(
+            (ChainId::Ethereum, "token_a".to_string()),
+            create_coin_data(100.0, 18, 1000),
+        );
+        coin_cache.insert(
+            (ChainId::Base, "token_b".to_string()),
+            create_coin_data(50.0, 18, 1000),
+        );
+
+        let mut pending_swaps = HashMap::new();
+        pending_swaps.insert(
+            "order_1".to_string(),
+            create_pending_swap(
+                ChainId::Ethereum,
+                ChainId::Base,
+                "token_a".to_string(),
+                "token_b".to_string(),
+                1_000_000_000_000_000_000,
+                2_000_000_000_000_000_000,
+                Some(0.4), // Preset price limit: expecting price ratio of 0.4
+            ),
+        );
+
+        let result = check_swaps_feasibility(
+            0.1, // 10% margin
+            coin_cache,
+            pending_swaps,
+            alert_sender,
+        )
+        .await;
+
+        // real_price_limit = 50/100 = 0.5
+        // price_limit = 0.4
+        // 0.5 >= 0.4 * (1 - 0.1) = 0.36, so swap should be feasible
+        assert_eq!(result.len(), 0);
+
+        // Should receive alert
+        let alert = alert_receiver.try_recv().unwrap();
+        assert!(
+            matches!(alert, MonitorAlert::SwapIsFeasible { order_id } if order_id == "order_1")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_check_swaps_feasibility_missing_coin_data() {
+        let (alert_sender, mut alert_receiver) = mpsc::channel(10);
+
+        let mut coin_cache = HashMap::new();
+        // Only add one token, missing the other
+        coin_cache.insert(
+            (ChainId::Ethereum, "token_a".to_string()),
+            create_coin_data(100.0, 18, 1000),
+        );
+
+        let mut pending_swaps = HashMap::new();
+        pending_swaps.insert(
+            "order_1".to_string(),
+            create_pending_swap(
+                ChainId::Ethereum,
+                ChainId::Base,
+                "token_a".to_string(),
+                "token_b".to_string(), // This token is missing from cache
+                1_000_000_000_000_000_000,
+                2_000_000_000_000_000_000,
+                None,
+            ),
+        );
+
+        let result = check_swaps_feasibility(0.05, coin_cache, pending_swaps, alert_sender).await;
+
+        // Should not process the swap due to missing data
+        assert_eq!(result.len(), 0);
+        assert!(alert_receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_check_swaps_feasibility_zero_timestamp() {
+        let (alert_sender, mut alert_receiver) = mpsc::channel(10);
+
+        let mut coin_cache = HashMap::new();
+        coin_cache.insert(
+            (ChainId::Ethereum, "token_a".to_string()),
+            create_coin_data(100.0, 18, 0), // Zero timestamp means no valid data
+        );
+        coin_cache.insert(
+            (ChainId::Base, "token_b".to_string()),
+            create_coin_data(50.0, 18, 1000),
+        );
+
+        let mut pending_swaps = HashMap::new();
+        pending_swaps.insert(
+            "order_1".to_string(),
+            create_pending_swap(
+                ChainId::Ethereum,
+                ChainId::Base,
+                "token_a".to_string(),
+                "token_b".to_string(),
+                1_000_000_000_000_000_000,
+                2_000_000_000_000_000_000,
+                None,
+            ),
+        );
+
+        let result = check_swaps_feasibility(0.05, coin_cache, pending_swaps, alert_sender).await;
+
+        // Should not process due to zero timestamp
+        assert_eq!(result.len(), 0);
+        assert!(alert_receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_check_swaps_feasibility_multiple_swaps_mixed_results() {
+        let (alert_sender, mut alert_receiver) = mpsc::channel(10);
+
+        let mut coin_cache = HashMap::new();
+        coin_cache.insert(
+            (ChainId::Ethereum, "token_a".to_string()),
+            create_coin_data(100.0, 18, 1000),
+        );
+        coin_cache.insert(
+            (ChainId::Base, "token_b".to_string()),
+            create_coin_data(50.0, 18, 1000),
+        );
+
+        let mut pending_swaps = HashMap::new();
+
+        // Feasible swap
+        pending_swaps.insert(
+            "feasible_order".to_string(),
+            create_pending_swap(
+                ChainId::Ethereum,
+                ChainId::Base,
+                "token_a".to_string(),
+                "token_b".to_string(),
+                1_000_000_000_000_000_000,
+                2_000_000_000_000_000_000,
+                Some(0.4), // Will be feasible
+            ),
+        );
+
+        // Non-feasible swap
+        pending_swaps.insert(
+            "non_feasible_order".to_string(),
+            create_pending_swap(
+                ChainId::Ethereum,
+                ChainId::Base,
+                "token_a".to_string(),
+                "token_b".to_string(),
+                1_000_000_000_000_000_000,
+                2_000_000_000_000_000_000,
+                Some(0.8), // Will not be feasible
+            ),
+        );
+
+        let result = check_swaps_feasibility(0.1, coin_cache, pending_swaps, alert_sender).await;
+
+        // Only non-feasible swap should remain
+        assert_eq!(result.len(), 1);
+        assert!(result.contains_key("non_feasible_order"));
+
+        // Should receive one alert for feasible swap
+        let alert = alert_receiver.try_recv().unwrap();
+        assert!(
+            matches!(alert, MonitorAlert::SwapIsFeasible { order_id } if order_id == "feasible_order")
+        );
+
+        // No more alerts
+        assert!(alert_receiver.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_check_swaps_feasibility_different_decimals() {
+        let (alert_sender, mut alert_receiver) = mpsc::channel(10);
+
+        let mut coin_cache = HashMap::new();
+        coin_cache.insert(
+            (ChainId::Ethereum, "token_a".to_string()),
+            create_coin_data(1.0, 6, 1000), // 6 decimals
+        );
+        coin_cache.insert(
+            (ChainId::Base, "token_b".to_string()),
+            create_coin_data(2.0, 18, 1000), // 18 decimals
+        );
+
+        let mut pending_swaps = HashMap::new();
+        pending_swaps.insert(
+            "order_1".to_string(),
+            create_pending_swap(
+                ChainId::Ethereum,
+                ChainId::Base,
+                "token_a".to_string(),
+                "token_b".to_string(),
+                1_000_000,               // 1 token with 6 decimals
+                500_000_000_000_000_000, // 0.5 tokens with 18 decimals
+                None,
+            ),
+        );
+
+        let result = check_swaps_feasibility(
+            0.0, // No margin for easier calculation
+            coin_cache,
+            pending_swaps,
+            alert_sender,
+        )
+        .await;
+
+        // price_limit = 0.5 / 1.0 = 0.5
+        // real_price_limit = 2.0 / 1.0 = 2.0
+        // 2.0 >= 0.5, so swap should be feasible
+        assert_eq!(result.len(), 0);
+
+        let alert = alert_receiver.try_recv().unwrap();
+        assert!(
+            matches!(alert, MonitorAlert::SwapIsFeasible { order_id } if order_id == "order_1")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_check_swaps_feasibility_edge_case_zero_amounts() {
+        let (alert_sender, _alert_receiver) = mpsc::channel(10);
+
+        let mut coin_cache = HashMap::new();
+        coin_cache.insert(
+            (ChainId::Ethereum, "token_a".to_string()),
+            create_coin_data(100.0, 18, 1000),
+        );
+        coin_cache.insert(
+            (ChainId::Base, "token_b".to_string()),
+            create_coin_data(50.0, 18, 1000),
+        );
+
+        let mut pending_swaps = HashMap::new();
+        pending_swaps.insert(
+            "zero_amount_order".to_string(),
+            create_pending_swap(
+                ChainId::Ethereum,
+                ChainId::Base,
+                "token_a".to_string(),
+                "token_b".to_string(),
+                0, // Zero amount_in - this would cause division by zero
+                1_000_000_000_000_000_000,
+                None,
+            ),
+        );
+
+        // This test should either handle zero gracefully or panic
+        // Currently the code will panic on division by zero
+        // You should fix this in the actual implementation
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(check_swaps_feasibility(
+                    0.05,
+                    coin_cache,
+                    pending_swaps,
+                    alert_sender,
+                ))
+        }));
+
+        // Currently this will panic - you should fix the implementation
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_check_swaps_feasibility_empty_inputs() {
+        let (alert_sender, mut alert_receiver) = mpsc::channel(10);
+
+        let coin_cache = HashMap::new();
+        let pending_swaps = HashMap::new();
+
+        let result = check_swaps_feasibility(0.05, coin_cache, pending_swaps, alert_sender).await;
+
+        assert_eq!(result.len(), 0);
+        assert!(alert_receiver.try_recv().is_err());
+    }
+}

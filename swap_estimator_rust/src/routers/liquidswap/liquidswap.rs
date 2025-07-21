@@ -455,8 +455,8 @@ mod tests {
     async fn test_estimate_swap_liquidswap_exact_in_success() {
         let request = create_test_request(
             TradeType::ExactIn,
-            "0x5555555555555555555555555555555555555555", // CATBAL
-            "0x068f321fa8fb9f0d135f290ef6a3e2813e1c8a29", // USOL
+            "0x5555555555555555555555555555555555555555", // WHYPE
+            "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb", // USDT0
             10_000_000_000_000_000_000,
         );
 
@@ -629,6 +629,7 @@ mod tests {
         let result = prepare_swap_liquidswap_generic(&request).await;
 
         // This will likely fail due to the smart contract integration issues
+        println!("Result: {:?}", result);
         assert!(result.is_ok());
 
         let response = result.unwrap();
