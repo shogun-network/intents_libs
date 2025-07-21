@@ -45,8 +45,6 @@ pub struct GenericEstimateRequest {
     pub amount_fixed: u128,
     /// Decimal slippage
     pub slippage: f64,
-    pub src_token_decimals: u8,
-    pub dst_token_decimals: u8,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

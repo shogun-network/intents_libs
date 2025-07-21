@@ -367,8 +367,6 @@ mod tests {
             dest_token: dest_token.to_string(),
             amount_fixed: amount,
             slippage: 2.0,
-            dst_token_decimals: 0, // Not used
-            src_token_decimals: 0, // Not used
         }
     }
 
@@ -387,8 +385,6 @@ mod tests {
             dest_token: dest_token.to_string(),
             amount_fixed: amount,
             slippage: 2.0,
-            dst_token_decimals: 0, // Not used
-            src_token_decimals: 0, // Not used
         }
     }
 

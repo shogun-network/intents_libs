@@ -9,7 +9,11 @@ use super::{
 };
 use crate::{
     error::{Error, EstimatorResult},
-    routers::{constants::ETH_TOKEN_DECIMALS, estimate::TradeType},
+    routers::{
+        constants::ETH_TOKEN_DECIMALS,
+        estimate::TradeType,
+        paraswap::responses::{GetPriceRouteResponse, TransactionsResponse},
+    },
     utils::number_conversion::decimal_string_to_u128,
 };
 use crate::{
@@ -88,18 +92,31 @@ fn handle_paraswap_response(response: ParaswapResponse) -> EstimatorResult<Paras
     }
 }
 
-pub async fn paraswap_prices(request: GetPriceRouteRequest) -> EstimatorResult<ParaswapResponse> {
+pub async fn paraswap_prices(
+    request: GetPriceRouteRequest,
+) -> EstimatorResult<GetPriceRouteResponse> {
     let uri_path = "/prices";
 
     // Convert the request struct to a serde_json::Value to modify attribute names as specified by serde renames
     let query = serde_json::to_value(request).expect("Can't fail");
 
-    send_paraswap_request(uri_path, Some(query), None, HttpMethod::GET).await
+    let response = handle_paraswap_response(
+        send_paraswap_request(uri_path, Some(query), None, HttpMethod::GET).await?,
+    )?;
+    if let ParaswapResponse::Prices(prices) = response {
+        Ok(prices)
+    } else {
+        tracing::error!(
+            "Unexpected response from Paraswap for prices request, response: {:?}",
+            response
+        );
+        Err(report!(Error::ResponseError).attach_printable("Unexpected response from Paraswap"))
+    }
 }
 
 pub async fn paraswap_transactions(
     request: TransactionsRequest,
-) -> EstimatorResult<ParaswapResponse> {
+) -> EstimatorResult<TransactionsResponse> {
     let uri_path = format!("/transactions/{}", request.chain_id);
 
     // Convert the request struct to a serde_json::Value to modify attribute names as specified by serde renames
@@ -108,11 +125,23 @@ pub async fn paraswap_transactions(
     // Convert the request struct to a serde_json::Value to modify attribute names as specified by serde renames
     let body = serde_json::to_value(request.body_params).expect("Can't fail");
 
-    send_paraswap_request(&uri_path, Some(query), Some(body), HttpMethod::POST).await
+    let response =
+        send_paraswap_request(&uri_path, Some(query), Some(body), HttpMethod::POST).await?;
+    if let ParaswapResponse::Transactions(transactions) = response {
+        Ok(transactions)
+    } else {
+        tracing::error!(
+            "Unexpected response from Paraswap for prices request, response: {:?}",
+            response
+        );
+        Err(report!(Error::ResponseError).attach_printable("Unexpected response from Paraswap"))
+    }
 }
 
 pub async fn estimate_swap_paraswap_generic(
     request: GenericEstimateRequest,
+    src_token_decimals: u8,
+    dst_token_decimals: u8,
 ) -> EstimatorResult<GenericEstimateResponse> {
     let paraswap_params = ParaswapParams {
         side: match request.trade_type {
@@ -123,8 +152,8 @@ pub async fn estimate_swap_paraswap_generic(
         amount: request.amount_fixed,
         token_in: request.src_token.clone(),
         token_out: request.dest_token,
-        token0_decimals: request.src_token_decimals,
-        token1_decimals: request.dst_token_decimals,
+        token0_decimals: src_token_decimals,
+        token1_decimals: dst_token_decimals,
         wallet_address: request.src_token.clone(), // This is not needed in this function
         receiver_address: request.src_token,       // This is not needed in this function
         slippage: get_paraswap_format_slippage(request.slippage),
@@ -154,32 +183,33 @@ pub async fn estimate_swap_paraswap_generic(
 pub async fn estimate_amount_paraswap(
     request: GetPriceRouteRequest,
 ) -> EstimatorResult<(u128, PriceRoute, String)> {
-    let response = handle_paraswap_response(paraswap_prices(request.clone()).await?)?;
-    if let ParaswapResponse::Prices(prices) = response {
-        let amount = match request.side {
-            Some(side) => match side {
-                ParaswapSide::BUY => prices.price_route.src_amount.clone(),
-                ParaswapSide::SELL => prices.price_route.dest_amount.clone(),
-            },
-            // default SELL
-            None => prices.price_route.dest_amount.clone(),
-        };
+    let prices = paraswap_prices(request.clone()).await?;
+    let amount = match request.side {
+        Some(side) => match side {
+            ParaswapSide::BUY => prices.price_route.src_amount.clone(),
+            ParaswapSide::SELL => prices.price_route.dest_amount.clone(),
+        },
+        // default SELL
+        None => prices.price_route.dest_amount.clone(),
+    };
 
-        let amount = amount.parse::<u128>().change_context(Error::ParseError)?;
+    let amount = amount.parse::<u128>().change_context(Error::ParseError)?;
 
-        let approval_address = prices.price_route.contract_address.clone();
-        Ok((amount, prices.price_route, approval_address))
-    } else {
-        Err(report!(Error::Unknown))
-    }
+    let approval_address = prices.price_route.contract_address.clone();
+    Ok((amount, prices.price_route, approval_address))
 }
 
 pub async fn prepare_swap_paraswap_generic(
     generic_swap_request: &GenericSwapRequest,
+    src_decimals: u8,
+    dest_decimals: u8,
 ) -> EstimatorResult<GenericSwapResponse> {
-    let request =
-        ParaswapSwapCombinedRequest::try_from_generic_parameters(generic_swap_request.clone())
-            .await?;
+    let request = ParaswapSwapCombinedRequest::try_from_generic_parameters(
+        generic_swap_request.clone(),
+        src_decimals,
+        dest_decimals,
+    )
+    .await?;
     prepare_paraswap_swap(generic_swap_request, request).await
 }
 
@@ -211,13 +241,7 @@ pub async fn prepare_paraswap_swap(
         }
     };
 
-    let transactions_response = if let ParaswapResponse::Transactions(transactions) =
-        handle_paraswap_response(paraswap_transactions(transactions_request).await?)?
-    {
-        transactions
-    } else {
-        return Err(report!(Error::Unknown));
-    };
+    let transactions_response = paraswap_transactions(transactions_request).await?;
 
     Ok(GenericSwapResponse {
         amount_quote,
@@ -285,6 +309,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_estimate_swap_paraswap_generic_exact_in() {
+        let src_token_decimals = 6;
+        let dst_token_decimals = 18;
         let request = GenericEstimateRequest {
             trade_type: TradeType::ExactIn,
             chain_id: ChainId::Base,
@@ -292,10 +318,9 @@ mod tests {
             dest_token: "0x4200000000000000000000000000000000000006".to_string(),
             amount_fixed: 100000000,
             slippage: 2.0,
-            src_token_decimals: 6,
-            dst_token_decimals: 18,
         };
-        let result = estimate_swap_paraswap_generic(request).await;
+        let result =
+            estimate_swap_paraswap_generic(request, src_token_decimals, dst_token_decimals).await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
@@ -313,6 +338,8 @@ mod tests {
         let chain_id = ChainId::Base;
         let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
         let dest_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
+        let src_token_decimals = 18;
+        let dst_token_decimals = 6;
         let request = GenericSwapRequest {
             trade_type: TradeType::ExactIn,
             chain_id,
@@ -322,10 +349,9 @@ mod tests {
             dest_token,
             amount_fixed: 10_000_000_000u128,
             slippage: 2.0,
-            src_token_decimals: 18,
-            dst_token_decimals: 6,
         };
-        let result = prepare_swap_paraswap_generic(&request).await;
+        let result =
+            prepare_swap_paraswap_generic(&request, src_token_decimals, dst_token_decimals).await;
         assert!(result.is_ok());
     }
 
@@ -334,6 +360,8 @@ mod tests {
         let chain_id = ChainId::Base;
         let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
         let dest_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
+        let src_token_decimals = 18;
+        let dst_token_decimals = 6;
         let request = GenericSwapRequest {
             trade_type: TradeType::ExactOut,
             chain_id,
@@ -343,10 +371,9 @@ mod tests {
             dest_token,
             amount_fixed: 10_000u128,
             slippage: 2.0,
-            src_token_decimals: 18,
-            dst_token_decimals: 6,
         };
-        let result = prepare_swap_paraswap_generic(&request).await;
+        let result =
+            prepare_swap_paraswap_generic(&request, src_token_decimals, dst_token_decimals).await;
         assert!(result.is_ok());
     }
 }

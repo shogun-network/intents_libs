@@ -322,12 +322,14 @@ pub struct ParaswapSwapCombinedRequest {
 impl ParaswapSwapCombinedRequest {
     pub async fn try_from_generic_parameters(
         generic_req: GenericSwapRequest,
+        src_decimals: u8,
+        dest_decimals: u8,
     ) -> EstimatorResult<Self> {
         Ok(Self {
             src_token: generic_req.src_token.to_string(),
-            src_decimals: generic_req.src_token_decimals,
+            src_decimals,
             dest_token: generic_req.dest_token.to_string(),
-            dest_decimals: generic_req.dst_token_decimals,
+            dest_decimals,
             amount: generic_req.amount_fixed.to_string(),
             side: Some(match generic_req.trade_type {
                 TradeType::ExactIn => ParaswapSide::SELL,
