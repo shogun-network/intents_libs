@@ -49,6 +49,14 @@ impl CrossChainIntentRequest {
             }
         }
     }
+
+    pub fn get_amount_out_min(&self) -> u128 {
+        match self {
+            CrossChainIntentRequest::CrossChainLimitOrder(intent) => {
+                intent.generic_data.common_data.amount_out_min
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

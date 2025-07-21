@@ -156,7 +156,7 @@ fn get_amount_quote_and_fixed(
 }
 
 pub async fn estimate_swap_liquidswap_generic(
-    request: &GenericEstimateRequest,
+    request: GenericEstimateRequest,
 ) -> EstimatorResult<GenericEstimateResponse> {
     let (token_in_decimals, token_out_decimals) = get_in_out_token_decimals(
         request.src_token.to_string(),
@@ -170,7 +170,7 @@ pub async fn estimate_swap_liquidswap_generic(
     let amount_fixed = u128::try_from(request.amount_fixed)
         .change_context(Error::ParseError)
         .attach_printable("Error parsing fixed amount")?;
-    let mut liquidswap_route_request = create_route_request_from_generic_estimate(request);
+    let mut liquidswap_route_request = create_route_request_from_generic_estimate(request.clone());
     match request.trade_type {
         TradeType::ExactIn => {
             liquidswap_route_request.amount_in = Some(u128_to_f64(amount_fixed, token_in_decimals));
@@ -202,7 +202,7 @@ pub async fn estimate_swap_liquidswap_generic(
 }
 
 pub async fn prepare_swap_liquidswap_generic(
-    generic_swap_request: &GenericSwapRequest,
+    generic_swap_request: GenericSwapRequest,
 ) -> EstimatorResult<GenericSwapResponse> {
     let (token_in_decimals, token_out_decimals) = get_in_out_token_decimals(
         generic_swap_request.src_token.to_string(),
@@ -210,7 +210,7 @@ pub async fn prepare_swap_liquidswap_generic(
     )
     .await?;
 
-    let mut router_request = create_route_request_from_generic_swap(generic_swap_request);
+    let mut router_request = create_route_request_from_generic_swap(generic_swap_request.clone());
 
     let amount_fixed = u128::try_from(generic_swap_request.amount_fixed)
         .change_context(Error::ParseError)
@@ -282,7 +282,7 @@ async fn get_price_route_with_fallback(
 }
 
 fn create_route_request_from_generic_swap(
-    generic_swap_request: &GenericSwapRequest,
+    generic_swap_request: GenericSwapRequest,
 ) -> GetPriceRouteRequest {
     let (token_in, use_native_hype) =
         if is_native_token_evm_address(&generic_swap_request.src_token) {
@@ -310,7 +310,7 @@ fn create_route_request_from_generic_swap(
 }
 
 fn create_route_request_from_generic_estimate(
-    generic_swap_request: &GenericEstimateRequest,
+    generic_swap_request: GenericEstimateRequest,
 ) -> GetPriceRouteRequest {
     let (token_in, use_native_hype) =
         if is_native_token_evm_address(&generic_swap_request.src_token) {
@@ -460,7 +460,7 @@ mod tests {
             10_000_000_000_000_000_000,
         );
 
-        let result = estimate_swap_liquidswap_generic(&request).await;
+        let result = estimate_swap_liquidswap_generic(request).await;
 
         assert!(
             result.is_ok(),
@@ -481,7 +481,7 @@ mod tests {
             380_000_000,                                  // 380 USDT0 (6 decimals)
         );
 
-        let result = estimate_swap_liquidswap_generic(&request).await;
+        let result = estimate_swap_liquidswap_generic(request).await;
 
         assert!(result.is_ok());
 
@@ -498,7 +498,7 @@ mod tests {
             10_000_000_000_000_000_000,                   // 10 WHYPE (18 decimals)
         );
 
-        let result = prepare_swap_liquidswap_generic(&request).await;
+        let result = prepare_swap_liquidswap_generic(request).await;
 
         // This will likely fail due to the smart contract integration issues
         assert!(
@@ -533,7 +533,7 @@ mod tests {
             10_000_000,                                   // 10 USDT0 (6 decimals)
         );
 
-        let result = prepare_swap_liquidswap_generic(&request).await;
+        let result = prepare_swap_liquidswap_generic(request).await;
 
         // This will likely fail due to the smart contract integration issues
         assert!(
@@ -569,7 +569,7 @@ mod tests {
             4674186744772283,                             // 1 USDT0 (6 decimals)
         );
 
-        let result = prepare_swap_liquidswap_generic(&request).await;
+        let result = prepare_swap_liquidswap_generic(request).await;
 
         // This will likely fail due to the smart contract integration issues
         assert!(
@@ -626,7 +626,7 @@ mod tests {
             4674186744772283,
         );
 
-        let result = prepare_swap_liquidswap_generic(&request).await;
+        let result = prepare_swap_liquidswap_generic(request).await;
 
         // This will likely fail due to the smart contract integration issues
         println!("Result: {:?}", result);

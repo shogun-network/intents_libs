@@ -63,6 +63,14 @@ impl SingleChainIntentRequest {
             }
         }
     }
+
+    pub fn get_amount_out_min(&self) -> u128 {
+        match self {
+            SingleChainIntentRequest::SingleChainLimitOrder(request) => {
+                request.generic_data.common_data.amount_out_min
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

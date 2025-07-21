@@ -200,7 +200,7 @@ pub async fn estimate_amount_paraswap(
 }
 
 pub async fn prepare_swap_paraswap_generic(
-    generic_swap_request: &GenericSwapRequest,
+    generic_swap_request: GenericSwapRequest,
     src_decimals: u8,
     dest_decimals: u8,
 ) -> EstimatorResult<GenericSwapResponse> {
@@ -214,7 +214,7 @@ pub async fn prepare_swap_paraswap_generic(
 }
 
 pub async fn prepare_paraswap_swap(
-    generic_swap_request: &GenericSwapRequest,
+    generic_swap_request: GenericSwapRequest,
     mut request: ParaswapSwapCombinedRequest,
 ) -> EstimatorResult<GenericSwapResponse> {
     let prices_request = request.to_get_price_route_request();
@@ -351,7 +351,7 @@ mod tests {
             slippage: 2.0,
         };
         let result =
-            prepare_swap_paraswap_generic(&request, src_token_decimals, dst_token_decimals).await;
+            prepare_swap_paraswap_generic(request, src_token_decimals, dst_token_decimals).await;
         assert!(result.is_ok());
     }
 
@@ -373,7 +373,7 @@ mod tests {
             slippage: 2.0,
         };
         let result =
-            prepare_swap_paraswap_generic(&request, src_token_decimals, dst_token_decimals).await;
+            prepare_swap_paraswap_generic(request, src_token_decimals, dst_token_decimals).await;
         assert!(result.is_ok());
     }
 }
