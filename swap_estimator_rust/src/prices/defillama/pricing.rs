@@ -29,6 +29,18 @@ pub struct DefiLlamaCoinData {
     pub confidence: f64,
 }
 
+impl DefiLlamaCoinData {
+    pub fn default() -> Self {
+        Self {
+            decimals: 0,
+            symbol: String::new(),
+            price: 0.0,
+            timestamp: 0,
+            confidence: 0.0,
+        }
+    }
+}
+
 pub trait DefiLlamaChain {
     fn to_defillama_chain_name(&self) -> &str;
     fn to_defillama_format(&self, address: &str) -> String;
@@ -223,6 +235,7 @@ mod tests {
         .collect();
 
         let data = get_tokens_data(tokens).await.unwrap();
+        println!("{:#?}", data);
 
         let sui_native = data.get((ChainId::Sui, "0x2::sui::SUI"));
         assert!(sui_native.is_some());

@@ -96,8 +96,8 @@ pub async fn prepare_swap_ptb_with_aftermath(
     generic_swap_request: GenericSwapRequest,
     seralized_tx_and_coin_id: Option<(Value, Value)>,
 ) -> EstimatorResult<Value> {
-    let generic_estimate_request = generic_swap_request.clone().into();
-    let (estimate_response, routes_value) = quote_aftermath_swap(generic_estimate_request).await?;
+    // let generic_estimate_request = generic_swap_request.clone().into();
+    // let (estimate_response, routes_value) = quote_aftermath_swap(generic_estimate_request).await?;
 
     let GenericSwapRequest {
         trade_type: _,
@@ -186,7 +186,7 @@ fn get_aftermath_slippage(slippage: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    // use super::*;
 
     //     #[tokio::test]
     //     async fn test_quote_aftermath_exact_in() {

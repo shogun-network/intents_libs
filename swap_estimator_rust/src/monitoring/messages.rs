@@ -12,12 +12,18 @@ pub enum MonitorRequest {
         address: String,
         resp: Responder<DefiLlamaCoinData>,
     },
-}
-
-#[derive(Debug)]
-pub enum MonitorResponse {
-    CoinData, // TODO: Add actual data structure
+    CheckSwapFeasibility {
+        order_id: String,
+        src_chain: ChainId,
+        dst_chain: ChainId,
+        token_in: String,
+        token_out: String,
+        amount_in: u128,
+        amount_out: u128,
+    },
 }
 
 #[derive(Debug, Clone)]
-pub enum MonitorAlert {}
+pub enum MonitorAlert {
+    SwapIsFeasible { order_id: String },
+}
