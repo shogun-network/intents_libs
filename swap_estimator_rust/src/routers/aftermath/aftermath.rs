@@ -94,7 +94,7 @@ pub async fn quote_aftermath_swap(
 pub async fn prepare_swap_ptb_with_aftermath(
     generic_swap_request: GenericSwapRequest,
     routes_value: Value,
-    seralized_tx_and_coin_id: Option<(Value, Value)>,
+    serialized_tx_and_coin_id: Option<(Value, Value)>,
 ) -> EstimatorResult<Value> {
     let GenericSwapRequest {
         trade_type: _,
@@ -108,7 +108,7 @@ pub async fn prepare_swap_ptb_with_aftermath(
     } = generic_swap_request;
     let aftermath_slippage = get_aftermath_slippage(slippage);
 
-    let (body, uri_path) = match seralized_tx_and_coin_id {
+    let (body, uri_path) = match serialized_tx_and_coin_id {
         Some((serialized_tx, coin_id)) => (
             json!({
                 "walletAddress": spender,
