@@ -123,6 +123,16 @@ impl IntentRequest {
             }
         }
     }
+    pub fn get_token_out_address(&self) -> &str {
+        match self {
+            IntentRequest::SingleChainLimitOrder(intent) => {
+                &intent.generic_data.common_data.token_out
+            }
+            IntentRequest::CrossChainLimitOrder(intent) => {
+                &intent.generic_data.common_data.token_out
+            }
+        }
+    }
     pub fn get_deadline(&self) -> u64 {
         match self {
             IntentRequest::SingleChainLimitOrder(intent) => {
