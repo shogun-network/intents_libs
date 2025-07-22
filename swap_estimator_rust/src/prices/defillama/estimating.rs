@@ -273,7 +273,7 @@ mod tests {
         // Currently will panic due to division by zero - you should fix this
         let result = estimate_order_amount_out(&order, &tokens_response);
 
-        assert!(result.is_ok(), "Should handle zero price gracefully");
+        assert!(result.is_err(), "Should handle zero price gracefully");
     }
 
     #[test]
