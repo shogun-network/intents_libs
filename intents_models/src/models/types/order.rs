@@ -7,7 +7,7 @@ use crate::models::types::single_chain::{
     SingleChainOnChainLimitOrderData, SingleChainOnChainOrderDataEnum,
     SingleChainUserLimitOrderResponse,
 };
-use error_stack::report;
+use error_stack::{ResultExt, report};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -81,6 +81,35 @@ pub enum OrderStatus {
 
     /// The order was not fulfilled before its deadline.
     Outdated,
+}
+
+impl fmt::Display for OrderStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = match self {
+            OrderStatus::Auction => "Auction",
+            OrderStatus::NoBids => "NoBids",
+            OrderStatus::Executing => "Executing",
+            OrderStatus::Fulfilled => "Fulfilled",
+            OrderStatus::Cancelled => "Cancelled",
+            OrderStatus::Outdated => "Outdated",
+        };
+        write!(f, "{}", value)
+    }
+}
+
+// Helper functions to parse string status into enums
+pub fn parse_order_status(status: &str) -> ModelResult<OrderStatus> {
+    Ok(match status {
+        "Auction" => OrderStatus::Auction,
+        "NoBids" => OrderStatus::NoBids,
+        "Executing" => OrderStatus::Executing,
+        "Fulfilled" => OrderStatus::Fulfilled,
+        "Cancelled" => OrderStatus::Cancelled,
+        "Outdated" => OrderStatus::Outdated,
+        _ => {
+            Err(Error::ParseError).attach_printable(format!("Invalid order status: {}", status))?
+        }
+    })
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
