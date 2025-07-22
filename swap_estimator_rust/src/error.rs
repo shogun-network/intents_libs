@@ -6,6 +6,9 @@ pub type EstimatorResult<T> = error_stack::Result<T, Error>;
 
 #[derive(Error, Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum Error {
+    #[error("Zero price error")]
+    ZeroPriceError,
+
     #[error("Parse error")]
     ParseError,
 
