@@ -6,8 +6,7 @@ pub mod liquidswap;
 pub mod paraswap;
 pub mod swap;
 
-use crate::error::{Error, EstimatorResult};
-use error_stack::report;
+use crate::error::EstimatorResult;
 use intents_models::constants::chains::ChainId;
 use lazy_static::lazy_static;
 use reqwest::Client;
@@ -24,6 +23,8 @@ pub enum RouterType {
     UnwrapAndTransfer,
     Paraswap,
     Liquidswap,
+    Jupiter,
+    Aftermath,
 }
 
 pub fn routers_by_chain(chain: ChainId) -> EstimatorResult<Vec<RouterType>> {
@@ -34,8 +35,7 @@ pub fn routers_by_chain(chain: ChainId) -> EstimatorResult<Vec<RouterType>> {
         | ChainId::Base
         | ChainId::Optimism => Ok(vec![RouterType::Paraswap]),
         ChainId::HyperEVM => Ok(vec![RouterType::Liquidswap]),
-        ChainId::Solana | ChainId::Sui => Err(report!(Error::ChainError(format!(
-            "It is not an EVM chain: {chain}"
-        )))),
+        ChainId::Solana => Ok(vec![RouterType::Jupiter]),
+        ChainId::Sui => Ok(vec![RouterType::Aftermath]),
     }
 }

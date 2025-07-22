@@ -51,7 +51,7 @@ pub struct QuoteResponse {
 
 #[allow(non_snake_case)]
 #[derive(Deserialize, Debug)]
-pub struct SwapResponse {
+pub struct JupiterSwapResponse {
     pub swapTransaction: String,
 }
 
@@ -134,12 +134,11 @@ pub async fn get_jupiter_quote(
 
 pub async fn get_jupiter_transaction(
     generic_swap_request: GenericSwapRequest,
+    quote: QuoteResponse,
     jupiter_url: &str,
     priority_fee: Option<SolanaPriorityFeeType>,
     destination_token_account: Option<String>,
-) -> EstimatorResult<SwapResponse> {
-    let generic_estimate_request = generic_swap_request.clone().into();
-    let (_, quote) = get_jupiter_quote(&generic_estimate_request, jupiter_url).await?;
+) -> EstimatorResult<JupiterSwapResponse> {
     let mut swap_request_body = json!({
         "quoteResponse": quote,
         "userPublicKey": generic_swap_request.spender,
@@ -172,7 +171,7 @@ pub async fn get_jupiter_transaction(
         .await
         .change_context(Error::ReqwestError)?;
 
-    let swap_response: SwapResponse = handle_reqwest_response(response)
+    let swap_response: JupiterSwapResponse = handle_reqwest_response(response)
         .await
         .change_context(Error::ModelsError)?;
     Ok(swap_response)
