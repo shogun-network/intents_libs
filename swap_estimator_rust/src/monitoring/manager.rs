@@ -103,7 +103,15 @@ impl MonitorManager {
                                     (src_chain, token_in.clone()),
                                     DefiLlamaCoinData::default(), // Placeholder for actual data
                                 );
+                                self.coin_cache.insert(
+                                    (dst_chain, token_out.clone()),
+                                    DefiLlamaCoinData::default(), // Placeholder for actual data
+                                );
                                 // Add the swap to pending swaps
+                                tracing::debug!(
+                                    "Adding pending swap for order_id: {}, src_chain: {}, dst_chain: {}, token_in: {}, token_out: {}, amount_in: {}, amount_out: {}",
+                                    order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out
+                                );
                                 self.pending_swaps.insert(
                                     order_id.clone(),
                                     PendingSwap {
@@ -217,12 +225,31 @@ async fn check_swaps_feasibility(
     pending_swaps: HashMap<String, PendingSwap>,
     alert_sender: Sender<MonitorAlert>,
 ) -> HashMap<String, PendingSwap> {
+    tracing::debug!(
+        "Checking swaps feasibility with margin: {}",
+        feasibility_margin
+    );
     let mut unfinished_swaps = HashMap::new();
     for (order_id, mut pending_swap) in pending_swaps.into_iter() {
+        tracing::debug!(
+            "Processing pending swap for order_id: {}, src_chain: {}, dst_chain: {}, token_in: {}, token_out: {}, amount_in: {}, amount_out: {}",
+            order_id,
+            pending_swap.src_chain,
+            pending_swap.dst_chain,
+            pending_swap.token_in,
+            pending_swap.token_out,
+            pending_swap.amount_in,
+            pending_swap.amount_out
+        );
         let src_chain_data =
             coin_cache.get(&(pending_swap.src_chain, pending_swap.token_in.clone()));
         let dst_chain_data =
             coin_cache.get(&(pending_swap.dst_chain, pending_swap.token_out.clone()));
+        tracing::debug!(
+            "Fetched coin data for src_chain: {:?}, dst_chain: {:?}",
+            src_chain_data,
+            dst_chain_data
+        );
         if let (Some(src_data), Some(dst_data)) = (src_chain_data, dst_chain_data)
             && src_data.timestamp != 0
             && dst_data.timestamp != 0
@@ -260,6 +287,17 @@ async fn check_swaps_feasibility(
                 );
                 unfinished_swaps.insert(order_id, pending_swap);
             }
+        } else {
+            tracing::warn!(
+                "Missing or invalid coin data for order_id: {}, src_chain: {}, dst_chain: {}, token_in: {}, token_out: {}",
+                order_id,
+                pending_swap.src_chain,
+                pending_swap.dst_chain,
+                pending_swap.token_in,
+                pending_swap.token_out
+            );
+            // If we don't have data, we can't process the swap
+            unfinished_swaps.insert(order_id, pending_swap);
         }
     }
     unfinished_swaps
