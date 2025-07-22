@@ -61,7 +61,7 @@ impl fmt::Display for OrderType {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Copy)]
 /// Represents the lifecycle status of an order from a domain perspective.
 pub enum OrderStatus {
     /// In auction stage, waiting for bids.
