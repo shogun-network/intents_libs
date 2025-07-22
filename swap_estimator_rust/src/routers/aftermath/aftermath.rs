@@ -114,7 +114,7 @@ pub async fn prepare_swap_ptb_with_aftermath(
                 "walletAddress": spender,
                 "completeRoute": routes_value,
                 "slippage": aftermath_slippage,
-                "serializedTx": serialized_tx,
+                "serializedTx": serialized_tx.to_string(),
                 "coinInId": coin_id,
             }),
             "/router/transactions/add-trade".to_string(),
