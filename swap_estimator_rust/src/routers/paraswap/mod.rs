@@ -23,7 +23,7 @@ pub fn get_paraswap_format_slippage(slippage: f64) -> u32 {
 
 pub fn update_paraswap_native_token(token_address: String) -> String {
     if is_native_token_evm_address(&token_address) {
-        "0xeeeeeEeEeeeeeeeEeEeeeeeeeEeEeeeeeeeEeEee".to_string()
+        "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string()
     } else {
         token_address
     }
