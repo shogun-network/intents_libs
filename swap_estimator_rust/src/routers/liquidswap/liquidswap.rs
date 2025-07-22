@@ -10,7 +10,7 @@ use crate::{
             requests::{GetPriceRouteRequest, GetTokenListRequest, LiquidswapRequest},
             responses::{GetPriceRouteResponse, GetTokenListResponse, LiquidswapResponse},
         },
-        swap::{GenericSwapRequest, GenericSwapResponse},
+        swap::{EvmSwapResponse, GenericSwapRequest},
     },
     utils::{
         limit_amount::get_limit_amount,
@@ -203,7 +203,7 @@ pub async fn estimate_swap_liquidswap_generic(
 
 pub async fn prepare_swap_liquidswap_generic(
     generic_swap_request: GenericSwapRequest,
-) -> EstimatorResult<GenericSwapResponse> {
+) -> EstimatorResult<EvmSwapResponse> {
     let (token_in_decimals, token_out_decimals) = get_in_out_token_decimals(
         generic_swap_request.src_token.to_string(),
         generic_swap_request.dest_token.to_string(),
@@ -237,7 +237,7 @@ pub async fn prepare_swap_liquidswap_generic(
     .change_context(Error::ResponseError)
     .attach_printable("Error getting amount quote and limit from route response")?;
 
-    Ok(GenericSwapResponse {
+    Ok(EvmSwapResponse {
         amount_quote: amount_quote,
         amount_limit: amount_limit,
         tx_to: route_response.execution.to.clone(),

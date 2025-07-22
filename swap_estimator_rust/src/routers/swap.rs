@@ -23,7 +23,7 @@ pub struct GenericSwapRequest {
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct GenericSwapResponse {
+pub struct EvmSwapResponse {
     /// Amount IN for exact OUT trade or amount OUT for exact IN trade
     pub amount_quote: u128,
     /// Amount IN MAX for exact OUT trade or amount OUT MIN for exact IN trade

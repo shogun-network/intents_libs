@@ -21,7 +21,7 @@ use crate::{
         constants::PARASWAP_BASE_API_URL,
         estimate::{GenericEstimateRequest, GenericEstimateResponse},
         paraswap::requests::ParaswapParams,
-        swap::{GenericSwapRequest, GenericSwapResponse},
+        swap::{EvmSwapResponse, GenericSwapRequest},
     },
     utils::limit_amount::get_limit_amount,
 };
@@ -203,7 +203,7 @@ pub async fn prepare_swap_paraswap_generic(
     generic_swap_request: GenericSwapRequest,
     src_decimals: u8,
     dest_decimals: u8,
-) -> EstimatorResult<GenericSwapResponse> {
+) -> EstimatorResult<EvmSwapResponse> {
     let request = ParaswapSwapCombinedRequest::try_from_generic_parameters(
         generic_swap_request.clone(),
         src_decimals,
@@ -216,7 +216,7 @@ pub async fn prepare_swap_paraswap_generic(
 pub async fn prepare_paraswap_swap(
     generic_swap_request: GenericSwapRequest,
     mut request: ParaswapSwapCombinedRequest,
-) -> EstimatorResult<GenericSwapResponse> {
+) -> EstimatorResult<EvmSwapResponse> {
     let prices_request = request.to_get_price_route_request();
     let (amount_quote, prices_response, approval_address) =
         estimate_amount_paraswap(prices_request).await?;
@@ -243,7 +243,7 @@ pub async fn prepare_paraswap_swap(
 
     let transactions_response = paraswap_transactions(transactions_request).await?;
 
-    Ok(GenericSwapResponse {
+    Ok(EvmSwapResponse {
         amount_quote,
         amount_limit: amount_limit,
         tx_to: transactions_response.to,

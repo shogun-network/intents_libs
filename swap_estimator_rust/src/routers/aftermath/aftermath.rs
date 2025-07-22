@@ -1,5 +1,4 @@
 use crate::routers::aftermath::AFTERMATH_BASE_API_URL;
-use crate::routers::aftermath::responses::AftermathAddTrade;
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
@@ -94,42 +93,36 @@ pub async fn quote_aftermath_swap(
 
 pub async fn prepare_swap_ptb_with_aftermath(
     generic_swap_request: GenericSwapRequest,
+    routes_value: Value,
     seralized_tx_and_coin_id: Option<(Value, Value)>,
 ) -> EstimatorResult<Value> {
-    // let generic_estimate_request = generic_swap_request.clone().into();
-    // let (estimate_response, routes_value) = quote_aftermath_swap(generic_estimate_request).await?;
-
     let GenericSwapRequest {
         trade_type: _,
         dest_address,
-        src_token,
-        dest_token,
+        src_token: _,
+        dest_token: _,
         spender,
-        amount_fixed,
+        amount_fixed: _,
         slippage,
         chain_id: _,
     } = generic_swap_request;
     let aftermath_slippage = get_aftermath_slippage(slippage);
 
-    let seralized_tx_and_coin_id_is_some = seralized_tx_and_coin_id.is_some();
-
     let (body, uri_path) = match seralized_tx_and_coin_id {
         Some((serialized_tx, coin_id)) => (
             json!({
-                "coinInType": &src_token,
-                "coinInAmount": amount_fixed.to_string(),
-                "coinOutType": &dest_token,
+                "walletAddress": spender,
+                "completeRoute": routes_value,
                 "slippage": aftermath_slippage,
                 "serializedTx": serialized_tx,
-                "coinId": coin_id,
+                "coinInId": coin_id,
             }),
             "/router/transactions/add-trade".to_string(),
         ),
         None => {
             let mut body = json!({
-                "coinInType": &src_token,
-                "coinInAmount": amount_fixed.to_string(),
-                "coinOutType": &dest_token,
+                "walletAddress": spender,
+                "completeRoute": routes_value,
                 "slippage": aftermath_slippage,
             });
             if spender.ne(&dest_address) {
@@ -139,17 +132,7 @@ pub async fn prepare_swap_ptb_with_aftermath(
         }
     };
 
-    let response = send_aftermath_request(&uri_path, &body).await?;
-    let result = if seralized_tx_and_coin_id_is_some {
-        let add_trade_result: AftermathAddTrade = serde_json::from_value(response).change_context(
-            Error::SerdeDeserialize("Error deserializing Aftermath add trade response".to_string()),
-        )?;
-        add_trade_result.tx
-    } else {
-        response
-    };
-    // Aftermath sends transaction as String instead of Json, so we need to parse it again
-    parse_aftermath_tx_data(result)
+    send_aftermath_request(&uri_path, &body).await
 }
 
 pub async fn send_aftermath_request(uri_path: &str, body: &Value) -> EstimatorResult<Value> {
@@ -165,18 +148,6 @@ pub async fn send_aftermath_request(uri_path: &str, body: &Value) -> EstimatorRe
         .change_context(Error::ModelsError)?;
 
     Ok(aftermath_response)
-}
-
-fn parse_aftermath_tx_data(value: Value) -> EstimatorResult<Value> {
-    // Aftermath sends transaction as String instead of Json, so we need to parse it again
-    //
-
-    let tx = serde_json::from_str::<Value>(value.as_str().ok_or(Error::ParseError)?)
-        .change_context(Error::SerdeSerialize(
-            "Failed to deserialize Aftermath transaction data".to_string(),
-        ))?;
-
-    Ok(tx)
 }
 
 fn get_aftermath_slippage(slippage: f64) -> f64 {
