@@ -125,7 +125,7 @@ pub async fn prepare_swap_ptb_with_aftermath(
                 "completeRoute": routes_value,
                 "slippage": aftermath_slippage,
             });
-            if spender.ne(&dest_address) {
+            if !spender.eq_ignore_ascii_case(&dest_address) {
                 body["customRecipient"] = json!(dest_address);
             }
             (body, "/router/transactions/trade".to_string())
@@ -157,269 +157,206 @@ fn get_aftermath_slippage(slippage: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    // use super::*;
+    use super::*;
+    use intents_models::constants::chains::ChainId;
 
-    //     #[tokio::test]
-    //     async fn test_quote_aftermath_exact_in() {
-    //         dotenv().ok();
-    //         let request = GenericSuiEstimateRequest {
-    //             trade_type: TradeType::ExactIn,
-    //             src_token:
-    //                 "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
-    //                     .to_string(),
-    //             dest_token:
-    //                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
-    //                     .to_string(),
-    //             amount_fixed: 1_000_000, // 1 USDC
-    //             slippage: 1.0,
-    //         };
-    //         let (_, routes) = quote_aftermath_swap(&request)
-    //             .await
-    //             .expect("Should not fail");
+    const TEST_TX: &'static str = "{\"version\":1,\"sender\":\"0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84\",\"expiration\":null,\"gasConfig\":{\"owner\":\"0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84\"},\"inputs\":[{\"kind\":\"Input\",\"index\":0,\"value\":{\"Object\":{\"ImmOrOwned\":{\"objectId\":\"0x3f11d40f61d9f20b5488a6d0aa71bcf0a9f0079c4f2d6405c1b72c0c021a79eb\",\"version\":594927392,\"digest\":\"AsbHrWsqkFmH8efJ9CdXVqshG71CAaZtemJKvaaBHWSJ\"}}},\"type\":\"object\"},{\"kind\":\"Input\",\"index\":1,\"value\":{\"Object\":{\"ImmOrOwned\":{\"objectId\":\"0x6e0f3725a853330bbd870f1c9b559f91bacaa24c2a99a6b41af39cd5cb40881f\",\"version\":594927392,\"digest\":\"BTtBV34KjXN2gDaFkaH9sXNNGGWmfkhQmDckCHDYR7NM\"}}},\"type\":\"object\"},{\"kind\":\"Input\",\"index\":2,\"value\":{\"Pure\":[15,94,0,0,0,0,0,0]},\"type\":\"pure\"}],\"transactions\":[{\"kind\":\"MergeCoins\",\"destination\":{\"kind\":\"Input\",\"index\":0,\"value\":{\"Object\":{\"ImmOrOwned\":{\"objectId\":\"0x3f11d40f61d9f20b5488a6d0aa71bcf0a9f0079c4f2d6405c1b72c0c021a79eb\",\"version\":594927392,\"digest\":\"AsbHrWsqkFmH8efJ9CdXVqshG71CAaZtemJKvaaBHWSJ\"}}},\"type\":\"object\"},\"sources\":[{\"kind\":\"Input\",\"index\":1,\"value\":{\"Object\":{\"ImmOrOwned\":{\"objectId\":\"0x6e0f3725a853330bbd870f1c9b559f91bacaa24c2a99a6b41af39cd5cb40881f\",\"version\":594927392,\"digest\":\"BTtBV34KjXN2gDaFkaH9sXNNGGWmfkhQmDckCHDYR7NM\"}}},\"type\":\"object\"}]},{\"kind\":\"SplitCoins\",\"coin\":{\"kind\":\"Input\",\"index\":0,\"value\":{\"Object\":{\"ImmOrOwned\":{\"objectId\":\"0x3f11d40f61d9f20b5488a6d0aa71bcf0a9f0079c4f2d6405c1b72c0c021a79eb\",\"version\":594927392,\"digest\":\"AsbHrWsqkFmH8efJ9CdXVqshG71CAaZtemJKvaaBHWSJ\"}}},\"type\":\"object\"},\"amounts\":[{\"kind\":\"Input\",\"index\":2,\"value\":{\"Pure\":[15,94,0,0,0,0,0,0]},\"type\":\"pure\"}]}]}";
 
-    //         let routes: AftermathQuoteResponse = serde_json::from_value(routes).unwrap();
-    //         let amount_in: u64 = routes.coin_in.amount.trim_end_matches("n").parse().unwrap();
-    //         assert_eq!(amount_in, 1_000_000);
-    //     }
+    #[tokio::test]
+    async fn test_quote_aftermath_exact_in() {
+        let request = GenericEstimateRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id: ChainId::Sui,
+            src_token:
+                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+                    .to_string(),
+            dest_token:
+                "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                    .to_string(),
+            amount_fixed: 1_000_000, // 1 USDC
+            slippage: 1.0,
+        };
 
-    //     #[tokio::test]
-    //     async fn test_quote_aftermath_exact_out() {
-    //         dotenv().ok();
-    //         let request = GenericSuiEstimateRequest {
-    //             trade_type: TradeType::ExactOut,
-    //             src_token:
-    //                 "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
-    //                     .to_string(),
-    //             dest_token:
-    //                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
-    //                     .to_string(),
-    //             amount_fixed: 1_000_000_000, // 1 SUI
-    //             slippage: 1.0,
-    //         };
-    //         let (_, routes) = quote_aftermath_swap(&request)
-    //             .await
-    //             .expect("Should not fail");
+        let (_, routes) = quote_aftermath_swap(request)
+            .await
+            .expect("Should not fail");
 
-    //         let routes: AftermathQuoteResponse = serde_json::from_value(routes).unwrap();
-    //         let amount_out: u64 = routes
-    //             .coin_out
-    //             .amount
-    //             .trim_end_matches("n")
-    //             .parse()
-    //             .unwrap();
-    //         assert!(amount_out >= 1_000_000_000);
-    //         assert!(amount_out < 1_020_000_000);
-    //     }
+        let routes: AftermathQuoteResponse = serde_json::from_value(routes).unwrap();
+        let amount_in: u64 = routes.coin_in.amount.trim_end_matches("n").parse().unwrap();
+        assert_eq!(amount_in, 1_000_000);
+    }
 
-    //     #[tokio::test]
-    //     async fn test_prepare_swap_ptb_with_aftermath_exact_in() {
-    //         dotenv().ok();
-    //         let request = GenericSwapRequest {
-    //             trade_type: TradeType::ExactIn,
-    //             destination_address: None,
-    //             amount_fixed: 10_000, // 0.01 USDC
+    #[tokio::test]
+    async fn test_quote_aftermath_exact_out() {
+        let request = GenericEstimateRequest {
+            trade_type: TradeType::ExactOut,
+            chain_id: ChainId::Sui,
+            src_token:
+                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+                    .to_string(),
+            dest_token:
+                "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                    .to_string(),
+            amount_fixed: 1_000_000_000, // 1 SUI
+            slippage: 1.0,
+        };
+        let (_, routes) = quote_aftermath_swap(request)
+            .await
+            .expect("Should not fail");
 
-    //             src_token:
-    //                 "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
-    //                     .to_string(),
-    //             dest_token:
-    //                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
-    //                     .to_string(),
-    //             slippage: 2.0,
-    //             pre_transaction: None,
-    //         };
-    //         let res = prepare_swap_ptb_with_aftermath(request)
-    //             .await
-    //             .expect("Should not fail");
+        let routes: AftermathQuoteResponse = serde_json::from_value(routes).unwrap();
+        let amount_out: u64 = routes
+            .coin_out
+            .amount
+            .trim_end_matches("n")
+            .parse()
+            .unwrap();
+        assert!(amount_out >= 1_000_000_000);
+        assert!(amount_out < 1_020_000_000);
+    }
 
-    //         assert!(res.coin_out_argument.is_none());
+    #[tokio::test]
+    async fn test_prepare_swap_ptb_with_aftermath_exact_in() {
+        let swap_request = GenericSwapRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id: ChainId::Sui,
+            spender: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
+                .to_string(),
+            amount_fixed: 10_000, // 0.01 USDC
 
-    //         test_simulate_ptb(res.ptb.finish(), None, None, None).await;
-    //     }
-    //     #[tokio::test]
-    //     async fn test_prepare_swap_ptb_with_aftermath_exact_out() {
-    //         dotenv().ok();
-    //         let request = GenericSwapRequest {
-    //             trade_type: TradeType::ExactOut,
-    //             destination_address: None,
-    //             amount_fixed: 10_000_000, // 0.01 SUI
+            src_token:
+                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+                    .to_string(),
+            dest_token:
+                "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                    .to_string(),
+            slippage: 2.0,
+            dest_address: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
+                .to_string(),
+        };
 
-    //             src_token:
-    //                 "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
-    //                     .to_string(),
-    //             dest_token:
-    //                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
-    //                     .to_string(),
-    //             slippage: 2.0,
-    //             pre_transaction: None,
-    //         };
-    //         let res = prepare_swap_ptb_with_aftermath(request)
-    //             .await
-    //             .expect("Should not fail");
+        let quote_request = GenericEstimateRequest::from(swap_request.clone());
+        let (_, routes) = quote_aftermath_swap(quote_request)
+            .await
+            .expect("Should not fail");
 
-    //         assert!(res.coin_out_argument.is_none());
+        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None)
+            .await
+            .expect("Should not fail");
 
-    //         test_simulate_ptb(res.ptb.finish(), None, None, None).await;
-    //     }
-    //     #[tokio::test]
-    //     async fn test_prepare_swap_ptb_with_aftermath_exact_out_with_destination_address() {
-    //         dotenv().ok();
-    //         let request = GenericSwapRequest {
-    //             trade_type: TradeType::ExactOut,
-    //             destination_address: Some(
-    //                 "0xd929d817e0ef0338b25254fec67ef6f42a65e248fb2bfaf1d81d1d0aa4d74e67".to_string(),
-    //             ),
-    //             amount_fixed: 10_000_000, // 0.01 SUI
+        assert!(res.get("coinOutId").is_none());
+    }
 
-    //             src_token:
-    //                 "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
-    //                     .to_string(),
-    //             dest_token:
-    //                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
-    //                     .to_string(),
-    //             slippage: 2.0,
-    //             pre_transaction: None,
-    //         };
-    //         let mut res = prepare_swap_ptb_with_aftermath(request)
-    //             .await
-    //             .expect("Should not fail");
+    #[tokio::test]
+    async fn test_prepare_swap_ptb_with_aftermath_exact_out() {
+        let swap_request = GenericSwapRequest {
+            trade_type: TradeType::ExactOut,
+            chain_id: ChainId::Sui,
+            spender: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
+                .to_string(),
+            amount_fixed: 10_000_000, // 0.01 SUI
 
-    //         assert!(res.coin_out_argument.is_some()); // preparing to split coins
-    //         {
-    //             let to_transfer_arg = get_nested_result_arg(res.coin_out_argument.unwrap(), 0).unwrap();
-    //             let recipient_arg = res
-    //                 .ptb
-    //                 .pure(
-    //                     SuiAddress::from_str(
-    //                         "0xd929d817e0ef0338b25254fec67ef6f42a65e248fb2bfaf1d81d1d0aa4d74e67",
-    //                     )
-    //                     .unwrap(),
-    //                 )
-    //                 .unwrap();
-    //             res.ptb.command(Command::TransferObjects(
-    //                 vec![to_transfer_arg],
-    //                 recipient_arg,
-    //             ));
-    //         }
+            src_token:
+                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+                    .to_string(),
+            dest_token:
+                "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                    .to_string(),
+            slippage: 2.0,
+            dest_address: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
+                .to_string(),
+        };
 
-    //         test_simulate_ptb(res.ptb.finish(), None, None, None).await;
-    //     }
-    //     #[tokio::test]
-    //     async fn test_prepare_swap_ptb_with_aftermath_exact_in_with_ptb() {
-    //         dotenv().ok();
-    //         let src_token =
-    //             "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
-    //                 .to_string();
-    //         let amount_in = 10_000; // 0.01 USDC
-    //         let pre_tx = prepare_ptb_and_coin_in_for_swap(&src_token, amount_in)
-    //             .await
-    //             .unwrap();
+        let quote_request = GenericEstimateRequest::from(swap_request.clone());
+        let (_, routes) = quote_aftermath_swap(quote_request)
+            .await
+            .expect("Should not fail");
 
-    //         let request = GenericSwapRequest {
-    //             trade_type: TradeType::ExactOut,
-    //             destination_address: Some(
-    //                 "0xd929d817e0ef0338b25254fec67ef6f42a65e248fb2bfaf1d81d1d0aa4d74e67".to_string(),
-    //             ),
-    //             amount_fixed: amount_in,
+        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None)
+            .await
+            .expect("Should not fail");
 
-    //             src_token,
-    //             dest_token:
-    //                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
-    //                     .to_string(),
-    //             slippage: 2.0,
-    //             pre_transaction: Some(pre_tx),
-    //         };
-    //         let mut res = prepare_swap_ptb_with_aftermath(request)
-    //             .await
-    //             .expect("Should not fail");
+        assert!(res.get("coinOutId").is_none());
+    }
 
-    //         assert!(res.coin_out_argument.is_some()); // preparing to split coins
-    //         {
-    //             let to_transfer_arg = get_nested_result_arg(res.coin_out_argument.unwrap(), 0).unwrap();
-    //             let recipient_arg = res
-    //                 .ptb
-    //                 .pure(
-    //                     SuiAddress::from_str(
-    //                         "0xd929d817e0ef0338b25254fec67ef6f42a65e248fb2bfaf1d81d1d0aa4d74e67",
-    //                     )
-    //                     .unwrap(),
-    //                 )
-    //                 .unwrap();
-    //             res.ptb.command(Command::TransferObjects(
-    //                 vec![to_transfer_arg],
-    //                 recipient_arg,
-    //             ));
-    //         }
+    #[tokio::test]
+    async fn test_prepare_swap_ptb_with_aftermath_exact_out_with_destination_address() {
+        let swap_request = GenericSwapRequest {
+            trade_type: TradeType::ExactOut,
+            chain_id: ChainId::Sui,
+            spender: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
+                .to_string(),
+            amount_fixed: 10_000_000, // 0.01 SUI
 
-    //         test_simulate_ptb(res.ptb.finish(), None, None, None).await;
-    //     }
-    //     #[tokio::test]
-    //     async fn test_prepare_swap_ptb_with_aftermath_exact_out_with_ptb() {
-    //         dotenv().ok();
-    //         let src_token =
-    //             "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
-    //                 .to_string();
-    //         let dest_token =
-    //             "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
-    //                 .to_string();
-    //         let amount_in = 10_000; // 0.01 USDC
+            src_token:
+                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+                    .to_string(),
+            dest_token:
+                "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                    .to_string(),
+            slippage: 2.0,
+            dest_address: "0xd929d817e0ef0338b25254fec67ef6f42a65e248fb2bfaf1d81d1d0aa4d74e67"
+                .to_string(),
+        };
+        let quote_request = GenericEstimateRequest::from(swap_request.clone());
+        let (_, routes) = quote_aftermath_swap(quote_request)
+            .await
+            .expect("Should not fail");
 
-    //         let sui_client = get_sui_client().await;
-    //         let sui_keypair = &GLOBAL_CONFIG.env_config.sui_key_pair;
+        let serialized_tx = serde_json::from_str(TEST_TX).unwrap();
 
-    //         let (coins, _) = get_coins(
-    //             &sui_client,
-    //             SuiAddress::from(&sui_keypair.public()),
-    //             &src_token,
-    //         )
-    //         .await
-    //         .unwrap();
-    //         let mut ptb = ProgrammableTransactionBuilder::new();
-    //         let to_split_arg = ptb
-    //             .input(CallArg::Object(ObjectArg::ImmOrOwnedObject(
-    //                 coins[0].object_ref(),
-    //             )))
-    //             .unwrap();
+        let coin_id = json!({
+            "$kind": "NestedResult",
+            "NestedResult": [1,0]
+        });
 
-    //         let pre_tx = PreTransactionData {
-    //             ptb,
-    //             coin_in: SwapCoinIn::ToSplit(to_split_arg),
-    //         };
+        let res =
+            prepare_swap_ptb_with_aftermath(swap_request, routes, Some((serialized_tx, coin_id)))
+                .await
+                .expect("Should not fail");
 
-    //         let request = GenericSwapRequest {
-    //             trade_type: TradeType::ExactIn,
-    //             destination_address: Some(
-    //                 "0xd929d817e0ef0338b25254fec67ef6f42a65e248fb2bfaf1d81d1d0aa4d74e67".to_string(),
-    //             ),
-    //             amount_fixed: amount_in,
+        assert!(res.get("coinOutId").is_some());
+    }
+    #[tokio::test]
+    async fn test_prepare_swap_ptb_with_aftermath_exact_in_with_ptb() {
+        let src_token =
+            "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+                .to_string();
+        let amount_in = 10_000; // 0.01 USDC
 
-    //             src_token,
-    //             dest_token,
-    //             slippage: 2.0,
-    //             pre_transaction: Some(pre_tx),
-    //         };
-    //         let mut res = prepare_swap_ptb_with_aftermath(request)
-    //             .await
-    //             .expect("Should not fail");
+        let swap_request = GenericSwapRequest {
+            trade_type: TradeType::ExactOut,
+            chain_id: ChainId::Sui,
+            spender: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
+                .to_string(),
+            amount_fixed: amount_in,
 
-    //         assert!(res.coin_out_argument.is_some()); // preparing to split coins
-    //         {
-    //             let to_transfer_arg = get_nested_result_arg(res.coin_out_argument.unwrap(), 0).unwrap();
-    //             let recipient_arg = res
-    //                 .ptb
-    //                 .pure(
-    //                     SuiAddress::from_str(
-    //                         "0xd929d817e0ef0338b25254fec67ef6f42a65e248fb2bfaf1d81d1d0aa4d74e67",
-    //                     )
-    //                     .unwrap(),
-    //                 )
-    //                 .unwrap();
-    //             res.ptb.command(Command::TransferObjects(
-    //                 vec![to_transfer_arg],
-    //                 recipient_arg,
-    //             ));
-    //         }
+            src_token,
+            dest_token:
+                "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                    .to_string(),
+            slippage: 2.0,
+            dest_address: "0xd929d817e0ef0338b25254fec67ef6f42a65e248fb2bfaf1d81d1d0aa4d74e67"
+                .to_string(),
+        };
 
-    //         test_simulate_ptb(res.ptb.finish(), None, None, None).await;
-    //     }
+        let quote_request = GenericEstimateRequest::from(swap_request.clone());
+        let (_, routes) = quote_aftermath_swap(quote_request)
+            .await
+            .expect("Should not fail");
+
+        let serialized_tx = serde_json::from_str(TEST_TX).unwrap();
+
+        let coin_id = json!({
+            "$kind": "NestedResult",
+            "NestedResult": [1,0]
+        });
+
+        let res =
+            prepare_swap_ptb_with_aftermath(swap_request, routes, Some((serialized_tx, coin_id)))
+                .await
+                .expect("Should not fail");
+
+        assert!(res.get("coinOutId").is_some());
+    }
 }
