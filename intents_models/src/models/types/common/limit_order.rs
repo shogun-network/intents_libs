@@ -99,3 +99,109 @@ impl CommonLimitOrderData {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_limit_order_amount_out_min() {
+        let mut limit_order_data = CommonLimitOrderData {
+            take_profit_min_out: None,
+            stop_loss_max_out: None,
+            stop_loss_triggered: false,
+        };
+
+        let amount_out_min = limit_order_data.get_amount_out_min(100);
+        assert_eq!(amount_out_min, 100);
+
+        limit_order_data.take_profit_min_out = Some(200);
+        let amount_out_min = limit_order_data.get_amount_out_min(100);
+        assert_eq!(amount_out_min, 100);
+
+        limit_order_data.take_profit_min_out = None;
+        limit_order_data.stop_loss_max_out = Some(300);
+        let amount_out_min = limit_order_data.get_amount_out_min(100);
+        assert_eq!(amount_out_min, 100);
+
+        limit_order_data.take_profit_min_out = Some(1000);
+        let amount_out_min = limit_order_data.get_amount_out_min(100);
+        assert_eq!(amount_out_min, 1000);
+
+        limit_order_data.stop_loss_triggered = true;
+        let amount_out_min = limit_order_data.get_amount_out_min(100);
+        assert_eq!(amount_out_min, 100);
+    }
+
+    #[test]
+    fn test_validate_limit_order() {
+        let mut limit_order_data = CommonLimitOrderData {
+            take_profit_min_out: None,
+            stop_loss_max_out: None,
+            stop_loss_triggered: false,
+        };
+
+        let valid = limit_order_data.validate(100);
+        assert!(valid.is_ok());
+
+        // No "stop loss" and `take_profit_min_out` is different than `amount_out_min`
+        // This makes no sense
+        limit_order_data.take_profit_min_out = Some(200);
+        let valid = limit_order_data.validate(100);
+        assert!(valid.is_err());
+
+        let valid = limit_order_data.validate(200);
+        assert!(valid.is_ok());
+
+        limit_order_data.take_profit_min_out = None;
+        limit_order_data.stop_loss_max_out = Some(300);
+        let valid = limit_order_data.validate(100);
+        assert!(valid.is_ok());
+
+        // `amount_out_min` is greater than `stop_loss_max_out`
+        let valid = limit_order_data.validate(301);
+        assert!(valid.is_err());
+
+        limit_order_data.take_profit_min_out = Some(1000);
+        let valid = limit_order_data.validate(100);
+        assert!(valid.is_ok());
+
+        // `stop_loss_max_out` is greater than `take_profit_min_out`
+        limit_order_data.take_profit_min_out = Some(299);
+        let valid = limit_order_data.validate(100);
+        assert!(valid.is_err());
+    }
+
+    #[test]
+    fn test_check_limit_order_can_be_fulfilled() {
+        let mut limit_order_data = CommonLimitOrderData {
+            take_profit_min_out: None,
+            stop_loss_max_out: None,
+            stop_loss_triggered: false,
+        };
+
+        let res = limit_order_data.check_order_can_be_fulfilled();
+        assert!(res.is_ok());
+
+        limit_order_data.take_profit_min_out = Some(200);
+        let res = limit_order_data.check_order_can_be_fulfilled();
+        assert!(res.is_ok());
+
+        limit_order_data.take_profit_min_out = None;
+        limit_order_data.stop_loss_max_out = Some(300);
+        let res = limit_order_data.check_order_can_be_fulfilled();
+        assert!(res.is_err());
+
+        limit_order_data.take_profit_min_out = Some(1000);
+        let res = limit_order_data.check_order_can_be_fulfilled();
+        assert!(res.is_ok());
+
+        limit_order_data.stop_loss_triggered = true;
+        let res = limit_order_data.check_order_can_be_fulfilled();
+        assert!(res.is_ok());
+
+        limit_order_data.take_profit_min_out = None;
+        let res = limit_order_data.check_order_can_be_fulfilled();
+        assert!(res.is_ok());
+    }
+}
