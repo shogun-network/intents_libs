@@ -101,11 +101,39 @@ impl DefiLlamaCoinHashMap for DefiLlamaTokensResponse {
 pub async fn evaluate_coins(
     tokens: Vec<(ChainId, String, u128)>,
 ) -> EstimatorResult<(Vec<f64>, f64)> {
+    let (evaluations, values_sum) = try_evaluate_coins(tokens.clone()).await?;
+
+    let mut usd_values = vec![];
+    for (evaluation, (chain_id, token_addr, _)) in evaluations.into_iter().zip(tokens.iter()) {
+        let Some(usd_value) = evaluation else {
+            return Err(report!(Error::ResponseError).attach_printable(format!(
+                "Token {token_addr} for chain {chain_id} not found in DefiLlama response"
+            )));
+        };
+        usd_values.push(usd_value);
+    }
+
+    Ok((usd_values, values_sum))
+}
+
+/// Tries to evaluate array of tokens amounts in USD
+///
+/// ### Arguments
+///
+/// * `tokens` - Array of (`ChainId`, `Token Address`, `amount`) tuples
+///
+/// ### Returns
+///
+/// * Array of token values. None if could not evaluate
+/// * Total value
+pub async fn try_evaluate_coins(
+    tokens: Vec<(ChainId, String, u128)>,
+) -> EstimatorResult<(Vec<Option<f64>>, f64)> {
     if tokens.is_empty() {
         return Ok((vec![], 0.0));
     }
 
-    let mut usd_values: Vec<f64> = vec![];
+    let mut usd_values: Vec<Option<f64>> = vec![];
     let mut values_sum: f64 = 0.0;
 
     let tokens_data = get_tokens_data(
@@ -116,15 +144,15 @@ pub async fn evaluate_coins(
     )
     .await?;
     for (chain_id, token_addr, amount) in tokens {
-        let token_data = tokens_data.get((chain_id, &token_addr)).ok_or(
-            report!(Error::ResponseError).attach_printable(format!(
-                "Token {token_addr} for chain {chain_id} not found in DefiLlama response"
-            )),
-        )?;
-        let token_dec_amount = u128_to_f64(amount, token_data.decimals);
-        let token_usd_value = token_dec_amount * token_data.price;
+        let token_usd_value = if let Some(token_data) = tokens_data.get((chain_id, &token_addr)) {
+            let token_dec_amount = u128_to_f64(amount, token_data.decimals);
+            let token_usd_value = token_dec_amount * token_data.price;
+            Some(token_usd_value)
+        } else {
+            None
+        };
         usd_values.push(token_usd_value);
-        values_sum += token_usd_value;
+        values_sum += token_usd_value.unwrap_or_default();
     }
 
     Ok((usd_values, values_sum))
@@ -273,5 +301,36 @@ mod tests {
         assert!(values_array[0] > 9.99 && values_array[0] < 10.01);
         assert!(values_array[3] > 500.0); // let's hope 1 ETH won't be cheaper :D
         assert_eq!(values_array[3], values_array[4]);
+    }
+
+    #[tokio::test]
+    async fn test_try_evaluate_coins() {
+        let sui_usdc = String::from(
+            "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
+        );
+        let native_sui = String::from("0x2::sui::SUI");
+        let native_sol = String::from("So11111111111111111111111111111111111111112");
+        let native_eth1 = String::from("0x0000000000000000000000000000000000000000");
+        let native_eth2 = String::from("0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        let token_without_price = String::from("0xa18fe27545d3b6a6d71e6289d096adb15b98341a");
+
+        let tokens_amounts: Vec<(ChainId, String, u128)> = vec![
+            (ChainId::Sui, sui_usdc.clone(), 10_000_000),
+            (ChainId::Sui, native_sui.clone(), 1_000_000_000),
+            (ChainId::Solana, native_sol.clone(), 1_000_000_000),
+            (ChainId::Base, native_eth1.clone(), 1000000000000000000),
+            (
+                ChainId::ArbitrumOne,
+                native_eth2.clone(),
+                1000000000000000000,
+            ),
+            (ChainId::Base, token_without_price.clone(), 777),
+        ];
+
+        let (values_array, _) = try_evaluate_coins(tokens_amounts).await.unwrap();
+        assert!(values_array[0].unwrap() > 9.99 && values_array[0].unwrap() < 10.01);
+        assert!(values_array[3].unwrap() > 500.0); // let's hope 1 ETH won't be cheaper :D
+        assert_eq!(values_array[3], values_array[4]);
+        assert_eq!(values_array[5], None);
     }
 }
