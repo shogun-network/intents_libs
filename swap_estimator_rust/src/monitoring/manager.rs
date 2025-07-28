@@ -85,6 +85,11 @@ impl MonitorManager {
                         tracing::debug!("Received monitor request: {:?}", request);
 
                         match request {
+                            MonitorRequest::RemoveCheckSwapFeasibility { order_id } => {
+                                tracing::debug!("Removing check swap feasibility for order_id: {}", order_id);
+                                // Remove the swap from pending swaps
+                                self.pending_swaps.remove(&order_id);
+                            }
                             MonitorRequest::CheckSwapFeasibility {
                                 order_id,
                                 src_chain,

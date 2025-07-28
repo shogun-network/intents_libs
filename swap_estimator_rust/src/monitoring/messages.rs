@@ -21,6 +21,9 @@ pub enum MonitorRequest {
         amount_in: u128,
         amount_out: u128,
     },
+    RemoveCheckSwapFeasibility {
+        order_id: String,
+    },
 }
 
 #[derive(Debug, Clone)]
