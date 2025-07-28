@@ -64,3 +64,25 @@ impl SingleChainLimitOrderUserIntentRequest {
         })
     }
 }
+
+impl From<SingleChainLimitOrderGenericData> for SingleChainLimitOrderGenericRequestData {
+    fn from(value: SingleChainLimitOrderGenericData) -> Self {
+        Self {
+            common_data: SingleChainGenericData {
+                user: value.common_data.user,
+                chain_id: value.common_data.chain_id,
+                token_in: value.common_data.token_in,
+                token_out: value.common_data.token_out,
+                amount_out_min: value.common_data.amount_out_min,
+                destination_address: value.common_data.destination_address,
+                extra_transfers: value.common_data.extra_transfers,
+                deadline: value.common_data.deadline,
+            },
+            common_limit_order_data: CommonLimitOrderUserRequestData {
+                take_profit_min_out: value.common_limit_order_data.take_profit_min_out,
+                stop_loss_max_out: value.common_limit_order_data.stop_loss_max_out,
+            },
+            amount_in: value.amount_in,
+        }
+    }
+}

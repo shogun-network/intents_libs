@@ -3,6 +3,7 @@ pub mod constants;
 pub mod estimate;
 pub mod jupiter;
 pub mod liquidswap;
+pub mod one_inch;
 pub mod paraswap;
 pub mod swap;
 
