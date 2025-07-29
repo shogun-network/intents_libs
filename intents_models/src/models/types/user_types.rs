@@ -180,6 +180,7 @@ impl IntentRequest {
                 .generic_data
                 .common_limit_order_data
                 .check_order_can_be_fulfilled(),
+            IntentRequest::SingleChainDcaOrder(_) => Ok(()),
             IntentRequest::CrossChainLimitOrder(intent) => intent
                 .generic_data
                 .common_limit_order_data

@@ -49,7 +49,10 @@ impl CommonDcaOrderData {
         }
     }
 
-    pub fn check_order_can_be_fulfilled(&self, dca_state: &CommonDcaOrderState) -> ModelResult<()> {
+    pub fn check_current_dca_interval_can_be_fulfilled(
+        &self,
+        dca_state: &CommonDcaOrderState,
+    ) -> ModelResult<()> {
         let current_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("We don't live in the past")
@@ -139,7 +142,7 @@ mod tests {
             last_executed_interval_index: 8,
         };
 
-        let res = dca_data.check_order_can_be_fulfilled(&dca_state);
+        let res = dca_data.check_current_dca_interval_can_be_fulfilled(&dca_state);
         assert!(res.is_err());
 
         let current_timestamp = SystemTime::now()
@@ -147,16 +150,16 @@ mod tests {
             .expect("We don't live in the past")
             .as_secs();
         dca_data.start_time = current_timestamp as u32 - 7 * 30;
-        let res = dca_data.check_order_can_be_fulfilled(&dca_state);
+        let res = dca_data.check_current_dca_interval_can_be_fulfilled(&dca_state);
         assert!(res.is_err());
 
         dca_data.total_intervals = 5;
-        let res = dca_data.check_order_can_be_fulfilled(&dca_state);
+        let res = dca_data.check_current_dca_interval_can_be_fulfilled(&dca_state);
         assert!(res.is_err());
 
         dca_data.total_intervals = 10;
         dca_data.start_time = current_timestamp as u32 - 8 * 30;
-        let res = dca_data.check_order_can_be_fulfilled(&dca_state);
+        let res = dca_data.check_current_dca_interval_can_be_fulfilled(&dca_state);
         assert!(res.is_ok());
         let current_interval_index = dca_data.get_interval_index(current_timestamp as u32);
         assert_eq!(current_interval_index, 9);
@@ -177,7 +180,6 @@ mod tests {
         dca_data.amount_in_per_interval = 0;
         let res = dca_data.validate(30);
         assert!(res.is_err());
-
 
         dca_data.amount_in_per_interval = 0;
         let res = dca_data.validate(30);
