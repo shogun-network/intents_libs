@@ -1,6 +1,7 @@
+use crate::models::types::common::CommonDcaOrderData;
 use crate::models::types::single_chain::{SingleChainChainSpecificData, SingleChainGenericData};
 use serde::{Deserialize, Serialize};
-use serde_with::{DisplayFromStr, PickFirst, serde_as};
+use serde_with::serde_as;
 
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -21,13 +22,7 @@ pub struct SingleChainDcaOrderGenericData {
     /// User address initiating the intent
     #[serde(flatten)]
     pub common_data: SingleChainGenericData,
-    /// Timestamp (in seconds) when the user created and submitted the DCA order
-    pub start_time: u32,
-    /// Amount of tokens IN user is willing to spend per interval/trade
-    #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
-    pub amount_in_per_interval: u128,
-    /// Total number of intervals over which the DCA order will be executed
-    pub total_intervals: u32,
-    /// DCA interval duration, in seconds
-    pub interval_duration: u32,
+    /// Common DCA order data
+    #[serde(flatten)]
+    pub common_dca_order_data: CommonDcaOrderData,
 }

@@ -1,3 +1,4 @@
+use crate::models::types::common::CommonDcaOrderState;
 use crate::models::types::single_chain::SingleChainOnChainOrderData;
 use serde::{Deserialize, Serialize};
 
@@ -5,8 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct SingleChainOnChainDcaOrderData {
     #[serde(flatten)]
     pub common_data: SingleChainOnChainOrderData,
-    /// Total number of already executed intervals
-    pub total_executed_intervals: u32,
-    /// INDEX of last executed interval
-    pub last_executed_interval_index: u32,
+    /// Common DCA order state
+    #[serde(flatten)]
+    pub common_dca_state: CommonDcaOrderState,
 }

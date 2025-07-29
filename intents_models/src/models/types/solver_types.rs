@@ -3,9 +3,11 @@ use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::CrossChainExecutionTerms;
 use crate::models::types::cross_chain::CrossChainLimitOrderSolverStartPermission;
 use crate::models::types::cross_chain::CrossChainSolverStartPermissionEnum;
-use crate::models::types::single_chain::SingleChainExecutionTerms;
 use crate::models::types::single_chain::SingleChainLimitOrderSolverStartPermission;
 use crate::models::types::single_chain::SingleChainSolverStartPermissionEnum;
+use crate::models::types::single_chain::{
+    SingleChainDcaOrderSolverStartPermission, SingleChainExecutionTerms,
+};
 use error_stack::report;
 use serde::{Deserialize, Serialize};
 /*********************************************************************/
@@ -44,7 +46,7 @@ impl ExecutionTerms {
 /// Data, used by Solver to start order execution
 pub enum SolverStartPermission {
     SingleChainLimit(SingleChainLimitOrderSolverStartPermission),
-    // SingleChainDca(SingleChainDcaOrderSolverStartPermission), todo
+    SingleChainDca(SingleChainDcaOrderSolverStartPermission),
     CrossChainLimit(CrossChainLimitOrderSolverStartPermission),
     // CrossChainDca(CrossChainDcaOrderSolverStartPermission), todo
 }
@@ -63,6 +65,9 @@ impl SolverStartPermission {
             SolverStartPermission::SingleChainLimit(permission) => {
                 permission.common_data.expected_amount_out
             }
+            SolverStartPermission::SingleChainDca(permission) => {
+                permission.common_data.expected_amount_out
+            }
             SolverStartPermission::CrossChainLimit(permission) => {
                 permission.common_data.expected_amount_out
             }
@@ -71,6 +76,9 @@ impl SolverStartPermission {
     pub fn get_src_chain_id(&self) -> ChainId {
         match self {
             SolverStartPermission::SingleChainLimit(permission) => {
+                permission.generic_data.common_data.chain_id
+            }
+            SolverStartPermission::SingleChainDca(permission) => {
                 permission.generic_data.common_data.chain_id
             }
             SolverStartPermission::CrossChainLimit(permission) => {
@@ -83,6 +91,9 @@ impl SolverStartPermission {
             SolverStartPermission::SingleChainLimit(permission) => {
                 permission.generic_data.common_data.chain_id
             }
+            SolverStartPermission::SingleChainDca(permission) => {
+                permission.generic_data.common_data.chain_id
+            }
             SolverStartPermission::CrossChainLimit(permission) => {
                 permission.generic_data.common_data.dest_chain_id
             }
@@ -93,7 +104,8 @@ impl SolverStartPermission {
             SolverStartPermission::CrossChainLimit(permission) => {
                 Ok(CrossChainSolverStartPermissionEnum::Limit(permission))
             }
-            SolverStartPermission::SingleChainLimit(_) => Err(report!(Error::LogicError(
+            SolverStartPermission::SingleChainLimit(_)
+            | SolverStartPermission::SingleChainDca(_) => Err(report!(Error::LogicError(
                 "Non-cross-chain permission passed".to_string()
             ))),
         }
@@ -103,6 +115,11 @@ impl SolverStartPermission {
             SolverStartPermission::SingleChainLimit(permission) => {
                 SolverStartPermissionChainNumber::SingleChain(
                     SingleChainSolverStartPermissionEnum::Limit(permission),
+                )
+            }
+            SolverStartPermission::SingleChainDca(permission) => {
+                SolverStartPermissionChainNumber::SingleChain(
+                    SingleChainSolverStartPermissionEnum::Dca(permission),
                 )
             }
             SolverStartPermission::CrossChainLimit(permission) => {

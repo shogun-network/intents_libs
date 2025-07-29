@@ -1,3 +1,4 @@
+use crate::models::types::common::CommonDcaOrderState;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 
@@ -18,9 +19,8 @@ pub struct CrossChainOnChainDcaOrderData {
     pub locked_stablecoins: u128,
     /// Stablecoin address
     pub stablecoin_address: String,
-    /// Total number of already executed intervals
-    pub total_executed_intervals: u32,
-    /// INDEX of last executed interval
-    pub last_executed_interval_index: u32,
+    /// Common DCA order state
+    #[serde(flatten)]
+    pub common_dca_state: CommonDcaOrderState,
     // todo previous interval? solver? etc?
 }
