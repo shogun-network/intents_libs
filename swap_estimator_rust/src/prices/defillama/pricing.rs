@@ -1,5 +1,6 @@
 use crate::error::{Error, EstimatorResult};
 use crate::prices::defillama::{DEFILLAMA_COINS_BASE_URL, DefiLlamaChain as _};
+use crate::prices::{PriceProvider, TokenId, TokenPrice};
 use crate::utils::number_conversion::u128_to_f64;
 use error_stack::{ResultExt, report};
 use intents_models::constants::chains::ChainId;
@@ -43,6 +44,58 @@ pub trait DefiLlamaCoinHashMap {
 impl DefiLlamaCoinHashMap for DefiLlamaTokensResponse {
     fn get(&self, (chain_id, token): (ChainId, &str)) -> Option<&DefiLlamaCoinData> {
         self.coins.get(&chain_id.to_defillama_format(token))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DefiLlamaProvider {
+    client: Client,
+}
+
+impl DefiLlamaProvider {
+    pub fn new() -> Self {
+        Self {
+            client: Client::new(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl PriceProvider for DefiLlamaProvider {
+    async fn get_tokens_price(
+        &self,
+        tokens: HashSet<TokenId>,
+    ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
+        let defillama_token_response = get_tokens_data(&self.client, tokens).await?;
+        let mut tokens_price_data = HashMap::new();
+
+        for (defillama_token_id, token_data) in defillama_token_response.coins {
+            let defillama_id: Vec<&str> = defillama_token_id.split(':').collect();
+            let chain_id = ChainId::from_defillama_chain_name(
+                defillama_id
+                    .get(0)
+                    .ok_or(Error::ChainError("Invalid Defillama response".to_string()))?,
+            )
+            .ok_or(Error::ChainError(
+                "Unknown DefiLlama chain name".to_string(),
+            ))?;
+            let token_address = defillama_id
+                .get(1)
+                .ok_or(Error::ChainError("Invalid Defillama response".to_string()))?
+                .to_string();
+            tokens_price_data.insert(
+                TokenId {
+                    chain: chain_id,
+                    address: token_address,
+                },
+                TokenPrice {
+                    price: token_data.price,
+                    decimals: token_data.decimals,
+                },
+            );
+        }
+
+        Ok(tokens_price_data)
     }
 }
 
@@ -95,9 +148,13 @@ pub async fn try_evaluate_coins(
     let mut values_sum: f64 = 0.0;
 
     let tokens_data = get_tokens_data(
+        &Client::new(),
         tokens
             .iter()
-            .map(|(chain_id, token_addr, _)| (*chain_id, token_addr.clone()))
+            .map(|(chain_id, token_addr, _)| TokenId {
+                chain: *chain_id,
+                address: token_addr.clone(),
+            })
             .collect(),
     )
     .await?;
@@ -122,13 +179,12 @@ pub async fn try_evaluate_coins(
 ///
 /// * `tokens` - Array of (`ChainId`, `Token Address`) tuples
 pub async fn get_tokens_data(
-    tokens: HashSet<(ChainId, String)>,
+    client: &Client,
+    tokens: HashSet<TokenId>,
 ) -> EstimatorResult<DefiLlamaTokensResponse> {
-    let client = Client::new();
-
     let tokens_str: String = tokens
         .into_iter()
-        .map(|(chain_id, token)| chain_id.to_defillama_format(&token))
+        .map(|token_id| token_id.chain.to_defillama_format(&token_id.address))
         .collect::<Vec<String>>()
         .join(",");
 
@@ -175,26 +231,30 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_token_prices() {
-        let tokens: HashSet<(ChainId, String)> = vec![
-            (
-                ChainId::Sui,
-                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
-                    .to_string(),
-            ),
-            (ChainId::Sui, "0x2::sui::SUI".to_string()),
-            (
-                ChainId::Solana,
-                "So11111111111111111111111111111111111111112".to_string(),
-            ),
-            (
-                ChainId::Base,
-                "0x0000000000000000000000000000000000000000".to_string(),
-            ),
+        let tokens: HashSet<TokenId> = vec![
+            TokenId {
+                chain: ChainId::Sui,
+                address:
+                    "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+                        .to_string(),
+            },
+            TokenId {
+                chain: ChainId::Sui,
+                address: "0x2::sui::SUI".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Solana,
+                address: "So11111111111111111111111111111111111111112".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Base,
+                address: "0x0000000000000000000000000000000000000000".to_string(),
+            },
         ]
         .into_iter()
         .collect();
 
-        let data = get_tokens_data(tokens).await.unwrap();
+        let data = get_tokens_data(&Client::new(), tokens).await.unwrap();
 
         let sui_native = data.get((ChainId::Sui, "0x2::sui::SUI"));
         assert!(sui_native.is_some());
@@ -203,26 +263,29 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_token_prices_wrong_token() {
-        let tokens: HashSet<(ChainId, String)> = vec![
-            (
-                ChainId::Sui,
-                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c159aaa42c9f7cb846e2f900e7::usdc::USDC"
+        let tokens: HashSet<TokenId> = vec![
+            TokenId {
+                chain: ChainId::Sui,
+                address: "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c159aaa42c9f7cb846e2f900e7::usdc::USDC"
                     .to_string(),
-            ),
-            (ChainId::Sui, "0x2::sui::SUI".to_string()),
-            (
-                ChainId::Solana,
-                "So11111111111111111111111111111111111111112".to_string(),
-            ),
-            (
-                ChainId::Base,
-                "0x0000000000000000000000000000000000000000".to_string(),
-            ),
+            },
+            TokenId {
+                chain: ChainId::Sui,
+                address: "0x2::sui::SUI".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Solana,
+                address: "So11111111111111111111111111111111111111112".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Base,
+                address: "0x0000000000000000000000000000000000000000".to_string(),
+            },
         ]
         .into_iter()
         .collect();
 
-        let data = get_tokens_data(tokens).await.unwrap();
+        let data = get_tokens_data(&Client::new(), tokens).await.unwrap();
         println!("{:#?}", data);
 
         let sui_native = data.get((ChainId::Sui, "0x2::sui::SUI"));

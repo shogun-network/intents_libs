@@ -3,7 +3,6 @@ use intents_models::constants::chains::{
     is_native_token_solana_address,
 };
 
-pub mod estimating;
 pub mod pricing;
 
 // https://api-docs.defillama.com/#tag/tvl/get/protocols
@@ -11,6 +10,7 @@ pub const DEFILLAMA_COINS_BASE_URL: &str = "https://coins.llama.fi";
 
 pub trait DefiLlamaChain {
     fn to_defillama_chain_name(&self) -> &str;
+    fn from_defillama_chain_name(chain_name: &str) -> Option<ChainId>;
     fn to_defillama_format(&self, address: &str) -> String;
 }
 
@@ -25,6 +25,20 @@ impl DefiLlamaChain for ChainId {
             ChainId::Solana => "solana",
             ChainId::Sui => "sui",
             ChainId::HyperEVM => "hyperliquid",
+        }
+    }
+
+    fn from_defillama_chain_name(chain_name: &str) -> Option<ChainId> {
+        match chain_name {
+            "ethereum" => Some(ChainId::Ethereum),
+            "base" => Some(ChainId::Base),
+            "bsc" => Some(ChainId::Bsc),
+            "arbitrum" => Some(ChainId::ArbitrumOne),
+            "optimism" => Some(ChainId::Optimism),
+            "solana" => Some(ChainId::Solana),
+            "sui" => Some(ChainId::Sui),
+            "hyperliquid" => Some(ChainId::HyperEVM),
+            _ => None,
         }
     }
 

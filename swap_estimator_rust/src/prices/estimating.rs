@@ -5,12 +5,13 @@ use intents_models::constants::chains::ChainId;
 
 use crate::{
     error::{Error, EstimatorResult},
-    prices::defillama::{
-        DefiLlamaChain as _,
-        pricing::{DefiLlamaTokensResponse, get_tokens_data},
-    },
+    prices::{TokenId, TokensPriceData, defillama::pricing::DefiLlamaProvider},
     utils::number_conversion::{f64_to_u128, u128_to_f64},
 };
+
+lazy_static::lazy_static! {
+    pub static ref DEFILLAMA_PROVIDER: DefiLlamaProvider = DefiLlamaProvider::new();
+}
 
 #[derive(Debug, Clone)]
 pub struct OrderEstimationData {
@@ -24,18 +25,16 @@ pub struct OrderEstimationData {
 
 pub fn estimate_order_amount_out(
     order_data: &OrderEstimationData,
-    tokens_info: &DefiLlamaTokensResponse,
+    tokens_price_data: &TokensPriceData,
 ) -> EstimatorResult<Option<u128>> {
-    let src_token_data = tokens_info.coins.get(
-        &order_data
-            .src_chain
-            .to_defillama_format(&order_data.token_in),
-    );
-    let dst_token_data = tokens_info.coins.get(
-        &order_data
-            .dst_chain
-            .to_defillama_format(&order_data.token_out),
-    );
+    let src_token_data = tokens_price_data.get(&TokenId {
+        chain: order_data.src_chain,
+        address: order_data.token_in.clone(),
+    });
+    let dst_token_data = tokens_price_data.get(&TokenId {
+        chain: order_data.dst_chain,
+        address: order_data.token_out.clone(),
+    });
 
     if let (Some(src_data), Some(dst_data)) = (src_token_data, dst_token_data) {
         let src_price = src_data.price;
@@ -63,8 +62,14 @@ pub async fn estimate_orders_amount_out(
         .iter()
         .flat_map(|order| {
             vec![
-                (order.src_chain, order.token_in.clone()),
-                (order.dst_chain, order.token_out.clone()),
+                TokenId {
+                    chain: order.src_chain,
+                    address: order.token_in.clone(),
+                },
+                TokenId {
+                    chain: order.dst_chain,
+                    address: order.token_out.clone(),
+                },
             ]
         })
         .collect::<HashSet<_>>();
