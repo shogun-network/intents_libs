@@ -145,10 +145,6 @@ impl From<WsAuctioneerMessage> for ApiResponse {
                 }
             }
             WsAuctioneerMessageInner::ErrorMessage(api_response) => api_response.clone(),
-            WsAuctioneerMessageInner::Unknown(unknown_value) => {
-                tracing::warn!("Received unknown message: {:?}", unknown_value);
-                ApiResponse::bad_request("Unknown message format".to_string())
-            }
         }
     }
 }

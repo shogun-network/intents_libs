@@ -1,19 +1,14 @@
 use crate::error::{Error, EstimatorResult};
+use crate::prices::defillama::{DEFILLAMA_COINS_BASE_URL, DefiLlamaChain as _};
+use crate::utils::number_conversion::u128_to_f64;
 use error_stack::{ResultExt, report};
-use intents_models::{
-    constants::chains::{
-        ChainId, EVM_NULL_ADDRESS, WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS,
-        is_native_token_evm_address, is_native_token_solana_address,
-    },
-    network::http::handle_reqwest_response,
-};
+use intents_models::constants::chains::ChainId;
+use intents_models::network::http::handle_reqwest_response;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-use crate::utils::number_conversion::u128_to_f64;
-
-const TOKEN_PRICE_BASE_URL: &str = "https://coins.llama.fi/prices/current/";
+const TOKEN_PRICE_URI: &str = "/prices/current/";
 
 #[derive(Debug, Deserialize)]
 pub struct DefiLlamaTokensResponse {
@@ -38,43 +33,6 @@ impl DefiLlamaCoinData {
             timestamp: 0,
             confidence: 0.0,
         }
-    }
-}
-
-pub trait DefiLlamaChain {
-    fn to_defillama_chain_name(&self) -> &str;
-    fn to_defillama_format(&self, address: &str) -> String;
-}
-
-impl DefiLlamaChain for ChainId {
-    fn to_defillama_chain_name(&self) -> &str {
-        match self {
-            ChainId::Ethereum => "ethereum",
-            ChainId::Base => "base",
-            ChainId::Bsc => "bsc",
-            ChainId::ArbitrumOne => "arbitrum",
-            ChainId::Optimism => "optimism",
-            ChainId::Solana => "solana",
-            ChainId::Sui => "sui",
-            ChainId::HyperEVM => "hyperliquid",
-        }
-    }
-
-    fn to_defillama_format(&self, address: &str) -> String {
-        let chain_name = self.to_defillama_chain_name();
-        let token_address = {
-            if is_native_token_evm_address(address) {
-                EVM_NULL_ADDRESS.to_string()
-            } else if is_native_token_solana_address(address) {
-                WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS.to_string()
-            } else {
-                address.to_string()
-            }
-        };
-
-        let defillama_token_format = format!("{chain_name}:{token_address}");
-
-        defillama_token_format
     }
 }
 
@@ -175,7 +133,9 @@ pub async fn get_tokens_data(
         .join(",");
 
     let response = client
-        .get(format!("{TOKEN_PRICE_BASE_URL}{tokens_str}"))
+        .get(format!(
+            "{DEFILLAMA_COINS_BASE_URL}{TOKEN_PRICE_URI}{tokens_str}"
+        ))
         .send()
         .await
         .change_context(Error::ReqwestError)
