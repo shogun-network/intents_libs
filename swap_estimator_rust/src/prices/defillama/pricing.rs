@@ -1,4 +1,5 @@
 use crate::error::{Error, EstimatorResult};
+use crate::prices::defillama::responses::{DefiLlamaCoinHashMap as _, DefiLlamaTokensResponse};
 use crate::prices::defillama::{DEFILLAMA_COINS_BASE_URL, DefiLlamaChain as _};
 use crate::prices::{PriceProvider, TokenId, TokenPrice};
 use crate::utils::number_conversion::u128_to_f64;
@@ -6,46 +7,9 @@ use error_stack::{ResultExt, report};
 use intents_models::constants::chains::ChainId;
 use intents_models::network::http::handle_reqwest_response;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 const TOKEN_PRICE_URI: &str = "/prices/current/";
-
-#[derive(Debug, Deserialize)]
-pub struct DefiLlamaTokensResponse {
-    pub coins: HashMap<String, DefiLlamaCoinData>,
-}
-
-#[derive(Debug, Deserialize, Clone, Serialize)]
-pub struct DefiLlamaCoinData {
-    pub decimals: u8,
-    pub symbol: String,
-    pub price: f64,
-    pub timestamp: u32,
-    pub confidence: f64,
-}
-
-impl DefiLlamaCoinData {
-    pub fn default() -> Self {
-        Self {
-            decimals: 0,
-            symbol: String::new(),
-            price: 0.0,
-            timestamp: 0,
-            confidence: 0.0,
-        }
-    }
-}
-
-pub trait DefiLlamaCoinHashMap {
-    fn get(&self, token: (ChainId, &str)) -> Option<&DefiLlamaCoinData>;
-}
-
-impl DefiLlamaCoinHashMap for DefiLlamaTokensResponse {
-    fn get(&self, (chain_id, token): (ChainId, &str)) -> Option<&DefiLlamaCoinData> {
-        self.coins.get(&chain_id.to_defillama_format(token))
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct DefiLlamaProvider {

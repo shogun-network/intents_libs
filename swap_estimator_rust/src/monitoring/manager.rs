@@ -155,6 +155,7 @@ impl MonitorManager {
                                     );
                                     let mut token_request = HashSet::new();
                                     token_request.insert((chain, address.clone()));
+                                    // TODO: Use Defillama and Gecko Terminal get_tokens_price and combine results (prioritazing Defillama)
                                     let response = match get_tokens_data(token_request).await {
                                         Ok(data) => {
                                             // Check if we got the data for the requested token

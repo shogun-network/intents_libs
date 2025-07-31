@@ -13,7 +13,7 @@ pub enum GeckoTerminalResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct GeckoTerminalOkResponse {
-    pub data: GeckoTerminalPricesData,
+    pub data: GeckoTerminalOkResponseType,
 }
 
 #[derive(Debug, Deserialize)]

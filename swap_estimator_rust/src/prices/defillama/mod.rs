@@ -4,6 +4,7 @@ use intents_models::constants::chains::{
 };
 
 pub mod pricing;
+pub mod responses;
 
 // https://api-docs.defillama.com/#tag/tvl/get/protocols
 pub const DEFILLAMA_COINS_BASE_URL: &str = "https://coins.llama.fi";

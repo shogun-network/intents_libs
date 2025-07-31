@@ -1,7 +1,7 @@
 use intents_models::constants::chains::ChainId;
 use tokio::sync::oneshot;
 
-use crate::{error::Error, prices::defillama::pricing::DefiLlamaCoinData};
+use crate::{error::Error, prices::TokenPrice};
 
 type Responder<T> = oneshot::Sender<Result<T, Error>>;
 
@@ -10,7 +10,7 @@ pub enum MonitorRequest {
     GetCoinData {
         chain: ChainId,
         address: String,
-        resp: Responder<DefiLlamaCoinData>,
+        resp: Responder<TokenPrice>,
     },
     CheckSwapFeasibility {
         order_id: String,
