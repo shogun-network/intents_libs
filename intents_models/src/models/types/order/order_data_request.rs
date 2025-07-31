@@ -1,9 +1,14 @@
-use crate::constants::chains::ChainId;
+use crate::constants::chains::{ChainId, ChainType};
+use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::{
     CrossChainChainSpecificData, CrossChainIntentRequest, CrossChainLimitOrderIntentRequest,
+    CrossChainUserLimitOrderResponse,
 };
 use crate::models::types::order::OrderType;
-use crate::models::types::single_chain::{SingleChainChainSpecificData, SingleChainIntentRequest, SingleChainLimitOrderIntentRequest, SingleChainUserLimitOrderResponse};
+use crate::models::types::single_chain::{
+    SingleChainChainSpecificData, SingleChainIntentRequest, SingleChainLimitOrderIntentRequest,
+    SingleChainUserLimitOrderResponse,
+};
 use crate::models::types::user_types::IntentRequest;
 use serde::{Deserialize, Serialize};
 
@@ -54,6 +59,48 @@ impl OnChainOrderDataRequest {
             order_type: intent_request.get_order_type(),
             chain_data: OnChainOrderDataRequestChainData::from(intent_request),
         }
+    }
+
+    pub fn try_from_single_chain_limit_order_response(
+        intent: &SingleChainUserLimitOrderResponse,
+    ) -> ModelResult<Self> {
+        Ok(Self {
+            order_id: intent.order_id.to_string(),
+            chain_id: intent.generic_data.common_data.chain_id,
+            order_type: OrderType::SingleChainLimitOrder,
+            chain_data: match intent.generic_data.common_data.chain_id.to_chain_type() {
+                ChainType::EVM => OnChainOrderDataRequestChainData::EVM {
+                    user_address: intent.generic_data.common_data.user.clone(),
+                    nonce: intent
+                        .nonce
+                        .clone()
+                        .ok_or(Error::LogicError("Nonce is not provided".to_string()))?,
+                },
+                ChainType::Solana => OnChainOrderDataRequestChainData::Solana,
+                ChainType::Sui => OnChainOrderDataRequestChainData::Sui,
+            },
+        })
+    }
+
+    pub fn try_from_cross_chain_limit_order_response(
+        intent: &CrossChainUserLimitOrderResponse,
+    ) -> ModelResult<Self> {
+        Ok(Self {
+            order_id: intent.order_id.to_string(),
+            chain_id: intent.generic_data.common_data.src_chain_id,
+            order_type: OrderType::CrossChainLimitOrder,
+            chain_data: match intent.generic_data.common_data.src_chain_id.to_chain_type() {
+                ChainType::EVM => OnChainOrderDataRequestChainData::EVM {
+                    user_address: intent.generic_data.common_data.user.clone(),
+                    nonce: intent
+                        .nonce
+                        .clone()
+                        .ok_or(Error::LogicError("Nonce is not provided".to_string()))?,
+                },
+                ChainType::Solana => OnChainOrderDataRequestChainData::Solana,
+                ChainType::Sui => OnChainOrderDataRequestChainData::Sui,
+            },
+        })
     }
 }
 

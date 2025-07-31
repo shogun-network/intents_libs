@@ -52,7 +52,7 @@ impl OnChainOrderDataEnum {
                 order_data.common_data.active
             }
             OnChainOrderDataEnum::CrossChainLimitOrder(order_data) => {
-                let deactivated = order_data.common_data.deactivated.unwrap_or(true);
+                let deactivated = order_data.common_data.deactivated.unwrap_or(false);
                 !deactivated
             }
         }
@@ -109,7 +109,7 @@ impl fmt::Display for OrderStatus {
             OrderStatus::Cancelled => "Cancelled",
             OrderStatus::Outdated => "Outdated",
         };
-        write!(f, "{}", value)
+        write!(f, "{value}")
     }
 }
 
@@ -123,7 +123,7 @@ pub fn parse_order_status(status: &str) -> ModelResult<OrderStatus> {
         "Cancelled" => OrderStatus::Cancelled,
         "Outdated" => OrderStatus::Outdated,
         _ => {
-            Err(Error::ParseError).attach_printable(format!("Invalid order status: {}", status))?
+            Err(Error::ParseError).attach_printable(format!("Invalid order status: {status}"))?
         }
     })
 }
