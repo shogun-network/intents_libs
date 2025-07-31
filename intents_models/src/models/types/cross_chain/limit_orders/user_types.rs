@@ -19,15 +19,15 @@ pub struct CrossChainLimitOrderIntentRequest {
 #[serde(rename_all = "camelCase")]
 /// Generic data related to cross chain limit order intent
 pub struct CrossChainLimitOrderGenericData {
+    /// The amount of the input token to be used in the operation
+    #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
+    pub amount_in: u128,
     /// User address initiating the intent
     #[serde(flatten)]
     pub common_data: CrossChainGenericData,
     /// Common limit order data to trigger "take profit" or "stop loss" execution
     #[serde(flatten)]
     pub common_limit_order_data: CommonLimitOrderData,
-    /// The amount of the input token to be used in the operation
-    #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
-    pub amount_in: u128,
 }
 
 impl CrossChainLimitOrderGenericData {
