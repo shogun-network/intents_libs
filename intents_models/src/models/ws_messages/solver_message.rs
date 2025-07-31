@@ -14,8 +14,6 @@ pub enum WsSolverMessage {
     GetStartPermissions(String, OrderType),
     /// Inform about single chain order fulfillment
     SingleChainOrderFulfilled(SingleChainSolverExecutionDetailsEnum),
-    /// Default
-    Unknown(Value),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
