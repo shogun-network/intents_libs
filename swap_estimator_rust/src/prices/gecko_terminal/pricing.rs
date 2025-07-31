@@ -35,7 +35,27 @@ impl PriceProvider for GeckoTerminalProvider {
         &self,
         tokens: HashSet<TokenId>,
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
-        todo!();
+        // Convert argument and call for each chain
+        let mut tokens_id_by_chain: HashMap<ChainId, Vec<String>> = HashMap::new();
+
+        for token_id in tokens {
+            tokens_id_by_chain
+                .entry(token_id.chain)
+                .and_modify(|map| map.push(token_id.address.clone()))
+                .or_insert(vec![token_id.address]);
+        }
+
+        // Call token info endpoint function
+        let mut tokens_info = HashMap::new();
+        for (chain, tokens_address) in tokens_id_by_chain {
+            let gt_tokens_Info =
+                gecko_terminal_get_tokens_info(&self.client, chain, tokens_address).await?;
+
+            // Convert into result struct the response data and add it to the result
+            todo!();
+        }
+
+        Ok(tokens_info)
     }
 }
 

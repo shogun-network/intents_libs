@@ -12,7 +12,7 @@ use tokio::{
 use crate::{
     error::{Error, EstimatorResult},
     monitoring::messages::{MonitorAlert, MonitorRequest},
-    prices::defillama::pricing::{DefiLlamaCoinData, DefiLlamaCoinHashMap, get_tokens_data},
+    prices::{TokenPrice, defillama::pricing::get_tokens_data},
     utils::number_conversion::u128_to_f64,
 };
 
@@ -35,7 +35,7 @@ pub struct MonitorManager {
     pub feasibility_check_interval: Duration,
     pub receiver: Receiver<MonitorRequest>,
     pub alert_sender: Sender<MonitorAlert>,
-    pub coin_cache: HashMap<(ChainId, String), DefiLlamaCoinData>,
+    pub coin_cache: HashMap<(ChainId, String), TokenPrice>,
     pub feasibility_margin: f64,
     pub pending_swaps: HashMap<String, PendingSwap>, // OrderId to tokens, and price limit
 }
