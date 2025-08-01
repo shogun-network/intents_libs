@@ -51,8 +51,11 @@ impl OnChainOrderDataEnum {
     }
 
     pub fn is_active(&self) -> bool {
-        match self {
+        match &self {
             OnChainOrderDataEnum::SingleChainLimitOrder(order_data) => {
+                order_data.common_data.active
+            }
+            &OnChainOrderDataEnum::SingleChainDcaOrder(order_data) => {
                 order_data.common_data.active
             }
             OnChainOrderDataEnum::CrossChainLimitOrder(order_data) => {
@@ -127,9 +130,7 @@ pub fn parse_order_status(status: &str) -> ModelResult<OrderStatus> {
         "Fulfilled" => OrderStatus::Fulfilled,
         "Cancelled" => OrderStatus::Cancelled,
         "Outdated" => OrderStatus::Outdated,
-        _ => {
-            Err(Error::ParseError).attach_printable(format!("Invalid order status: {status}"))?
-        }
+        _ => Err(Error::ParseError).attach_printable(format!("Invalid order status: {status}"))?,
     })
 }
 

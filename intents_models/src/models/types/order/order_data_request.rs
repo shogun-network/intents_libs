@@ -6,8 +6,8 @@ use crate::models::types::cross_chain::{
 };
 use crate::models::types::order::OrderType;
 use crate::models::types::single_chain::{
-    SingleChainChainSpecificData, SingleChainIntentRequest, SingleChainLimitOrderIntentRequest,
-    SingleChainUserLimitOrderResponse,
+    SingleChainChainSpecificData, SingleChainDcaOrderIntentRequest, SingleChainIntentRequest,
+    SingleChainLimitOrderIntentRequest, SingleChainUserLimitOrderResponse,
 };
 use crate::models::types::user_types::IntentRequest;
 use serde::{Deserialize, Serialize};
@@ -108,6 +108,7 @@ impl From<&IntentRequest> for OnChainOrderDataRequestChainData {
     fn from(intent: &IntentRequest) -> Self {
         match intent {
             IntentRequest::SingleChainLimitOrder(i) => Self::from(i),
+            IntentRequest::SingleChainDcaOrder(i) => Self::from(i),
             IntentRequest::CrossChainLimitOrder(i) => Self::from(i),
         }
     }
@@ -115,15 +116,16 @@ impl From<&IntentRequest> for OnChainOrderDataRequestChainData {
 
 impl From<&SingleChainIntentRequest> for OnChainOrderDataRequestChainData {
     fn from(intent: &SingleChainIntentRequest) -> Self {
-        match intent {
+        match &intent {
             SingleChainIntentRequest::SingleChainLimitOrder(i) => Self::from(i),
+            &SingleChainIntentRequest::SingleChainDcaOrder(i) => Self::from(i),
         }
     }
 }
 
 impl From<&CrossChainIntentRequest> for OnChainOrderDataRequestChainData {
     fn from(intent: &CrossChainIntentRequest) -> Self {
-        match intent {
+        match &intent {
             CrossChainIntentRequest::CrossChainLimitOrder(i) => Self::from(i),
         }
     }
@@ -131,6 +133,15 @@ impl From<&CrossChainIntentRequest> for OnChainOrderDataRequestChainData {
 
 impl From<&SingleChainLimitOrderIntentRequest> for OnChainOrderDataRequestChainData {
     fn from(intent: &SingleChainLimitOrderIntentRequest) -> Self {
+        Self::from_single_chain_values(
+            &intent.chain_specific_data,
+            intent.generic_data.common_data.user.clone(),
+        )
+    }
+}
+
+impl From<&SingleChainDcaOrderIntentRequest> for OnChainOrderDataRequestChainData {
+    fn from(intent: &SingleChainDcaOrderIntentRequest) -> Self {
         Self::from_single_chain_values(
             &intent.chain_specific_data,
             intent.generic_data.common_data.user.clone(),
