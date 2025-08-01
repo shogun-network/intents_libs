@@ -48,11 +48,31 @@ impl PriceProvider for GeckoTerminalProvider {
         // Call token info endpoint function
         let mut tokens_info = HashMap::new();
         for (chain, tokens_address) in tokens_id_by_chain {
-            let gt_tokens_Info =
+            let gt_tokens_info =
                 gecko_terminal_get_tokens_info(&self.client, chain, tokens_address).await?;
 
             // Convert into result struct the response data and add it to the result
-            todo!();
+            for gt_token_info in gt_tokens_info.into_iter() {
+                let token_id = TokenId {
+                    chain,
+                    address: gt_token_info.attributes.address.clone(),
+                };
+                let token_price = TokenPrice {
+                    price: gt_token_info
+                        .attributes
+                        .price_usd
+                        .parse::<f64>()
+                        .change_context(Error::ParseError)
+                        .attach_printable_lazy(|| {
+                            format!(
+                                "Failed to parse geckoterminal price as f64: {:?}",
+                                gt_token_info.attributes
+                            )
+                        })?,
+                    decimals: gt_token_info.attributes.decimals,
+                };
+                tokens_info.insert(token_id, token_price);
+            }
         }
 
         Ok(tokens_info)
@@ -91,7 +111,7 @@ pub async fn gecko_terminal_get_tokens_info(
     tokens_address: Vec<String>,
 ) -> EstimatorResult<Vec<GeckoTerminalTokensInfo>> {
     let url = format!(
-        "{}/networks/{}/token_price/{}",
+        "{}/networks/{}/tokens/multi/{}",
         GECKO_TERMINAL_API_URL,
         chain_id.to_defillama_chain_name(),
         tokens_address.join(",")
@@ -134,5 +154,57 @@ fn handle_gecko_terminal_response(
             );
             Err(report!(Error::ResponseError).attach_printable("Error"))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_gecko_terminal_get_tokens_price() {
+        let gt_provider = GeckoTerminalProvider::new();
+
+        let tokens = HashSet::from([
+            TokenId {
+                chain: ChainId::Solana,
+                address: "So11111111111111111111111111111111111111112".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Base,
+                address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
+            },
+        ]);
+
+        let tokens_info = gt_provider
+            .get_tokens_price(tokens)
+            .await
+            .expect("Failed to get tokens price");
+        println!("Tokens Info: {:?}", tokens_info);
+        // Check that we got data for both tokens
+        assert_eq!(tokens_info.len(), 2);
+        assert!(tokens_info.contains_key(&TokenId {
+            chain: ChainId::Solana,
+            address: "So11111111111111111111111111111111111111112".to_string(),
+        }));
+        assert!(tokens_info.contains_key(&TokenId {
+            chain: ChainId::Base,
+            address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
+        }));
+        // Check that the prices are valid
+        let sol_token_price = tokens_info
+            .get(&TokenId {
+                chain: ChainId::Solana,
+                address: "So11111111111111111111111111111111111111112".to_string(),
+            })
+            .unwrap();
+        assert!(sol_token_price.price > 0.0);
+        let base_token_price = tokens_info
+            .get(&TokenId {
+                chain: ChainId::Base,
+                address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
+            })
+            .unwrap();
+        assert!(base_token_price.price > 0.0);
     }
 }

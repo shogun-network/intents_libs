@@ -48,7 +48,7 @@ pub struct GeckoTerminalPricesData {
 #[derive(Debug, Deserialize)]
 pub struct GeckoTerminalPricesAttributes {
     #[serde_as(as = "HashMap<_, DisplayFromStr>")]
-    token_prices: HashMap<String, f64>,
+    pub token_prices: HashMap<String, f64>,
 }
 
 // Token Info Responses
@@ -59,6 +59,7 @@ pub struct GeckoTerminalTokensInfo {
     #[serde(rename = "type")]
     pub type_: String,
     pub attributes: GeckoTerminalTokensInfoAttributes,
+    pub relationships: Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,10 +69,17 @@ pub struct GeckoTerminalTokensInfoAttributes {
     pub symbol: String,
     pub decimals: u8,
     pub total_supply: String,
-    pub coingecko_coin_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub coingecko_coin_id: Option<String>,
     pub price_usd: String,
     pub fdv_usd: String,
-    pub total_reserve_in_usd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub market_cap_usd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_reserve_in_usd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normalized_total_supply: Option<String>,
     pub volume_usd: Value,
-    pub market_cap_usd: String,
 }
