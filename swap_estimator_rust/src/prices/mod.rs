@@ -22,6 +22,15 @@ pub struct TokenPrice {
     pub decimals: u8,
 }
 
+impl TokenPrice {
+    pub fn default() -> Self {
+        Self {
+            decimals: 0,
+            price: 0.0,
+        }
+    }
+}
+
 #[async_trait::async_trait]
 pub trait PriceProvider {
     async fn get_tokens_price(

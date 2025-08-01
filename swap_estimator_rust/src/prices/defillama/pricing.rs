@@ -34,23 +34,16 @@ impl PriceProvider for DefiLlamaProvider {
         let mut tokens_price_data = HashMap::new();
 
         for (defillama_token_id, token_data) in defillama_token_response.coins {
-            let defillama_id: Vec<&str> = defillama_token_id.split(':').collect();
-            let chain_id = ChainId::from_defillama_chain_name(
-                defillama_id
-                    .get(0)
-                    .ok_or(Error::ChainError("Invalid Defillama response".to_string()))?,
-            )
-            .ok_or(Error::ChainError(
-                "Unknown DefiLlama chain name".to_string(),
-            ))?;
-            let token_address = defillama_id
-                .get(1)
-                .ok_or(Error::ChainError("Invalid Defillama response".to_string()))?
-                .to_string();
+            let (chain_name, token_address) = defillama_token_id
+                .split_once(':')
+                .ok_or(Error::ChainError("Invalid Defillama response".to_string()))?;
+            let chain_id = ChainId::from_defillama_chain_name(chain_name).ok_or(
+                Error::ChainError("Unknown DefiLlama chain name".to_string()),
+            )?;
             tokens_price_data.insert(
                 TokenId {
                     chain: chain_id,
-                    address: token_address,
+                    address: token_address.to_string(),
                 },
                 TokenPrice {
                     price: token_data.price,

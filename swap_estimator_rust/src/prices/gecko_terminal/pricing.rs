@@ -131,7 +131,6 @@ pub async fn gecko_terminal_get_tokens_info(
     if let GeckoTerminalOkResponseType::TokensInfo(tokens_info) =
         handle_gecko_terminal_response(tokens_response)?
     {
-        // TODO: Revisar que parte es un vector
         Ok(tokens_info)
     } else {
         tracing::error!("Unexpected response in gecko terminal request");

@@ -40,6 +40,11 @@ pub fn estimate_order_amount_out(
         address: order_data.token_out.clone(),
     });
 
+    println!(
+        "[estimate_order_amount_out] src_token_data: {:?}, dst_token_data: {:?}",
+        src_token_data, dst_token_data
+    );
+
     if let (Some(src_data), Some(dst_data)) = (src_token_data, dst_token_data) {
         let src_price = src_data.price;
         let dst_price = dst_data.price;
@@ -160,9 +165,9 @@ mod tests {
         let order = create_test_order(
             "test_order_1",
             ChainId::Base,
-            ChainId::Base,
+            ChainId::ArbitrumOne,
             "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // USDC
-            "0x4200000000000000000000000000000000000006",
+            "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
             2000000,
         );
 
@@ -182,12 +187,13 @@ mod tests {
             ChainId::Base,
             ChainId::Sui,
             "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // USDC
-            "0x2::sui::SUI",                              // SUI
+            "sui:0x2::sui::SUI",                          // SUI
             3_000_000,                                    // 1 USDC (6 decimals)
         );
 
         let result = estimate_order_amount_out(&order, &tokens_response).unwrap();
 
+        println!("Estimated amount out: {:?}", result);
         assert!(result.is_some());
         let amount_out = result.unwrap();
 
