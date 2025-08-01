@@ -89,7 +89,7 @@ pub async fn gecko_terminal_get_tokens_info(
     client: &Client,
     chain_id: ChainId,
     tokens_address: Vec<String>,
-) -> EstimatorResult<GeckoTerminalTokensInfo> {
+) -> EstimatorResult<Vec<GeckoTerminalTokensInfo>> {
     let url = format!(
         "{}/networks/{}/token_price/{}",
         GECKO_TERMINAL_API_URL,

@@ -12,7 +12,10 @@ use tokio::{
 use crate::{
     error::{Error, EstimatorResult},
     monitoring::messages::{MonitorAlert, MonitorRequest},
-    prices::{TokenPrice, defillama::pricing::get_tokens_data},
+    prices::{
+        TokenPrice,
+        defillama::{pricing::get_tokens_data, responses::DefiLlamaCoinData},
+    },
     utils::number_conversion::u128_to_f64,
 };
 
@@ -59,172 +62,173 @@ impl MonitorManager {
 
     // TODO: Do async updates in cache update and check swaps feasibility
     pub async fn run(&mut self) {
-        let mut cache_update_interval = interval(self.feasibility_check_interval);
-        loop {
-            tokio::select! {
-                    // Periodic cache update every 15 seconds
-                    _ = cache_update_interval.tick() => {
-                        if !self.coin_cache.is_empty() {
-                            tracing::debug!("Performing periodic cache update");
-                            if let Err(error) = self.update_cache().await {
-                                tracing::error!("Periodic cache update failed: {:?}", error);
-                            } else {
-                                tracing::debug!("Periodic cache update completed successfully");
-                            }
-                        } else {
-                            tracing::debug!("Cache is empty, skipping periodic update");
-                        }
-                        // Check swaps feasibility
-                        self.pending_swaps = check_swaps_feasibility(
-                            self.feasibility_margin,
-                            self.coin_cache.clone(),
-                            self.pending_swaps.clone(),
-                            self.alert_sender.clone(),
-                        ).await;
-                    }
-                    request = self.receiver.recv() => {
-                        match request {
-                            Some(request) => {
-                        tracing::debug!("Received monitor request: {:?}", request);
+        // let mut cache_update_interval = interval(self.feasibility_check_interval);
+        // loop {
+        //     tokio::select! {
+        //             // Periodic cache update every 15 seconds
+        //             _ = cache_update_interval.tick() => {
+        //                 if !self.coin_cache.is_empty() {
+        //                     tracing::debug!("Performing periodic cache update");
+        //                     if let Err(error) = self.update_cache().await {
+        //                         tracing::error!("Periodic cache update failed: {:?}", error);
+        //                     } else {
+        //                         tracing::debug!("Periodic cache update completed successfully");
+        //                     }
+        //                 } else {
+        //                     tracing::debug!("Cache is empty, skipping periodic update");
+        //                 }
+        //                 // Check swaps feasibility
+        //                 self.pending_swaps = check_swaps_feasibility(
+        //                     self.feasibility_margin,
+        //                     self.coin_cache.clone(),
+        //                     self.pending_swaps.clone(),
+        //                     self.alert_sender.clone(),
+        //                 ).await;
+        //             }
+        //             request = self.receiver.recv() => {
+        //                 match request {
+        //                     Some(request) => {
+        //                 tracing::debug!("Received monitor request: {:?}", request);
 
-                        match request {
-                            MonitorRequest::RemoveCheckSwapFeasibility { order_id } => {
-                                tracing::debug!("Removing check swap feasibility for order_id: {}", order_id);
-                                // Remove the swap from pending swaps
-                                self.pending_swaps.remove(&order_id);
-                            }
-                            MonitorRequest::CheckSwapFeasibility {
-                                order_id,
-                                src_chain,
-                                dst_chain,
-                                token_in,
-                                token_out,
-                                amount_in,
-                                amount_out,
-                            } => {
-                                tracing::debug!(
-                                    "Checking swap feasibility for order_id: {}, token_in: {}, token_out: {}, amount_in: {}, amount_out: {}",
-                                    order_id, token_in, token_out, amount_in, amount_out
-                                );
-                                // Add tokens to coin cache
-                                self.coin_cache.insert(
-                                    (src_chain, token_in.clone()),
-                                    DefiLlamaCoinData::default(), // Placeholder for actual data
-                                );
-                                self.coin_cache.insert(
-                                    (dst_chain, token_out.clone()),
-                                    DefiLlamaCoinData::default(), // Placeholder for actual data
-                                );
-                                // Add the swap to pending swaps
-                                tracing::debug!(
-                                    "Adding pending swap for order_id: {}, src_chain: {}, dst_chain: {}, token_in: {}, token_out: {}, amount_in: {}, amount_out: {}",
-                                    order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out
-                                );
-                                self.pending_swaps.insert(
-                                    order_id.clone(),
-                                    PendingSwap {
-                                        src_chain,
-                                        dst_chain,
-                                        token_in,
-                                        token_out,
-                                        amount_in,
-                                        amount_out,
-                                        price_limit: None, // No price limit set initially
-                                    },
-                                );
-                            }
-                            MonitorRequest::GetCoinData {
-                                chain,
-                                address,
-                                resp,
-                            } => {
-                                // If we have it in our cache, return it
-                                if let Some(data) = self.coin_cache.get(&(chain, address.clone())) && data.timestamp != 0 { // If timestamp is 0, it means we don't have data
-                                    tracing::debug!("Cache hit for {:?}: {:?}", (chain, address), data);
-                                    // TODO: Check timestamp, maybe data is old and we no longer get updates
-                                    // if data.timestamp < ...
-                                    match resp.send(Ok(data.clone())) {
-                                        Ok(_) => tracing::debug!("Response sent successfully"),
-                                        Err(_) => tracing::error!("Failed to send GetCoinData response"),
-                                    }
-                                } else {
-                                    tracing::debug!(
-                                        "Cache miss for chain: {}, token {}, fetching...",
-                                        chain,
-                                        address
-                                    );
-                                    let mut token_request = HashSet::new();
-                                    token_request.insert((chain, address.clone()));
-                                    // TODO: Use Defillama and Gecko Terminal get_tokens_price and combine results (prioritazing Defillama)
-                                    let response = match get_tokens_data(token_request).await {
-                                        Ok(data) => {
-                                            // Check if we got the data for the requested token
-                                            if let Some(coin_data) = data.get((chain, &address)) {
-                                                // Update cache and send response
-                                                self.coin_cache
-                                                    .insert((chain, address.clone()), coin_data.clone());
-                                                tracing::debug!(
-                                                    "Fetched data for chain: {}, token: {}",
-                                                    chain,
-                                                    address
-                                                );
-                                                Ok(coin_data.clone())
-                                            } else {
-                                                tracing::error!(
-                                                    "No data found for chain: {}, token: {}",
-                                                    chain,
-                                                    address
-                                                );
-                                                Err(Error::TokenNotFound(
-                                                    "No data found for requested token".to_string(),
-                                                ))
-                                            }
-                                        }
-                                        Err(error) => {
-                                            tracing::error!("Failed to fetch coin data: {:?}", error);
-                                            Err(error.current_context().to_owned())
-                                        }
-                                    };
-                                    match resp.send(response) {
-                                        Ok(_) => tracing::debug!("Error response sent successfully"),
-                                        Err(_) => tracing::error!("Failed to send error response"),
-                                    }
-                                }
-                            }
-                        }
-                    }
-                            None => {
-                                tracing::warn!("Monitor request channel closed, exiting...");
-                                break;
-                            }
-                        }
-                }
-            }
-        }
+        //                 match request {
+        //                     MonitorRequest::RemoveCheckSwapFeasibility { order_id } => {
+        //                         tracing::debug!("Removing check swap feasibility for order_id: {}", order_id);
+        //                         // Remove the swap from pending swaps
+        //                         self.pending_swaps.remove(&order_id);
+        //                     }
+        //                     MonitorRequest::CheckSwapFeasibility {
+        //                         order_id,
+        //                         src_chain,
+        //                         dst_chain,
+        //                         token_in,
+        //                         token_out,
+        //                         amount_in,
+        //                         amount_out,
+        //                     } => {
+        //                         tracing::debug!(
+        //                             "Checking swap feasibility for order_id: {}, token_in: {}, token_out: {}, amount_in: {}, amount_out: {}",
+        //                             order_id, token_in, token_out, amount_in, amount_out
+        //                         );
+        //                         // Add tokens to coin cache
+        //                         self.coin_cache.insert(
+        //                             (src_chain, token_in.clone()),
+        //                             DefiLlamaCoinData::default(), // Placeholder for actual data
+        //                         );
+        //                         self.coin_cache.insert(
+        //                             (dst_chain, token_out.clone()),
+        //                             DefiLlamaCoinData::default(), // Placeholder for actual data
+        //                         );
+        //                         // Add the swap to pending swaps
+        //                         tracing::debug!(
+        //                             "Adding pending swap for order_id: {}, src_chain: {}, dst_chain: {}, token_in: {}, token_out: {}, amount_in: {}, amount_out: {}",
+        //                             order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out
+        //                         );
+        //                         self.pending_swaps.insert(
+        //                             order_id.clone(),
+        //                             PendingSwap {
+        //                                 src_chain,
+        //                                 dst_chain,
+        //                                 token_in,
+        //                                 token_out,
+        //                                 amount_in,
+        //                                 amount_out,
+        //                                 price_limit: None, // No price limit set initially
+        //                             },
+        //                         );
+        //                     }
+        //                     MonitorRequest::GetCoinData {
+        //                         chain,
+        //                         address,
+        //                         resp,
+        //                     } => {
+        //                         // If we have it in our cache, return it
+        //                         if let Some(data) = self.coin_cache.get(&(chain, address.clone())) && data.timestamp != 0 { // If timestamp is 0, it means we don't have data
+        //                             tracing::debug!("Cache hit for {:?}: {:?}", (chain, address), data);
+        //                             // TODO: Check timestamp, maybe data is old and we no longer get updates
+        //                             // if data.timestamp < ...
+        //                             match resp.send(Ok(data.clone())) {
+        //                                 Ok(_) => tracing::debug!("Response sent successfully"),
+        //                                 Err(_) => tracing::error!("Failed to send GetCoinData response"),
+        //                             }
+        //                         } else {
+        //                             tracing::debug!(
+        //                                 "Cache miss for chain: {}, token {}, fetching...",
+        //                                 chain,
+        //                                 address
+        //                             );
+        //                             let mut token_request = HashSet::new();
+        //                             token_request.insert((chain, address.clone()));
+        //                             // TODO: Use Defillama and Gecko Terminal get_tokens_price and combine results (prioritazing Defillama)
+        //                             let response = match get_tokens_data(token_request).await {
+        //                                 Ok(data) => {
+        //                                     // Check if we got the data for the requested token
+        //                                     if let Some(coin_data) = data.get((chain, &address)) {
+        //                                         // Update cache and send response
+        //                                         self.coin_cache
+        //                                             .insert((chain, address.clone()), coin_data.clone());
+        //                                         tracing::debug!(
+        //                                             "Fetched data for chain: {}, token: {}",
+        //                                             chain,
+        //                                             address
+        //                                         );
+        //                                         Ok(coin_data.clone())
+        //                                     } else {
+        //                                         tracing::error!(
+        //                                             "No data found for chain: {}, token: {}",
+        //                                             chain,
+        //                                             address
+        //                                         );
+        //                                         Err(Error::TokenNotFound(
+        //                                             "No data found for requested token".to_string(),
+        //                                         ))
+        //                                     }
+        //                                 }
+        //                                 Err(error) => {
+        //                                     tracing::error!("Failed to fetch coin data: {:?}", error);
+        //                                     Err(error.current_context().to_owned())
+        //                                 }
+        //                             };
+        //                             match resp.send(response) {
+        //                                 Ok(_) => tracing::debug!("Error response sent successfully"),
+        //                                 Err(_) => tracing::error!("Failed to send error response"),
+        //                             }
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //                     None => {
+        //                         tracing::warn!("Monitor request channel closed, exiting...");
+        //                         break;
+        //                     }
+        //                 }
+        //         }
+        //     }
+        // }
     }
 
     pub async fn update_cache(&mut self) -> EstimatorResult<()> {
-        let request = self.coin_cache.keys().cloned().collect::<HashSet<_>>();
-        match get_tokens_data(request.clone()).await {
-            Ok(data) => {
-                for (chain, address) in request {
-                    if let Some(coin_data) = data.get((chain, &address)) {
-                        self.coin_cache.insert((chain, address), coin_data.clone());
-                    } else {
-                        tracing::warn!(
-                            "No data found for chain: {}, token: {} during cache update",
-                            chain,
-                            address
-                        );
-                    }
-                }
-                Ok(())
-            }
-            Err(error) => {
-                tracing::error!("Failed to update cache: {:?}", error);
-                Err(error)
-            }
-        }
+        // let request = self.coin_cache.keys().cloned().collect::<HashSet<_>>();
+        // match get_tokens_data(request.clone()).await {
+        //     Ok(data) => {
+        //         for (chain, address) in request {
+        //             if let Some(coin_data) = data.get((chain, &address)) {
+        //                 self.coin_cache.insert((chain, address), coin_data.clone());
+        //             } else {
+        //                 tracing::warn!(
+        //                     "No data found for chain: {}, token: {} during cache update",
+        //                     chain,
+        //                     address
+        //                 );
+        //             }
+        //         }
+        //         Ok(())
+        //     }
+        //     Err(error) => {
+        //         tracing::error!("Failed to update cache: {:?}", error);
+        //         Err(error)
+        //     }
+        // }
+        Ok(())
     }
 }
 
