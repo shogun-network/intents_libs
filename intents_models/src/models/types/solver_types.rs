@@ -1,11 +1,15 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
-use crate::models::types::cross_chain::CrossChainExecutionTerms;
-use crate::models::types::cross_chain::CrossChainLimitOrderSolverStartPermission;
 use crate::models::types::cross_chain::CrossChainSolverStartPermissionEnum;
-use crate::models::types::single_chain::SingleChainExecutionTerms;
-use crate::models::types::single_chain::SingleChainLimitOrderSolverStartPermission;
+use crate::models::types::cross_chain::{CrossChainExecutionTerms, EvmCrossChainLimitOrderInfo};
+use crate::models::types::cross_chain::{
+    CrossChainLimitOrderSolverStartPermission, EvmCrossChainLimitSolverPermission,
+};
 use crate::models::types::single_chain::SingleChainSolverStartPermissionEnum;
+use crate::models::types::single_chain::{EvmSingleChainLimitOrderInfo, SingleChainExecutionTerms};
+use crate::models::types::single_chain::{
+    EvmSingleChainLimitSolverPermission, SingleChainLimitOrderSolverStartPermission,
+};
 use error_stack::report;
 use serde::{Deserialize, Serialize};
 /*********************************************************************/
@@ -121,13 +125,31 @@ pub struct StartOrderEVMData {
     /// Guard contract that should be called by the solver
     pub guard_contract: String,
     /// Order info that should be passed to contract
-    pub order_info: serde_json::Value,
+    pub order_info: EvmOrderInfo,
     /// User Permit2 signature
     pub user_signature: String,
     /// Signer permission to start the order
     pub permission: serde_json::Value,
     /// Auctioneer permission signature
     pub auctioneer_signature: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum EvmOrderInfo {
+    SingleChainLimit(EvmSingleChainLimitOrderInfo),
+    // SingleChainDca(), // todo
+    CrossChainLimit(EvmCrossChainLimitOrderInfo),
+    // CrossChainDca(), // todo
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum EvmStartPermission {
+    SingleChainLimit(EvmSingleChainLimitSolverPermission),
+    // SingleChainDca(), // todo
+    CrossChainLimit(EvmCrossChainLimitSolverPermission),
+    // CrossChainDca(), // todo
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
