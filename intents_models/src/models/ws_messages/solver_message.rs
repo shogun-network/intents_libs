@@ -1,6 +1,5 @@
 use crate::models::types::{order::OrderType, single_chain::SingleChainSolverExecutionDetailsEnum};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum WsSolverMessage {
@@ -14,8 +13,6 @@ pub enum WsSolverMessage {
     GetStartPermissions(String, OrderType),
     /// Inform about single chain order fulfillment
     SingleChainOrderFulfilled(SingleChainSolverExecutionDetailsEnum),
-    /// Default
-    Unknown(Value),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

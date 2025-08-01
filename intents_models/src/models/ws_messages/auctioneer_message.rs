@@ -3,7 +3,6 @@ use crate::models::types::solver_types::{ExecutionTerms, SolverStartPermission};
 use crate::models::types::user_types::IntentRequest;
 use crate::models::ws_messages::api_response::ApiResponse;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use serde_with::{DisplayFromStr, serde_as};
 use std::ops::Deref;
 
@@ -46,12 +45,6 @@ impl WsAuctioneerMessage {
             inner: WsAuctioneerMessageInner::ErrorMessage(error),
         }
     }
-
-    pub fn unknown<T: Into<Value>>(unknown: T) -> Self {
-        Self {
-            inner: WsAuctioneerMessageInner::Unknown(unknown.into()),
-        }
-    }
 }
 
 impl Deref for WsAuctioneerMessage {
@@ -70,7 +63,6 @@ pub enum WsAuctioneerMessageInner {
     AuctionResult(AuctionResult),
     AuctionEnd(AuctionEndData),
     ErrorMessage(ApiResponse), // Must uses ApiResponse type of error (e.g. bad request, internal server error, etc.)
-    Unknown(Value),            // Bad Request
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

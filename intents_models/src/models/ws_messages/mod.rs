@@ -29,13 +29,7 @@ pub fn serialize_solver_response_message(msg: WsSolverMessage) -> ModelResult<Ve
 
 pub fn handle_ws_solver_request_msg(bytes: &[u8]) -> ModelResult<WsSolverMessage> {
     match from_slice::<WsSolverMessage>(bytes) {
-        Ok(msg) => {
-            if let WsSolverMessage::Unknown(val) = msg {
-                Err(report!(Error::Unknown).attach_printable(format!("Unexpected message {val}")))
-            } else {
-                Ok(msg)
-            }
-        }
+        Ok(msg) => Ok(msg),
         Err(err) => Err(report!(Error::SerdeDeserialize(
             "Failed to deserialize into WsSolverMessage".to_string()
         ))

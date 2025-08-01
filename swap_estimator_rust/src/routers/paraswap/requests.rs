@@ -325,10 +325,12 @@ impl ParaswapSwapCombinedRequest {
         src_decimals: u8,
         dest_decimals: u8,
     ) -> EstimatorResult<Self> {
+        let src_token = update_paraswap_native_token(generic_req.src_token).to_string();
+        let dest_token = update_paraswap_native_token(generic_req.dest_token).to_string();
         Ok(Self {
-            src_token: generic_req.src_token.to_string(),
+            src_token,
             src_decimals,
-            dest_token: generic_req.dest_token.to_string(),
+            dest_token,
             dest_decimals,
             amount: generic_req.amount_fixed.to_string(),
             side: Some(match generic_req.trade_type {
@@ -375,10 +377,12 @@ impl ParaswapSwapCombinedRequest {
         })
     }
     pub fn to_get_price_route_request(&self) -> GetPriceRouteRequest {
+        let src_token = update_paraswap_native_token(self.src_token.clone()).to_string();
+        let dest_token = update_paraswap_native_token(self.dest_token.clone()).to_string();
         GetPriceRouteRequest {
-            src_token: self.src_token.clone(),
+            src_token,
             src_decimals: self.src_decimals,
-            dest_token: self.dest_token.clone(),
+            dest_token,
             amount: self.amount.clone(),
             side: self.side.clone(),
             chain_id: self.chain_id,

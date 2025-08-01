@@ -42,11 +42,11 @@ mod tests {
     fn test_update_paraswap_native_token() {
         assert_eq!(
             update_paraswap_native_token("0xeeeeeEeEeeeeeeeEeEeeeeeeeEeEeeeeeeeEeEee".to_string()),
-            "0xeeeeeEeEeeeeeeeEeEeeeeeeeEeEeeeeeeeEeEee".to_string()
+            "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string()
         );
         assert_eq!(
             update_paraswap_native_token("0x0000000000000000000000000000000000000000".to_string()),
-            "0xeeeeeEeEeeeeeeeEeEeeeeeeeEeEeeeeeeeEeEee".to_string()
+            "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string()
         );
         assert_eq!(
             update_paraswap_native_token(

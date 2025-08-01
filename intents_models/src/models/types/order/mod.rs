@@ -11,6 +11,10 @@ use error_stack::{ResultExt, report};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+mod order_data_request;
+
+pub use order_data_request::*;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 /// Collected on chain order data about current on chain order state
 pub enum OnChainOrderDataEnum {
@@ -42,6 +46,18 @@ impl OnChainOrderDataEnum {
             ))),
             OnChainOrderDataEnum::CrossChainLimitOrder(data) => {
                 Ok(CrossChainOnChainOrderDataEnum::CrossChainLimitOrder(data))
+            }
+        }
+    }
+
+    pub fn is_active(&self) -> bool {
+        match self {
+            OnChainOrderDataEnum::SingleChainLimitOrder(order_data) => {
+                order_data.common_data.active
+            }
+            OnChainOrderDataEnum::CrossChainLimitOrder(order_data) => {
+                let deactivated = order_data.common_data.deactivated.unwrap_or(false);
+                !deactivated
             }
         }
     }
@@ -98,7 +114,7 @@ impl fmt::Display for OrderStatus {
             OrderStatus::Cancelled => "Cancelled",
             OrderStatus::Outdated => "Outdated",
         };
-        write!(f, "{}", value)
+        write!(f, "{value}")
     }
 }
 
@@ -112,7 +128,7 @@ pub fn parse_order_status(status: &str) -> ModelResult<OrderStatus> {
         "Cancelled" => OrderStatus::Cancelled,
         "Outdated" => OrderStatus::Outdated,
         _ => {
-            Err(Error::ParseError).attach_printable(format!("Invalid order status: {}", status))?
+            Err(Error::ParseError).attach_printable(format!("Invalid order status: {status}"))?
         }
     })
 }
@@ -122,5 +138,7 @@ pub fn parse_order_status(status: &str) -> ModelResult<OrderStatus> {
 /// List of orders provided to user on request
 pub struct UserOrders {
     pub single_chain_limit_orders: Vec<SingleChainUserLimitOrderResponse>,
+    // todo single chain dca
     pub cross_chain_limit_orders: Vec<CrossChainUserLimitOrderResponse>,
+    // todo cross chain dca
 }

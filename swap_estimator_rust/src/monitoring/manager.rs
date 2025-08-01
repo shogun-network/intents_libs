@@ -32,6 +32,7 @@ pub struct PendingSwap {
 
 #[derive(Debug)]
 pub struct MonitorManager {
+    pub feasibility_check_interval: Duration,
     pub receiver: Receiver<MonitorRequest>,
     pub alert_sender: Sender<MonitorAlert>,
     pub coin_cache: HashMap<(ChainId, String), DefiLlamaCoinData>,
@@ -44,6 +45,7 @@ impl MonitorManager {
         receiver: Receiver<MonitorRequest>,
         sender: Sender<MonitorAlert>,
         feasibility_margin: f64,
+        feasibility_check_interval: u64,
     ) -> Self {
         Self {
             receiver,
@@ -51,12 +53,13 @@ impl MonitorManager {
             coin_cache: HashMap::new(),
             feasibility_margin,
             pending_swaps: HashMap::new(),
+            feasibility_check_interval: Duration::from_secs(feasibility_check_interval),
         }
     }
 
     // TODO: Do async updates in cache update and check swaps feasibility
     pub async fn run(&mut self) {
-        let mut cache_update_interval = interval(Duration::from_secs(15));
+        let mut cache_update_interval = interval(self.feasibility_check_interval);
         loop {
             tokio::select! {
                     // Periodic cache update every 15 seconds
