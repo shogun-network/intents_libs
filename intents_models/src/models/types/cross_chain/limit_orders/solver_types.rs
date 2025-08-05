@@ -1,9 +1,10 @@
 use crate::constants::chains::ChainId;
 use crate::error::Error;
 use crate::error::ModelResult;
-use crate::models::types::cross_chain::CrossChainLimitOrderGenericData;
-use crate::models::types::cross_chain::CrossChainLimitOrderIntentRequest;
-use crate::models::types::cross_chain::CrossChainSolverStartPermission;
+use crate::models::types::cross_chain::{
+    CrossChainLimitOrderGenericData, CrossChainLimitOrderIntentRequest,
+    CrossChainSolverStartPermission, EvmCrossChainRequestedFulfillment,
+};
 use crate::models::types::user_types::EVMData;
 use error_stack::Report;
 use serde::{Deserialize, Serialize};
@@ -15,8 +16,14 @@ use serde_with::{DisplayFromStr, PickFirst, serde_as};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 /// Cross chain limit order data required for execution start
 pub struct StartEvmCrossChainLimitOrderData {
+    /// Order info struct
     pub order_info: EvmCrossChainLimitOrderInfo,
+    /// Start permission struct
     pub start_permission: EvmCrossChainLimitSolverPermission,
+    /// Requested fulfillment data
+    pub requested_fulfillment: EvmCrossChainRequestedFulfillment,
+    /// Auctioneer signature used to fulfill order on destination chain
+    pub destination_chain_auctioneer_signature: String,
 }
 
 #[serde_as]
@@ -105,7 +112,6 @@ pub struct EvmCrossChainLimitSolverPermission {
     pub min_stablecoins_amount: u128,
     pub deadline: u32,
 }
-
 
 /******************************************************************************/
 /**************************** SUCCESS CONFIRMATION ****************************/
