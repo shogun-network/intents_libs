@@ -1,16 +1,24 @@
+use std::collections::HashMap;
+
 use intents_models::constants::chains::ChainId;
 use tokio::sync::oneshot;
 
-use crate::{error::Error, prices::TokenPrice};
+use crate::{
+    error::Error,
+    prices::{TokenId, TokenPrice},
+};
 
 type Responder<T> = oneshot::Sender<Result<T, Error>>;
 
 #[derive(Debug)]
 pub enum MonitorRequest {
     GetCoinData {
-        chain: ChainId,
-        address: String,
+        token_id: TokenId,
         resp: Responder<TokenPrice>,
+    },
+    GetCoinsData {
+        token_ids: Vec<TokenId>,
+        resp: Responder<HashMap<TokenId, TokenPrice>>,
     },
     CheckSwapFeasibility {
         order_id: String,
