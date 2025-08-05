@@ -5,7 +5,7 @@ use tokio::sync::oneshot;
 
 use crate::{
     error::Error,
-    prices::{TokenId, TokenPrice},
+    prices::{TokenId, TokenPrice, estimating::OrderEstimationData},
 };
 
 type Responder<T> = oneshot::Sender<Result<T, Error>>;
@@ -27,6 +27,10 @@ pub enum MonitorRequest {
     },
     RemoveCheckSwapFeasibility {
         order_id: String,
+    },
+    EstimateOrdersAmountOut {
+        orders: Vec<OrderEstimationData>,
+        resp: Responder<HashMap<String, u128>>,
     },
 }
 
