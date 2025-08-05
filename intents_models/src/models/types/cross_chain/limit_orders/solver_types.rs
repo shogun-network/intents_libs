@@ -11,6 +11,13 @@ use serde_with::{DisplayFromStr, PickFirst, serde_as};
 /*********************************************************************/
 /**************************** START ORDER ****************************/
 /*********************************************************************/
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StartEvmCrossChainLimitOrderData {
+    order_info: EvmCrossChainLimitOrderInfo,
+    start_permission: EvmCrossChainLimitSolverPermission,
+}
+
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

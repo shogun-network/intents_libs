@@ -14,6 +14,13 @@ use serde_with::{DisplayFromStr, PickFirst, serde_as};
 /*********************************************************************/
 /**************************** START ORDER ****************************/
 /*********************************************************************/
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StartEvmSingleChainLimitOrderData {
+    order_info: EvmSingleChainLimitOrderInfo,
+    start_permission: EvmSingleChainLimitSolverPermission,
+}
+
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -80,8 +87,8 @@ impl TryFrom<(&SingleChainLimitOrderGenericData, &EVMData)> for EvmSingleChainLi
             user: generic_intent_data.common_data.user.clone(),
             token_in: generic_intent_data.common_data.token_in.clone(),
             amount_in: generic_intent_data.amount_in,
-            requested_output: requested_output,
-            extra_transfers: extra_transfers,
+            requested_output,
+            extra_transfers,
             encoded_external_call_data: "0x".to_string(), // Empty bytes, external calls will be implemented in the future
             deadline: u32::try_from(generic_intent_data.common_data.deadline)
                 .map_err(|_| Error::ParseError)?,
