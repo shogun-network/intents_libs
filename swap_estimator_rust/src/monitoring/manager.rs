@@ -61,7 +61,7 @@ impl MonitorManager {
     }
 
     // TODO: Do async updates in cache update and check swaps feasibility
-    pub async fn run(&mut self) {
+    pub async fn run(mut self) {
         let mut cache_update_interval = interval(self.feasibility_check_interval);
         loop {
             tokio::select! {
@@ -185,7 +185,7 @@ impl MonitorManager {
 
     async fn get_coins_data(
         &mut self,
-        token_ids: Vec<TokenId>,
+        token_ids: HashSet<TokenId>,
     ) -> Result<HashMap<TokenId, TokenPrice>, Error> {
         let mut result = HashMap::new();
         let mut toknes_not_in_cache = HashSet::new();
@@ -748,7 +748,9 @@ mod tests {
         );
 
         // Request only tokens that are in cache
-        let tokens_to_request = vec![eth_token.clone(), base_token.clone()];
+        let tokens_to_request = vec![eth_token.clone(), base_token.clone()]
+            .into_iter()
+            .collect();
         let result = monitor_manager.get_coins_data(tokens_to_request).await;
 
         // Verify the result contains cached data without external API calls
@@ -797,7 +799,7 @@ mod tests {
         // This test will make an external API call
         // In a real test environment, you should mock this functionality
         // Here we'll just verify basic behavior
-        let tokens_to_request = vec![eth_token.clone()];
+        let tokens_to_request = vec![eth_token.clone()].into_iter().collect();
         let result = monitor_manager.get_coins_data(tokens_to_request).await;
 
         // The test might pass or fail depending on network connectivity
@@ -841,7 +843,7 @@ mod tests {
         );
 
         // Request with empty input
-        let empty_request: Vec<TokenId> = vec![];
+        let empty_request: HashSet<TokenId> = HashSet::new();
         let result = monitor_manager.get_coins_data(empty_request).await;
 
         // Verify result

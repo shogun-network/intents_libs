@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use intents_models::constants::chains::ChainId;
 use tokio::sync::oneshot;
@@ -13,7 +13,7 @@ type Responder<T> = oneshot::Sender<Result<T, Error>>;
 #[derive(Debug)]
 pub enum MonitorRequest {
     GetCoinsData {
-        token_ids: Vec<TokenId>,
+        token_ids: HashSet<TokenId>,
         resp: Responder<HashMap<TokenId, TokenPrice>>,
     },
     CheckSwapFeasibility {
