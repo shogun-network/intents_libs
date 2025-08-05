@@ -1,6 +1,6 @@
 use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::CrossChainGenericDataEnum;
-use crate::models::types::solver_types::{StartOrderEVMData, StartOrderSolanaData};
+use crate::models::types::solver_types::{EvmOrderInfo, StartOrderEVMData, StartOrderSolanaData};
 use error_stack::report;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -206,7 +206,7 @@ pub struct SuccessConfirmationEVMData {
     /// Guard contract that should be called by the solver
     pub guard_contract: String,
     /// Order info that should be passed to contract
-    pub order_info: serde_json::Value,
+    pub order_info: EvmOrderInfo,
     /// Success confirmation data that should be passed to contract
     pub success_confirmation_data: serde_json::Value,
     /// Auctioneer confirmation signature

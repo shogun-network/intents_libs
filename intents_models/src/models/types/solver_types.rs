@@ -129,7 +129,7 @@ pub struct StartOrderEVMData {
     /// User Permit2 signature
     pub user_signature: String,
     /// Signer permission to start the order
-    pub permission: serde_json::Value,
+    pub permission: EvmStartPermission,
     /// Auctioneer permission signature
     pub auctioneer_signature: String,
 }
