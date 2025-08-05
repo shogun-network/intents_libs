@@ -13,6 +13,7 @@ use serde_with::{DisplayFromStr, PickFirst, serde_as};
 /*********************************************************************/
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+/// Cross chain limit order data required for execution start
 pub struct StartEvmCrossChainLimitOrderData {
     order_info: EvmCrossChainLimitOrderInfo,
     start_permission: EvmCrossChainLimitSolverPermission,
@@ -103,4 +104,17 @@ pub struct EvmCrossChainLimitSolverPermission {
     #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
     pub min_stablecoins_amount: u128,
     pub deadline: u32,
+}
+
+
+/******************************************************************************/
+/**************************** SUCCESS CONFIRMATION ****************************/
+/******************************************************************************/
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct EvmSuccessConfirmationCrossChainLimitOrderData {
+    /// Order info that should be passed to contract
+    pub order_info: EvmCrossChainLimitOrderInfo,
+    /// Success confirmation data that should be passed to contract
+    pub success_confirmation_data: serde_json::Value,
 }

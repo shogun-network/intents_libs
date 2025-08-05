@@ -1,15 +1,11 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
-use crate::models::types::cross_chain::{CrossChainSolverStartPermissionEnum, StartEvmCrossChainLimitOrderData};
-use crate::models::types::cross_chain::{CrossChainExecutionTerms, EvmCrossChainLimitOrderInfo};
 use crate::models::types::cross_chain::{
-    CrossChainLimitOrderSolverStartPermission, EvmCrossChainLimitSolverPermission,
-};
-use crate::models::types::single_chain::{EvmSingleChainLimitOrderInfo, SingleChainExecutionTerms};
-use crate::models::types::single_chain::{
-    SingleChainLimitOrderSolverStartPermission,
+    CrossChainExecutionTerms, CrossChainLimitOrderSolverStartPermission,
+    CrossChainSolverStartPermissionEnum, StartEvmCrossChainLimitOrderData,
 };
 use crate::models::types::single_chain::{
+    SingleChainExecutionTerms, SingleChainLimitOrderSolverStartPermission,
     SingleChainSolverStartPermissionEnum, StartEvmSingleChainLimitOrderData,
 };
 use error_stack::report;
@@ -136,20 +132,12 @@ pub struct StartOrderEVMData {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
+/// Type-specific order data required for execution start
 pub enum StartEvmOrderTypeData {
     SingleChainLimit(StartEvmSingleChainLimitOrderData),
     // SingleChainDca(StartEvmSingleChainDcaOrderData), // todo
     CrossChainLimit(StartEvmCrossChainLimitOrderData),
     // CrossChainDca(StartEvmCrossChainDcaOrderData), // todo
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(untagged)]
-pub enum EvmOrderInfo {
-    SingleChainLimit(EvmSingleChainLimitOrderInfo),
-    // SingleChainDca(), // todo
-    CrossChainLimit(EvmCrossChainLimitOrderInfo),
-    // CrossChainDca(), // todo
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
