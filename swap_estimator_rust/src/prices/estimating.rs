@@ -418,7 +418,7 @@ mod tests {
         tokens_response.insert(
             TokenId {
                 chain: ChainId::ArbitrumOne,
-                address: "arbitrum:0xusdc".to_string(),
+                address: "0xusdc".to_string(),
             },
             create_test_coin_data(1.002, 6), // Slight price difference
         );

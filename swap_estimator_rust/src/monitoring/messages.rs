@@ -12,10 +12,6 @@ type Responder<T> = oneshot::Sender<Result<T, Error>>;
 
 #[derive(Debug)]
 pub enum MonitorRequest {
-    GetCoinData {
-        token_id: TokenId,
-        resp: Responder<TokenPrice>,
-    },
     GetCoinsData {
         token_ids: Vec<TokenId>,
         resp: Responder<HashMap<TokenId, TokenPrice>>,
