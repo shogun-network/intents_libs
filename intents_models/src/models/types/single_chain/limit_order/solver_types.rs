@@ -18,8 +18,8 @@ use serde_with::{DisplayFromStr, PickFirst, serde_as};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 /// Single chain limit order data required for execution start
 pub struct StartEvmSingleChainLimitOrderData {
-    order_info: EvmSingleChainLimitOrderInfo,
-    start_permission: EvmSingleChainLimitSolverPermission,
+    pub order_info: EvmSingleChainLimitOrderInfo,
+    pub start_permission: EvmSingleChainLimitSolverPermission,
 }
 
 #[serde_as]

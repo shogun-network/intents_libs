@@ -15,8 +15,8 @@ use serde_with::{DisplayFromStr, PickFirst, serde_as};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 /// Cross chain limit order data required for execution start
 pub struct StartEvmCrossChainLimitOrderData {
-    order_info: EvmCrossChainLimitOrderInfo,
-    start_permission: EvmCrossChainLimitSolverPermission,
+    pub order_info: EvmCrossChainLimitOrderInfo,
+    pub start_permission: EvmCrossChainLimitSolverPermission,
 }
 
 #[serde_as]
