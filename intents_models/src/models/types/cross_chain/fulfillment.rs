@@ -4,6 +4,15 @@ use crate::models::types::common::TransferDetails;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 /// Requested EVM fulfillment data
+pub struct EvmCrossChainFulfillmentData {
+    /// Requested fulfillment data
+    pub requested_fulfillment: EvmCrossChainRequestedFulfillment,
+    /// Auctioneer signature used to fulfill order on destination chain
+    pub destination_chain_auctioneer_signature: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Requested EVM fulfillment data
 pub enum EvmCrossChainRequestedFulfillment {
     SimpleFulfillment(SimpleEvmRequestedFulfillment),
     // FulfillmentWithExternalCall(), // todo

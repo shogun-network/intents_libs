@@ -3,7 +3,7 @@ use crate::error::Error;
 use crate::error::ModelResult;
 use crate::models::types::cross_chain::{
     CrossChainLimitOrderGenericData, CrossChainLimitOrderIntentRequest,
-    CrossChainSolverStartPermission, EvmCrossChainRequestedFulfillment,
+    CrossChainSolverStartPermission,
 };
 use crate::models::types::user_types::EVMData;
 use error_stack::Report;
@@ -20,10 +20,6 @@ pub struct StartEvmCrossChainLimitOrderData {
     pub order_info: EvmCrossChainLimitOrderInfo,
     /// Start permission struct
     pub start_permission: EvmCrossChainLimitSolverPermission,
-    /// Requested fulfillment data
-    pub requested_fulfillment: EvmCrossChainRequestedFulfillment,
-    /// Auctioneer signature used to fulfill order on destination chain
-    pub destination_chain_auctioneer_signature: String,
 }
 
 #[serde_as]

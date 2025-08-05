@@ -1,6 +1,7 @@
 use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::{
-    CrossChainGenericDataEnum, EvmSuccessConfirmationCrossChainLimitOrderData,
+    CrossChainGenericDataEnum, EvmCrossChainFulfillmentData,
+    EvmSuccessConfirmationCrossChainLimitOrderData,
 };
 use crate::models::types::solver_types::{StartOrderEVMData, StartOrderSolanaData};
 use error_stack::report;
@@ -28,8 +29,10 @@ pub struct CrossChainSolverStartPermission {
     pub stablecoins_address: String,
     /// Deadline in seconds, by which Solver must execute the intent
     pub solver_deadline: u64,
-    /// Contains chain-specific data
-    pub chain_specific_data: CrossChainSolverStartOrderData,
+    /// Contains chain-specific data to start order execution on source chain
+    pub src_chain_specific_data: CrossChainSolverStartOrderData,
+    /// Destination-chain-specific data, used by Solver to fulfill order on destination chain
+    pub dest_chain_fulfillment_details: CrossChainSolverFulfillmentData,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -41,6 +44,17 @@ pub enum CrossChainSolverStartOrderData {
     Sui(CrossChainStartOrderSuiData),
     /// Solana-based chain data
     Solana(StartOrderSolanaData),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Destination-chain-specific data, used by Solver to fulfill order on destination chain
+pub enum CrossChainSolverFulfillmentData {
+    /// EVM-based chain data (e.g., Ethereum, Binance Smart Chain)
+    EVM(EvmCrossChainFulfillmentData),
+    /// Sui-based chain data
+    Sui,
+    /// Solana-based chain data
+    Solana,
 }
 
 impl CrossChainSolverStartOrderData {

@@ -123,7 +123,7 @@ impl CrossChainSolverStartPermissionEnum {
     pub fn get_chain_specific_data(&self) -> &CrossChainSolverStartOrderData {
         match self {
             CrossChainSolverStartPermissionEnum::Limit(permission) => {
-                &permission.common_data.chain_specific_data
+                &permission.common_data.src_chain_specific_data
             }
         }
     }
