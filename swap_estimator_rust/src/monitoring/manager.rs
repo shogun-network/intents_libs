@@ -202,10 +202,7 @@ impl MonitorManager {
         {
             // If price is 0.0, it means we don't have data
             tracing::debug!("Cache hit for {:?}: {:?}", (chain, address), data);
-            match resp.send(Ok(data.clone())) {
-                Ok(_) => tracing::debug!("Response sent successfully"),
-                Err(_) => tracing::error!("Failed to send GetCoinData response"),
-            }
+            return Ok(data.clone());
         } else {
             tracing::debug!(
                 "Cache miss for chain: {}, token {}, fetching...",
@@ -295,6 +292,13 @@ impl MonitorManager {
                     }
                 }
             };
+            match response {
+                Some(token_price) => Ok(token_price),
+                None => Err(Error::TokenNotFound(format!(
+                    "Token data not found for chain: {}, address: {}",
+                    chain, address
+                ))),
+            }
         }
     }
 
