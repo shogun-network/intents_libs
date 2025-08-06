@@ -40,11 +40,6 @@ pub fn estimate_order_amount_out(
         address: order_data.token_out.clone(),
     });
 
-    println!(
-        "[estimate_order_amount_out] src_token_data: {:?}, dst_token_data: {:?}",
-        src_token_data, dst_token_data
-    );
-
     if let (Some(src_data), Some(dst_data)) = (src_token_data, dst_token_data) {
         let src_price = src_data.price;
         let dst_price = dst_data.price;
