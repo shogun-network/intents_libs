@@ -122,9 +122,7 @@ pub fn parse_order_status(status: &str) -> ModelResult<OrderStatus> {
         "Fulfilled" => OrderStatus::Fulfilled,
         "Cancelled" => OrderStatus::Cancelled,
         "Outdated" => OrderStatus::Outdated,
-        _ => {
-            Err(Error::ParseError).attach_printable(format!("Invalid order status: {status}"))?
-        }
+        _ => Err(Error::ParseError).attach_printable(format!("Invalid order status: {status}"))?,
     })
 }
 
