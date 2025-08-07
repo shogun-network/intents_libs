@@ -1,12 +1,12 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
-use crate::models::types::cross_chain::CrossChainExecutionTerms;
-use crate::models::types::cross_chain::CrossChainLimitOrderSolverStartPermission;
-use crate::models::types::cross_chain::CrossChainSolverStartPermissionEnum;
-use crate::models::types::single_chain::SingleChainLimitOrderSolverStartPermission;
-use crate::models::types::single_chain::SingleChainSolverStartPermissionEnum;
+use crate::models::types::cross_chain::{
+    CrossChainExecutionTerms, CrossChainLimitOrderSolverStartPermission,
+    CrossChainSolverStartPermissionEnum, StartEvmCrossChainLimitOrderData,
+};
 use crate::models::types::single_chain::{
-    SingleChainDcaOrderSolverStartPermission, SingleChainExecutionTerms,
+    SingleChainExecutionTerms, SingleChainLimitOrderSolverStartPermission,
+    SingleChainSolverStartPermissionEnum, StartEvmSingleChainLimitOrderData,
 };
 use error_stack::report;
 use serde::{Deserialize, Serialize};
@@ -137,14 +137,22 @@ impl SolverStartPermission {
 pub struct StartOrderEVMData {
     /// Guard contract that should be called by the solver
     pub guard_contract: String,
-    /// Order info that should be passed to contract
-    pub order_info: serde_json::Value,
     /// User Permit2 signature
     pub user_signature: String,
-    /// Signer permission to start the order
-    pub permission: serde_json::Value,
-    /// Auctioneer permission signature
-    pub auctioneer_signature: String,
+    /// Auctioneer start permission signature
+    pub auctioneer_start_permission_signature: String,
+    /// Type-specific data for order execution
+    pub order_type_data: StartEvmOrderTypeData,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+/// Type-specific order data required for execution start
+pub enum StartEvmOrderTypeData {
+    SingleChainLimit(StartEvmSingleChainLimitOrderData),
+    SingleChainDca(StartEvmSingleChainDcaOrderData),
+    CrossChainLimit(StartEvmCrossChainLimitOrderData),
+    // CrossChainDca(StartEvmCrossChainDcaOrderData), // todo
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

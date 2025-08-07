@@ -1,16 +1,21 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use error_stack::report;
 use intents_models::constants::chains::ChainId;
 
 use crate::{
     error::{Error, EstimatorResult},
-    prices::defillama::{
-        DefiLlamaChain as _,
-        pricing::{DefiLlamaTokensResponse, get_tokens_data},
+    prices::{
+        TokenId, TokenPrice, TokensPriceData, defillama::pricing::DefiLlamaProvider,
+        gecko_terminal::pricing::GeckoTerminalProvider,
     },
     utils::number_conversion::{f64_to_u128, u128_to_f64},
 };
+
+lazy_static::lazy_static! {
+    pub static ref DEFILLAMA_PROVIDER: DefiLlamaProvider = DefiLlamaProvider::new();
+    pub static ref GECKO_TERMINAL_PROVIDER: GeckoTerminalProvider = GeckoTerminalProvider::new();
+}
 
 #[derive(Debug, Clone)]
 pub struct OrderEstimationData {
@@ -24,18 +29,16 @@ pub struct OrderEstimationData {
 
 pub fn estimate_order_amount_out(
     order_data: &OrderEstimationData,
-    tokens_info: &DefiLlamaTokensResponse,
+    tokens_price_data: &TokensPriceData,
 ) -> EstimatorResult<Option<u128>> {
-    let src_token_data = tokens_info.coins.get(
-        &order_data
-            .src_chain
-            .to_defillama_format(&order_data.token_in),
-    );
-    let dst_token_data = tokens_info.coins.get(
-        &order_data
-            .dst_chain
-            .to_defillama_format(&order_data.token_out),
-    );
+    let src_token_data = tokens_price_data.get(&TokenId {
+        chain: order_data.src_chain,
+        address: order_data.token_in.clone(),
+    });
+    let dst_token_data = tokens_price_data.get(&TokenId {
+        chain: order_data.dst_chain,
+        address: order_data.token_out.clone(),
+    });
 
     if let (Some(src_data), Some(dst_data)) = (src_token_data, dst_token_data) {
         let src_price = src_data.price;
@@ -55,21 +58,9 @@ pub fn estimate_order_amount_out(
 
 pub async fn estimate_orders_amount_out(
     orders: Vec<OrderEstimationData>,
+    tokens_info: HashMap<TokenId, TokenPrice>,
 ) -> EstimatorResult<HashMap<String, u128>> {
     let mut result = HashMap::new();
-
-    // Get all tokens info in one request
-    let tokens_to_request = orders
-        .iter()
-        .flat_map(|order| {
-            vec![
-                (order.src_chain, order.token_in.clone()),
-                (order.dst_chain, order.token_out.clone()),
-            ]
-        })
-        .collect::<HashSet<_>>();
-
-    let tokens_info = get_tokens_data(tokens_to_request).await?;
 
     for order in orders {
         match estimate_order_amount_out(&order, &tokens_info) {
@@ -102,41 +93,46 @@ pub async fn estimate_orders_amount_out(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prices::defillama::pricing::DefiLlamaCoinData;
     use std::collections::HashMap;
 
-    fn create_test_coin_data(price: f64, decimals: u8) -> DefiLlamaCoinData {
-        DefiLlamaCoinData {
-            price,
-            decimals,
-            timestamp: 1000,            // Valid timestamp
-            confidence: 0.0,            // Not used in tests
-            symbol: "TEST".to_string(), // Not used in tests
-        }
+    fn create_test_coin_data(price: f64, decimals: u8) -> TokenPrice {
+        TokenPrice { price, decimals }
     }
 
-    fn create_test_tokens_response() -> DefiLlamaTokensResponse {
+    fn create_test_tokens_response() -> HashMap<TokenId, TokenPrice> {
         let mut coins = HashMap::new();
 
         // Add test tokens with different prices and decimals
         coins.insert(
-            "ethereum:0xa0b86a33e6ba2a5e59e3a6be836a4f08a7b2e6bd".to_string(), // ETH token
+            TokenId {
+                chain: ChainId::Ethereum,
+                address: "0xa0b86a33e6ba2a5e59e3a6be836a4f08a7b2e6bd".to_string(),
+            },
             create_test_coin_data(2000.0, 18),
         );
         coins.insert(
-            "base:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(), // USDC
+            TokenId {
+                chain: ChainId::Base,
+                address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
+            },
             create_test_coin_data(1.0, 6),
         );
         coins.insert(
-            "arbitrum:0xaf88d065e77c8cc2239327c5edb3a432268e5831".to_string(), // USDT
+            TokenId {
+                chain: ChainId::ArbitrumOne,
+                address: "0xaf88d065e77c8cc2239327c5edb3a432268e5831".to_string(),
+            },
             create_test_coin_data(1.01, 6),
         );
         coins.insert(
-            "sui:0x2::sui::SUI".to_string(), // SUI
+            TokenId {
+                chain: ChainId::Sui,
+                address: "sui:0x2::sui::SUI".to_string(),
+            },
             create_test_coin_data(1.5, 9),
         );
 
-        DefiLlamaTokensResponse { coins }
+        coins
     }
 
     fn create_test_order(
@@ -164,9 +160,9 @@ mod tests {
         let order = create_test_order(
             "test_order_1",
             ChainId::Base,
-            ChainId::Base,
+            ChainId::ArbitrumOne,
             "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // USDC
-            "0x4200000000000000000000000000000000000006",
+            "0xaf88d065e77c8cc2239327c5edb3a432268e5831",
             2000000,
         );
 
@@ -186,12 +182,13 @@ mod tests {
             ChainId::Base,
             ChainId::Sui,
             "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // USDC
-            "0x2::sui::SUI",                              // SUI
+            "sui:0x2::sui::SUI",                          // SUI
             3_000_000,                                    // 1 USDC (6 decimals)
         );
 
         let result = estimate_order_amount_out(&order, &tokens_response).unwrap();
 
+        println!("Estimated amount out: {:?}", result);
         assert!(result.is_some());
         let amount_out = result.unwrap();
 
@@ -256,8 +253,11 @@ mod tests {
         let mut tokens_response = create_test_tokens_response();
 
         // Add a token with zero price - this should cause division by zero
-        tokens_response.coins.insert(
-            "base:0xzerotoken".to_string(),
+        tokens_response.insert(
+            TokenId {
+                chain: ChainId::Base,
+                address: "0xzerotoken".to_string(),
+            },
             create_test_coin_data(0.0, 6), // Zero price
         );
 
@@ -282,8 +282,11 @@ mod tests {
         let mut tokens_response = create_test_tokens_response();
 
         // Add a token with negative price
-        tokens_response.coins.insert(
-            "base:0xnegativetoken".to_string(),
+        tokens_response.insert(
+            TokenId {
+                chain: ChainId::Base,
+                address: "0xnegativetoken".to_string(),
+            },
             create_test_coin_data(-1.0, 6), // Negative price
         );
 
@@ -327,12 +330,10 @@ mod tests {
             ),
         ];
 
-        // This will fail in tests because it makes real HTTP calls
-        // You should mock get_tokens_data for proper testing
-        let result = estimate_orders_amount_out(orders).await;
+        let tokens_response = create_test_tokens_response();
 
-        // In a real test environment, this would work with mocked data
-        // For now, we expect it to potentially fail due to network calls
+        let result = estimate_orders_amount_out(orders, tokens_response).await;
+
         match result {
             Ok(estimates) => {
                 assert!(
@@ -358,7 +359,9 @@ mod tests {
     async fn test_estimate_orders_amount_out_empty_input() {
         let orders = vec![];
 
-        let result = estimate_orders_amount_out(orders).await;
+        let tokens_response = create_test_tokens_response();
+
+        let result = estimate_orders_amount_out(orders, tokens_response).await;
 
         // Should handle empty input gracefully
         match result {
@@ -400,11 +403,18 @@ mod tests {
         let mut tokens_response = create_test_tokens_response();
 
         // Add same token on different chains with different prices
-        tokens_response
-            .coins
-            .insert("ethereum:0xusdc".to_string(), create_test_coin_data(1.0, 6));
-        tokens_response.coins.insert(
-            "arbitrum:0xusdc".to_string(),
+        tokens_response.insert(
+            TokenId {
+                chain: ChainId::Ethereum,
+                address: "0xusdc".to_string(),
+            },
+            create_test_coin_data(1.0, 6),
+        );
+        tokens_response.insert(
+            TokenId {
+                chain: ChainId::ArbitrumOne,
+                address: "0xusdc".to_string(),
+            },
             create_test_coin_data(1.002, 6), // Slight price difference
         );
 

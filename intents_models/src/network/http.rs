@@ -86,6 +86,14 @@ pub async fn handle_reqwest_response<T: DeserializeOwned>(response: Response) ->
             // Use Json as default content type
                 if content_type.contains("application/json") || content_type.is_empty() {
                     // Handle JSON response
+                    // DEBUG:
+                    // let json: Value = response
+                    //     .json()
+                    //     .await
+                    //     .change_context(Error::SerdeDeserialize("Failed to deserialize JSON".to_string()))?;
+                    // println!("JSON Response: {}", serde_json::to_string_pretty(&json).unwrap());
+                    // serde_json::from_value(json)
+                    //     .change_context(Error::SerdeDeserialize("Failed to deserialize JSON".to_string()))?
                     response
                         .json()
                         .await

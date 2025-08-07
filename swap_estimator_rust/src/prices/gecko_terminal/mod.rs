@@ -1,7 +1,7 @@
 use intents_models::constants::chains::ChainId;
 
-pub mod estimating;
 pub mod pricing;
+pub mod responses;
 
 // https://www.geckoterminal.com/dex-api
 // Data Freshness
