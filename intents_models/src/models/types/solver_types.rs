@@ -5,11 +5,13 @@ use crate::models::types::cross_chain::{
     CrossChainSolverStartPermissionEnum, StartEvmCrossChainLimitOrderData,
 };
 use crate::models::types::single_chain::{
-    SingleChainExecutionTerms, SingleChainLimitOrderSolverStartPermission,
-    SingleChainSolverStartPermissionEnum, StartEvmSingleChainLimitOrderData,
+    SingleChainDcaOrderSolverStartPermission, SingleChainExecutionTerms,
+    SingleChainLimitOrderSolverStartPermission, SingleChainSolverStartPermissionEnum,
+    StartEvmSingleChainDcaOrderData, StartEvmSingleChainLimitOrderData,
 };
 use error_stack::report;
 use serde::{Deserialize, Serialize};
+
 /*********************************************************************/
 /**************************** START ORDER ****************************/
 /*********************************************************************/
