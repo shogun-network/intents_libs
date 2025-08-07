@@ -1,6 +1,9 @@
 use crate::error::{Error, ModelResult};
-use crate::models::types::cross_chain::CrossChainGenericDataEnum;
-use crate::models::types::solver_types::{EvmOrderInfo, StartOrderEVMData, StartOrderSolanaData};
+use crate::models::types::cross_chain::{
+    CrossChainGenericDataEnum, EvmCrossChainFulfillmentData,
+    EvmSuccessConfirmationCrossChainLimitOrderData,
+};
+use crate::models::types::solver_types::{StartOrderEVMData, StartOrderSolanaData};
 use error_stack::report;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -26,8 +29,10 @@ pub struct CrossChainSolverStartPermission {
     pub stablecoins_address: String,
     /// Deadline in seconds, by which Solver must execute the intent
     pub solver_deadline: u64,
-    /// Contains chain-specific data
-    pub chain_specific_data: CrossChainSolverStartOrderData,
+    /// Contains chain-specific data to start order execution on source chain
+    pub src_chain_specific_data: CrossChainSolverStartOrderData,
+    /// Destination-chain-specific data, used by Solver to fulfill order on destination chain
+    pub dest_chain_fulfillment_details: CrossChainSolverFulfillmentData,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -39,6 +44,17 @@ pub enum CrossChainSolverStartOrderData {
     Sui(CrossChainStartOrderSuiData),
     /// Solana-based chain data
     Solana(StartOrderSolanaData),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Destination-chain-specific data, used by Solver to fulfill order on destination chain
+pub enum CrossChainSolverFulfillmentData {
+    /// EVM-based chain data (e.g., Ethereum, Binance Smart Chain)
+    EVM(EvmCrossChainFulfillmentData),
+    /// Sui-based chain data
+    Sui,
+    /// Solana-based chain data
+    Solana,
 }
 
 impl CrossChainSolverStartOrderData {
@@ -205,12 +221,17 @@ pub enum SolverSuccessConfirmationData {
 pub struct SuccessConfirmationEVMData {
     /// Guard contract that should be called by the solver
     pub guard_contract: String,
-    /// Order info that should be passed to contract
-    pub order_info: EvmOrderInfo,
-    /// Success confirmation data that should be passed to contract
-    pub success_confirmation_data: serde_json::Value,
     /// Auctioneer confirmation signature
     pub auctioneer_signature: String,
+    /// Type-specific data for order execution
+    pub order_type_data: EvmSuccessConfirmationOrderTypeData,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type")]
+pub enum EvmSuccessConfirmationOrderTypeData {
+    CrossChainLimit(EvmSuccessConfirmationCrossChainLimitOrderData),
+    // CrossChainDca(EvmSuccessConfirmationCrossChainDcaOrderData) // todo
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

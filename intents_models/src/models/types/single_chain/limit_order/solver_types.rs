@@ -14,6 +14,14 @@ use serde_with::{DisplayFromStr, PickFirst, serde_as};
 /*********************************************************************/
 /**************************** START ORDER ****************************/
 /*********************************************************************/
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Single chain limit order data required for execution start
+pub struct StartEvmSingleChainLimitOrderData {
+    pub order_info: EvmSingleChainLimitOrderInfo,
+    pub start_permission: EvmSingleChainLimitSolverPermission,
+}
+
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -40,8 +48,8 @@ pub struct EvmSingleChainLimitOrderInfo {
     pub token_in: String,
     #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
     pub amount_in: u128,
-    pub requested_output: TransferData,
-    pub extra_transfers: Vec<TransferData>,
+    pub requested_output: TransferDetails,
+    pub extra_transfers: Vec<TransferDetails>,
     pub encoded_external_call_data: String,
     pub deadline: u32,
     pub nonce: String,
@@ -62,26 +70,24 @@ impl TryFrom<(&SingleChainLimitOrderGenericData, &EVMData)> for EvmSingleChainLi
     fn try_from(
         (generic_intent_data, evm_data): (&SingleChainLimitOrderGenericData, &EVMData),
     ) -> ModelResult<Self> {
-        let requested_output = TransferData {
-            amount: generic_intent_data.common_data.amount_out_min.to_string(),
+        let requested_output = TransferDetails {
+            amount: generic_intent_data.common_data.amount_out_min,
             token: generic_intent_data.common_data.token_out.clone(),
             receiver: generic_intent_data.common_data.destination_address.clone(),
         };
 
-        let extra_transfers = match generic_intent_data.common_data.extra_transfers.as_ref() {
-            Some(transfers) => transfers
-                .iter()
-                .map(|transfer| TryInto::<TransferData>::try_into(transfer.clone()))
-                .collect::<ModelResult<Vec<TransferData>>>()?,
-            None => vec![],
-        };
+        let extra_transfers = generic_intent_data
+            .common_data
+            .extra_transfers
+            .clone()
+            .unwrap_or_default();
 
         let order = EvmSingleChainLimitOrderInfo {
             user: generic_intent_data.common_data.user.clone(),
             token_in: generic_intent_data.common_data.token_in.clone(),
             amount_in: generic_intent_data.amount_in,
-            requested_output: requested_output,
-            extra_transfers: extra_transfers,
+            requested_output,
+            extra_transfers,
             encoded_external_call_data: "0x".to_string(), // Empty bytes, external calls will be implemented in the future
             deadline: u32::try_from(generic_intent_data.common_data.deadline)
                 .map_err(|_| Error::ParseError)?,
@@ -92,25 +98,6 @@ impl TryFrom<(&SingleChainLimitOrderGenericData, &EVMData)> for EvmSingleChainLi
     }
 }
 
-impl TryFrom<TransferDetails> for TransferData {
-    type Error = Report<Error>;
-
-    fn try_from(transfer_details: TransferDetails) -> ModelResult<Self> {
-        Ok(Self {
-            amount: transfer_details.amount.to_string(),
-            token: transfer_details.token.clone(),
-            receiver: transfer_details.receiver.clone(),
-        })
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct TransferData {
-    pub token: String,
-    pub receiver: String,
-    pub amount: String,
-}
-
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -119,6 +106,6 @@ pub struct EvmSingleChainLimitSolverPermission {
     pub order_hash: String,
     #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
     pub amount_out_min: u128,
-    pub protocol_fee_transfer: TransferData,
+    pub protocol_fee_transfer: TransferDetails,
     pub permission_deadline: u32,
 }
