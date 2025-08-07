@@ -3,10 +3,7 @@ use crate::models::types::cross_chain::{
     CrossChainOnChainLimitOrderData, CrossChainOnChainOrderDataEnum,
     CrossChainUserLimitOrderResponse,
 };
-use crate::models::types::single_chain::{
-    SingleChainOnChainDcaOrderData, SingleChainOnChainLimitOrderData,
-    SingleChainOnChainOrderDataEnum, SingleChainUserLimitOrderResponse,
-};
+use crate::models::types::single_chain::{SingleChainOnChainDcaOrderData, SingleChainOnChainLimitOrderData, SingleChainOnChainOrderDataEnum, SingleChainUserDcaOrderResponse, SingleChainUserLimitOrderResponse};
 use error_stack::{ResultExt, report};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -55,7 +52,7 @@ impl OnChainOrderDataEnum {
             OnChainOrderDataEnum::SingleChainLimitOrder(order_data) => {
                 order_data.common_data.active
             }
-            &OnChainOrderDataEnum::SingleChainDcaOrder(order_data) => {
+            OnChainOrderDataEnum::SingleChainDcaOrder(order_data) => {
                 order_data.common_data.active
             }
             OnChainOrderDataEnum::CrossChainLimitOrder(order_data) => {
@@ -139,7 +136,7 @@ pub fn parse_order_status(status: &str) -> ModelResult<OrderStatus> {
 /// List of orders provided to user on request
 pub struct UserOrders {
     pub single_chain_limit_orders: Vec<SingleChainUserLimitOrderResponse>,
-    // todo single chain dca
+    pub single_chain_dca_orders: Vec<SingleChainUserDcaOrderResponse>,
     pub cross_chain_limit_orders: Vec<CrossChainUserLimitOrderResponse>,
     // todo cross chain dca
 }
