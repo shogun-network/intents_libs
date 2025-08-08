@@ -1,4 +1,4 @@
-use crate::models::types::common::CommonDcaOrderData;
+use crate::models::types::common::{CommonDcaOrderData, CommonDcaOrderState};
 use crate::models::types::single_chain::{SingleChainChainSpecificData, SingleChainGenericData};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -25,4 +25,7 @@ pub struct SingleChainDcaOrderGenericData {
     /// Common DCA order data
     #[serde(flatten)]
     pub common_dca_order_data: CommonDcaOrderData,
+    /// Common DCA order state
+    #[serde(flatten)]
+    pub common_dca_state: CommonDcaOrderState,
 }

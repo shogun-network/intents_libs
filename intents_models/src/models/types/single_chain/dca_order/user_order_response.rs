@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_with::{DisplayFromStr, PickFirst, serde_as};
+use serde_with::serde_as;
 
 use crate::models::types::{order::OrderStatus, single_chain::SingleChainDcaOrderGenericData};
 
@@ -23,18 +23,7 @@ pub struct SingleChainUserDcaOrderResponse {
     /// Permit2 nonce, used for the order creation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub order_fulfillment_timestamp: Option<u64>,
-
-    /// Link to the transaction details.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub transaction_hash: Option<String>,
-
-    /// The output amount
-    #[serde_as(as = "Option<PickFirst<(DisplayFromStr, _)>>")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub amount_out: Option<u128>,
 }
 
+// TODO DCA: list of executions
 // TODO DCA: need to return current DCA state

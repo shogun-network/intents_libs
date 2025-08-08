@@ -1,4 +1,4 @@
-use crate::models::types::common::CommonDcaOrderData;
+use crate::models::types::common::{CommonDcaOrderData, CommonDcaOrderState};
 use crate::models::types::single_chain::{
     SingleChainChainSpecificData, SingleChainDcaOrderGenericData, SingleChainDcaOrderIntentRequest,
     SingleChainGenericData,
@@ -45,6 +45,10 @@ impl SingleChainDcaOrderUserIntentRequest {
                 deadline: self.generic_data.common_data.deadline,
             },
             common_dca_order_data: self.generic_data.common_dca_order_data,
+            common_dca_state: CommonDcaOrderState {
+                total_executed_intervals: 0,
+                last_executed_interval_index: 0
+            },
         };
 
         IntentRequest::SingleChainDcaOrder(SingleChainDcaOrderIntentRequest {
