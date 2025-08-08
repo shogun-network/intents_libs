@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
+use crate::models::types::single_chain::DcaIntervalExecutionResponse;
 use crate::models::types::{order::OrderStatus, single_chain::SingleChainDcaOrderGenericData};
 
 #[serde_as]
@@ -23,7 +24,8 @@ pub struct SingleChainUserDcaOrderResponse {
     /// Permit2 nonce, used for the order creation
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>,
+
+    /// List of DCA interval executions for this order
+    pub interval_executions: Vec<DcaIntervalExecutionResponse>,
 }
 
-// TODO DCA: list of executions
-// TODO DCA: need to return current DCA state
