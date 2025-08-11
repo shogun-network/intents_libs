@@ -47,7 +47,7 @@ impl SingleChainDcaOrderUserIntentRequest {
             common_dca_order_data: self.generic_data.common_dca_order_data,
             common_dca_state: CommonDcaOrderState {
                 total_executed_intervals: 0,
-                last_executed_interval_index: 0
+                last_executed_interval_index: 0,
             },
         };
 

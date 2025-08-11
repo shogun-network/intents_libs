@@ -28,4 +28,3 @@ pub struct SingleChainUserDcaOrderResponse {
     /// List of DCA interval executions for this order
     pub interval_executions: Vec<DcaIntervalExecutionResponse>,
 }
-

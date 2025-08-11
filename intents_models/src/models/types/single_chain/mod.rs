@@ -52,7 +52,10 @@ impl SingleChainIntentRequest {
                 request.generic_data.amount_in
             }
             SingleChainIntentRequest::SingleChainDcaOrder(request) => {
-                request.generic_data.common_dca_order_data.amount_in_per_interval
+                request
+                    .generic_data
+                    .common_dca_order_data
+                    .amount_in_per_interval
             }
         }
     }

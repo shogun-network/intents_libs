@@ -3,7 +3,11 @@ use crate::models::types::cross_chain::{
     CrossChainOnChainLimitOrderData, CrossChainOnChainOrderDataEnum,
     CrossChainUserLimitOrderResponse,
 };
-use crate::models::types::single_chain::{SingleChainOnChainDcaOrderData, SingleChainOnChainLimitOrderData, SingleChainOnChainOrderDataEnum, SingleChainUserDcaOrderResponse, SingleChainUserLimitOrderResponse};
+use crate::models::types::single_chain::{
+    SingleChainOnChainDcaOrderData, SingleChainOnChainLimitOrderData,
+    SingleChainOnChainOrderDataEnum, SingleChainUserDcaOrderResponse,
+    SingleChainUserLimitOrderResponse,
+};
 use error_stack::{ResultExt, report};
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -52,9 +56,7 @@ impl OnChainOrderDataEnum {
             OnChainOrderDataEnum::SingleChainLimitOrder(order_data) => {
                 order_data.common_data.active
             }
-            OnChainOrderDataEnum::SingleChainDcaOrder(order_data) => {
-                order_data.common_data.active
-            }
+            OnChainOrderDataEnum::SingleChainDcaOrder(order_data) => order_data.common_data.active,
             OnChainOrderDataEnum::CrossChainLimitOrder(order_data) => {
                 let deactivated = order_data.common_data.deactivated.unwrap_or(false);
                 !deactivated

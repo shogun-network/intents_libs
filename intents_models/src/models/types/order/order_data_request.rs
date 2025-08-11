@@ -5,7 +5,11 @@ use crate::models::types::cross_chain::{
     CrossChainUserLimitOrderResponse,
 };
 use crate::models::types::order::OrderType;
-use crate::models::types::single_chain::{SingleChainChainSpecificData, SingleChainDcaOrderIntentRequest, SingleChainIntentRequest, SingleChainLimitOrderIntentRequest, SingleChainUserDcaOrderResponse, SingleChainUserLimitOrderResponse};
+use crate::models::types::single_chain::{
+    SingleChainChainSpecificData, SingleChainDcaOrderIntentRequest, SingleChainIntentRequest,
+    SingleChainLimitOrderIntentRequest, SingleChainUserDcaOrderResponse,
+    SingleChainUserLimitOrderResponse,
+};
 use crate::models::types::user_types::IntentRequest;
 use serde::{Deserialize, Serialize};
 
