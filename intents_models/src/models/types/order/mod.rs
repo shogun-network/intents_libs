@@ -98,6 +98,10 @@ pub enum OrderStatus {
     /// The order got a winner bid and the solver is going to execute it.
     Executing,
 
+    /// Dca interval was fulfilled successfully.
+    /// Waiting for next interval
+    DcaIntervalFulfilled,
+
     /// The order was correctly executed.
     Fulfilled,
 
@@ -114,6 +118,7 @@ impl fmt::Display for OrderStatus {
             OrderStatus::Auction => "Auction",
             OrderStatus::NoBids => "NoBids",
             OrderStatus::Executing => "Executing",
+            OrderStatus::DcaIntervalFulfilled => "DcaIntervalFulfilled",
             OrderStatus::Fulfilled => "Fulfilled",
             OrderStatus::Cancelled => "Cancelled",
             OrderStatus::Outdated => "Outdated",
@@ -128,6 +133,7 @@ pub fn parse_order_status(status: &str) -> ModelResult<OrderStatus> {
         "Auction" => OrderStatus::Auction,
         "NoBids" => OrderStatus::NoBids,
         "Executing" => OrderStatus::Executing,
+        "DcaIntervalFulfilled" => OrderStatus::DcaIntervalFulfilled,
         "Fulfilled" => OrderStatus::Fulfilled,
         "Cancelled" => OrderStatus::Cancelled,
         "Outdated" => OrderStatus::Outdated,
