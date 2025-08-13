@@ -41,12 +41,20 @@ impl CommonDcaOrderData {
         // We can safely cast current timestamp in seconds to u32 until Feb 07 2106.
         self.get_interval_index(current_timestamp as u32)
     }
+
+    /// Calculate interval index at specific timestamp
     pub fn get_interval_index(&self, timestamp: u32) -> u32 {
         if timestamp < self.start_time {
             0
         } else {
             (timestamp - self.start_time) / self.interval_duration + 1
         }
+    }
+
+    /// Calculate timestamp of next DCA interval start
+    pub fn get_next_interval_start_timestamp(&self) -> u32 {
+        let current_interval_index = self.get_current_interval_index();
+        self.start_time + current_interval_index * self.interval_duration
     }
 
     pub fn check_current_dca_interval_can_be_fulfilled(
