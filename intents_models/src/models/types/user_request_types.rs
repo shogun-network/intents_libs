@@ -4,7 +4,7 @@ use crate::models::types::cross_chain::{
     CrossChainLimitOrderGenericRequestData, CrossChainLimitOrderUserIntentRequest,
 };
 use crate::models::types::single_chain::{
-    SingleChainDcaOrderIntentRequest, SingleChainLimitOrderGenericRequestData,
+    SingleChainDcaOrderUserIntentRequest, SingleChainLimitOrderGenericRequestData,
     SingleChainLimitOrderUserIntentRequest,
 };
 use crate::models::types::user_types::IntentRequest;
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 /// Main purpose is to pass data which `IntentRequest` doesn't have (like `execution_details`)
 pub enum UserIntentRequest {
     SingleChainLimitOrder(SingleChainLimitOrderUserIntentRequest),
-    SingleChainDcaOrder(SingleChainDcaOrderIntentRequest),
+    SingleChainDcaOrder(SingleChainDcaOrderUserIntentRequest),
     CrossChainLimitOrder(CrossChainLimitOrderUserIntentRequest),
     // CrossChainDcaOrder(CrossChainDcaOrderUserIntentRequest),
 }
