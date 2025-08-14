@@ -46,3 +46,20 @@ pub struct OrderExecutionData {
     /// Transaction timestamp, in seconds
     pub tx_timestamp: u64,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type")]
+/// Fulfillment data for a specific order type
+pub enum OrderTypeFulfillmentData {
+    /// Limit order (no extra data).
+    Limit,
+    /// DCA order fulfillment details.
+    Dca(DcaOrderFulfillmentData),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+/// DCA order fulfillment details.
+pub struct DcaOrderFulfillmentData {
+    /// Fulfilled interval number
+    pub interval_number: u32,
+}
