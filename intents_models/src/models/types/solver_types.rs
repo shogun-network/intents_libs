@@ -148,7 +148,7 @@ pub struct StartOrderEVMData {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "type")]
+#[serde(untagged)]
 /// Type-specific order data required for execution start
 pub enum StartEvmOrderTypeData {
     SingleChainLimit(StartEvmSingleChainLimitOrderData),

@@ -56,7 +56,7 @@ impl Deref for WsAuctioneerMessage {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(tag = "type")]
+#[serde(untagged)]
 pub enum WsAuctioneerMessageInner {
     RegisterResponse(RegisterResponseData),
     AuctionRequest(AuctionRequest),
