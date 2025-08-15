@@ -3,7 +3,7 @@ use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::CrossChainGenericData;
 use crate::models::types::cross_chain::CrossChainIntentRequest;
 use crate::models::types::cross_chain::CrossChainLimitOrderIntentRequest;
-use crate::models::types::order::OrderType;
+use crate::models::types::order::{DcaOrderFulfillmentData, OrderType, OrderTypeFulfillmentData};
 use crate::models::types::single_chain::SingleChainLimitOrderIntentRequest;
 use crate::models::types::single_chain::{
     SingleChainDcaOrderIntentRequest, SingleChainIntentRequest,
@@ -185,6 +185,23 @@ impl IntentRequest {
                 .generic_data
                 .common_limit_order_data
                 .check_order_can_be_fulfilled(),
+        }
+    }
+    pub fn get_order_type_fulfillment_data(&self) -> OrderTypeFulfillmentData {
+        match self {
+            IntentRequest::SingleChainLimitOrder(_) | IntentRequest::CrossChainLimitOrder(_) => {
+                OrderTypeFulfillmentData::Limit
+            }
+            // Wa assume next interval number is requested to be fulfilled
+            IntentRequest::SingleChainDcaOrder(intent) => {
+                OrderTypeFulfillmentData::Dca(DcaOrderFulfillmentData {
+                    interval_number: intent
+                        .generic_data
+                        .common_dca_state
+                        .total_executed_intervals
+                        + 1,
+                })
+            }
         }
     }
 }

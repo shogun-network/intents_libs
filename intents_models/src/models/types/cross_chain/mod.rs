@@ -1,5 +1,5 @@
 use crate::constants::chains::ChainId;
-use crate::models::types::order::OrderType;
+use crate::models::types::order::{OrderType, OrderTypeFulfillmentData};
 use serde::{Deserialize, Serialize};
 
 mod common;
@@ -125,6 +125,11 @@ impl CrossChainSolverStartPermissionEnum {
             CrossChainSolverStartPermissionEnum::Limit(permission) => {
                 &permission.common_data.src_chain_specific_data
             }
+        }
+    }
+    pub fn get_order_type_fulfillment_data(&self) -> OrderTypeFulfillmentData {
+        match self {
+            CrossChainSolverStartPermissionEnum::Limit(_) => OrderTypeFulfillmentData::Limit,
         }
     }
 
