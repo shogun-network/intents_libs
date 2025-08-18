@@ -1,6 +1,6 @@
+use crate::models::types::order::OrderTypeFulfillmentData;
 use crate::models::types::{order::OrderType, single_chain::SingleChainSolverExecutionDetailsEnum};
 use serde::{Deserialize, Serialize};
-use crate::models::types::order::OrderTypeFulfillmentData;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum WsSolverMessage {
