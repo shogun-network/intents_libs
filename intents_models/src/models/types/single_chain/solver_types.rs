@@ -1,5 +1,6 @@
 use crate::models::types::single_chain::{
-    SingleChainLimitOrderExecutionDetails, SingleChainOrderExecutionDetails,
+    SingleChainDcaOrderExecutionDetails, SingleChainLimitOrderExecutionDetails,
+    SingleChainOrderExecutionDetails,
 };
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -9,13 +10,14 @@ use serde_with::{DisplayFromStr, serde_as};
 /// Set of data to check single chain order execution
 pub enum SingleChainSolverExecutionDetailsEnum {
     Limit(SingleChainLimitOrderExecutionDetails),
-    // Dca(SingleChainDcaOrderExecutionDetails),
+    Dca(SingleChainDcaOrderExecutionDetails),
 }
 
 impl SingleChainSolverExecutionDetailsEnum {
     pub fn get_common_data(&self) -> &SingleChainOrderExecutionDetails {
         match self {
             SingleChainSolverExecutionDetailsEnum::Limit(details) => &details.common_data,
+            SingleChainSolverExecutionDetailsEnum::Dca(details) => &details.common_data,
         }
     }
 }

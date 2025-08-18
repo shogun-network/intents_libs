@@ -3,6 +3,7 @@ use crate::models::types::cross_chain::{
     CrossChainGenericDataEnum, EvmCrossChainFulfillmentData,
     EvmSuccessConfirmationCrossChainLimitOrderData,
 };
+use crate::models::types::order::OrderTypeFulfillmentData;
 use crate::models::types::solver_types::{StartOrderEVMData, StartOrderSolanaData};
 use error_stack::report;
 use serde::{Deserialize, Serialize};
@@ -195,10 +196,14 @@ pub struct AmountInconsistency {
 /// Success confirmation, provided to Solver after successful order execution.
 /// Allows Solver to claim tokens in source chain
 pub struct CrossChainSolverSuccessConfirmation {
+    /// Unique order identifier
+    pub order_id: String,
     /// Solver address that executed the intent
     pub src_chain_solver_address: String,
     /// Contains the common data for the intent
     pub generic_data: CrossChainGenericDataEnum,
+    /// Fulfillment data for a specific order type
+    pub order_type_specific_data: OrderTypeFulfillmentData,
     /// Contains chain-specific data
     pub chain_specific_data: SolverSuccessConfirmationData,
 }

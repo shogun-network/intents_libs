@@ -1,3 +1,4 @@
+mod dca_order;
 mod fulfillment;
 mod limit_order;
 mod limit_order_request;
@@ -5,6 +6,7 @@ mod limit_order_request;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
 
+pub use dca_order::*;
 pub use fulfillment::*;
 pub use limit_order::*;
 pub use limit_order_request::*;

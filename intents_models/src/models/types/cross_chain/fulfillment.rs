@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
-use serde_with::{serde_as, DisplayFromStr};
 use crate::models::types::common::{EvmCallMode, TransferDetails};
+use serde::{Deserialize, Serialize};
+use serde_with::{DisplayFromStr, serde_as};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 /// Requested EVM fulfillment data

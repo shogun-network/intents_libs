@@ -6,7 +6,8 @@ use crate::models::types::cross_chain::{
 };
 use crate::models::types::order::OrderType;
 use crate::models::types::single_chain::{
-    SingleChainChainSpecificData, SingleChainIntentRequest, SingleChainLimitOrderIntentRequest,
+    SingleChainChainSpecificData, SingleChainDcaOrderIntentRequest, SingleChainIntentRequest,
+    SingleChainLimitOrderIntentRequest, SingleChainUserDcaOrderResponse,
     SingleChainUserLimitOrderResponse,
 };
 use crate::models::types::user_types::IntentRequest;
@@ -82,6 +83,27 @@ impl OnChainOrderDataRequest {
         })
     }
 
+    pub fn try_from_single_chain_dca_order_response(
+        intent: &SingleChainUserDcaOrderResponse,
+    ) -> ModelResult<Self> {
+        Ok(Self {
+            order_id: intent.order_id.to_string(),
+            chain_id: intent.generic_data.common_data.chain_id,
+            order_type: OrderType::SingleChainDCAOrder,
+            chain_data: match intent.generic_data.common_data.chain_id.to_chain_type() {
+                ChainType::EVM => OnChainOrderDataRequestChainData::EVM {
+                    user_address: intent.generic_data.common_data.user.clone(),
+                    nonce: intent
+                        .nonce
+                        .clone()
+                        .ok_or(Error::LogicError("Nonce is not provided".to_string()))?,
+                },
+                ChainType::Solana => OnChainOrderDataRequestChainData::Solana,
+                ChainType::Sui => OnChainOrderDataRequestChainData::Sui,
+            },
+        })
+    }
+
     pub fn try_from_cross_chain_limit_order_response(
         intent: &CrossChainUserLimitOrderResponse,
     ) -> ModelResult<Self> {
@@ -108,6 +130,7 @@ impl From<&IntentRequest> for OnChainOrderDataRequestChainData {
     fn from(intent: &IntentRequest) -> Self {
         match intent {
             IntentRequest::SingleChainLimitOrder(i) => Self::from(i),
+            IntentRequest::SingleChainDcaOrder(i) => Self::from(i),
             IntentRequest::CrossChainLimitOrder(i) => Self::from(i),
         }
     }
@@ -115,15 +138,16 @@ impl From<&IntentRequest> for OnChainOrderDataRequestChainData {
 
 impl From<&SingleChainIntentRequest> for OnChainOrderDataRequestChainData {
     fn from(intent: &SingleChainIntentRequest) -> Self {
-        match intent {
+        match &intent {
             SingleChainIntentRequest::SingleChainLimitOrder(i) => Self::from(i),
+            &SingleChainIntentRequest::SingleChainDcaOrder(i) => Self::from(i),
         }
     }
 }
 
 impl From<&CrossChainIntentRequest> for OnChainOrderDataRequestChainData {
     fn from(intent: &CrossChainIntentRequest) -> Self {
-        match intent {
+        match &intent {
             CrossChainIntentRequest::CrossChainLimitOrder(i) => Self::from(i),
         }
     }
@@ -131,6 +155,15 @@ impl From<&CrossChainIntentRequest> for OnChainOrderDataRequestChainData {
 
 impl From<&SingleChainLimitOrderIntentRequest> for OnChainOrderDataRequestChainData {
     fn from(intent: &SingleChainLimitOrderIntentRequest) -> Self {
+        Self::from_single_chain_values(
+            &intent.chain_specific_data,
+            intent.generic_data.common_data.user.clone(),
+        )
+    }
+}
+
+impl From<&SingleChainDcaOrderIntentRequest> for OnChainOrderDataRequestChainData {
+    fn from(intent: &SingleChainDcaOrderIntentRequest) -> Self {
         Self::from_single_chain_values(
             &intent.chain_specific_data,
             intent.generic_data.common_data.user.clone(),

@@ -11,7 +11,7 @@ pub mod responses;
 
 // Rate Limit
 // Our free API is limited to 30 calls/minute
-const GECKO_TERMINAL_API_URL: &str = "https://api.geckoterminal.com/api/v2";
+pub const GECKO_TERMINAL_API_URL: &str = "https://api.geckoterminal.com/api/v2";
 
 pub trait GeckoTerminalChain {
     fn to_gecko_terminal_chain_name(&self) -> &str;

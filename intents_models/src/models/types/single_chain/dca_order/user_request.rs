@@ -1,5 +1,8 @@
 use crate::models::types::common::{CommonDcaOrderData, CommonDcaOrderState};
-use crate::models::types::single_chain::{SingleChainChainSpecificData, SingleChainGenericData};
+use crate::models::types::single_chain::{
+    SingleChainChainSpecificData, SingleChainDcaOrderGenericData, SingleChainDcaOrderIntentRequest,
+    SingleChainGenericData,
+};
 use crate::models::types::user_types::IntentRequest;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -7,10 +10,10 @@ use serde_with::serde_as;
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// Single chain DCA order intent structure
-pub struct SingleChainDcaOrderIntentRequest {
+/// Single chain dca order intent request, received from the user
+pub struct SingleChainDcaOrderUserIntentRequest {
     /// Contains the common data for the intent
-    pub generic_data: SingleChainDcaOrderGenericData,
+    pub generic_data: SingleChainDcaOrderGenericRequestData,
     /// Contains chain-specific data
     pub chain_specific_data: SingleChainChainSpecificData,
 }
@@ -18,20 +21,17 @@ pub struct SingleChainDcaOrderIntentRequest {
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// Generic data related to the single-chain DCA order
-pub struct SingleChainDcaOrderGenericData {
+/// A structure to hold generic data related to the single chain dca order intent
+pub struct SingleChainDcaOrderGenericRequestData {
     /// User address initiating the intent
     #[serde(flatten)]
     pub common_data: SingleChainGenericData,
-    /// Common DCA order data
+    /// Common dca order data to trigger "take profit" or "stop loss" execution
     #[serde(flatten)]
     pub common_dca_order_data: CommonDcaOrderData,
-    /// Common DCA order state
-    #[serde(flatten)]
-    pub common_dca_state: CommonDcaOrderState,
 }
 
-impl SingleChainDcaOrderIntentRequest {
+impl SingleChainDcaOrderUserIntentRequest {
     pub fn into_into_intent_request(self) -> IntentRequest {
         let generic_data = SingleChainDcaOrderGenericData {
             common_data: SingleChainGenericData {
@@ -44,15 +44,7 @@ impl SingleChainDcaOrderIntentRequest {
                 extra_transfers: self.generic_data.common_data.extra_transfers,
                 deadline: self.generic_data.common_data.deadline,
             },
-            common_dca_order_data: CommonDcaOrderData {
-                start_time: self.generic_data.common_dca_order_data.start_time,
-                amount_in_per_interval: self
-                    .generic_data
-                    .common_dca_order_data
-                    .amount_in_per_interval,
-                total_intervals: self.generic_data.common_dca_order_data.total_intervals,
-                interval_duration: self.generic_data.common_dca_order_data.interval_duration,
-            },
+            common_dca_order_data: self.generic_data.common_dca_order_data,
             common_dca_state: CommonDcaOrderState {
                 total_executed_intervals: 0,
                 last_executed_interval_index: 0,
@@ -63,5 +55,23 @@ impl SingleChainDcaOrderIntentRequest {
             generic_data,
             chain_specific_data: self.chain_specific_data.clone(),
         })
+    }
+}
+
+impl From<SingleChainDcaOrderGenericData> for SingleChainDcaOrderGenericRequestData {
+    fn from(value: SingleChainDcaOrderGenericData) -> Self {
+        Self {
+            common_data: SingleChainGenericData {
+                user: value.common_data.user,
+                chain_id: value.common_data.chain_id,
+                token_in: value.common_data.token_in,
+                token_out: value.common_data.token_out,
+                amount_out_min: value.common_data.amount_out_min,
+                destination_address: value.common_data.destination_address,
+                extra_transfers: value.common_data.extra_transfers,
+                deadline: value.common_data.deadline,
+            },
+            common_dca_order_data: value.common_dca_order_data,
+        }
     }
 }

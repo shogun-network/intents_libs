@@ -9,5 +9,5 @@ pub enum EvmCallMode {
     ApproveAndCall,
     /// Transfer tokens to call target and call it
     /// If token is native (address(0)) use `call` to send tokens
-    TransferAndCall
+    TransferAndCall,
 }

@@ -4,7 +4,8 @@ use crate::models::types::cross_chain::{
     CrossChainLimitOrderGenericRequestData, CrossChainLimitOrderUserIntentRequest,
 };
 use crate::models::types::single_chain::{
-    SingleChainLimitOrderGenericRequestData, SingleChainLimitOrderUserIntentRequest,
+    SingleChainDcaOrderUserIntentRequest, SingleChainLimitOrderGenericRequestData,
+    SingleChainLimitOrderUserIntentRequest,
 };
 use crate::models::types::user_types::IntentRequest;
 use error_stack::report;
@@ -16,7 +17,7 @@ use serde::{Deserialize, Serialize};
 /// Main purpose is to pass data which `IntentRequest` doesn't have (like `execution_details`)
 pub enum UserIntentRequest {
     SingleChainLimitOrder(SingleChainLimitOrderUserIntentRequest),
-    // SingleChainDcaOrder(SingleChainDcaOrderIntentRequest),
+    SingleChainDcaOrder(SingleChainDcaOrderUserIntentRequest),
     CrossChainLimitOrder(CrossChainLimitOrderUserIntentRequest),
     // CrossChainDcaOrder(CrossChainDcaOrderUserIntentRequest),
 }
@@ -25,6 +26,7 @@ impl UserIntentRequest {
     pub fn try_into_intent_request(self) -> ModelResult<IntentRequest> {
         Ok(match self {
             UserIntentRequest::SingleChainLimitOrder(intent) => intent.into_into_intent_request(),
+            UserIntentRequest::SingleChainDcaOrder(intent) => intent.into_into_intent_request(),
             UserIntentRequest::CrossChainLimitOrder(intent) => {
                 intent.try_into_into_intent_request()?
             }
@@ -32,7 +34,8 @@ impl UserIntentRequest {
     }
     pub fn try_get_cross_chain_execution_details(&self) -> ModelResult<String> {
         match self {
-            UserIntentRequest::SingleChainLimitOrder(_) => Err(report!(Error::LogicError(
+            UserIntentRequest::SingleChainLimitOrder(_)
+            | UserIntentRequest::SingleChainDcaOrder(_) => Err(report!(Error::LogicError(
                 "Non-cross-chain data passed".to_string()
             ))),
             UserIntentRequest::CrossChainLimitOrder(intent) => Ok(intent.execution_details.clone()),
