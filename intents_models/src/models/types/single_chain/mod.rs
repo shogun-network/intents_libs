@@ -6,7 +6,7 @@ mod limit_order;
 mod solver_types;
 
 use crate::constants::chains::ChainId;
-use crate::models::types::order::OrderType;
+use crate::models::types::order::{DcaOrderFulfillmentData, OrderType, OrderTypeFulfillmentData};
 use crate::models::types::solver_types::SolverStartPermission;
 use crate::models::types::user_types::IntentRequest;
 pub use common::*;
@@ -125,6 +125,16 @@ impl SingleChainSolverStartPermissionEnum {
             }
             SingleChainSolverStartPermissionEnum::Dca(data) => {
                 SolverStartPermission::SingleChainDca(data)
+            }
+        }
+    }
+    pub fn get_order_type_fulfillment_data(&self) -> OrderTypeFulfillmentData {
+        match self {
+            SingleChainSolverStartPermissionEnum::Limit(_) => OrderTypeFulfillmentData::Limit,
+            SingleChainSolverStartPermissionEnum::Dca(data) => {
+                OrderTypeFulfillmentData::Dca(DcaOrderFulfillmentData {
+                    interval_number: data.interval_number,
+                })
             }
         }
     }
