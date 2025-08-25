@@ -1,0 +1,27 @@
+# codex_tokens_and_prices.graphql
+# Single operation that fetches metadata (EnhancedToken) and prices (Price) in one roundtrip.
+
+query TokensWithPrices(
+  $tokenInputs: [TokenInput!]
+  $priceInputs: [GetPriceInput!]
+) {
+  # Alias 'meta' for clarity in the response
+  meta: tokens(ids: $tokenInputs) {
+    address
+    networkId
+    name
+    symbol
+    decimals
+    # añade aquí lo que necesites de EnhancedToken
+  }
+
+  # Alias 'prices' for clarity
+  prices: getTokenPrices(inputs: $priceInputs) {
+    address
+    networkId
+    priceUsd
+    timestamp
+    poolAddress
+    confidence
+  }
+}
