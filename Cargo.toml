@@ -22,3 +22,5 @@ rustls             = { version = "0.23.28", features = ["ring"] }
 lazy_static        = "1.5.0"
 serde_with         = "3.13.0"
 async-trait        = "0.1.88"
+graphql_client     = "0.14.0"
+dotenv             = "0.15.0"

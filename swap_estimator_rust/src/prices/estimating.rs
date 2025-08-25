@@ -6,8 +6,8 @@ use intents_models::constants::chains::ChainId;
 use crate::{
     error::{Error, EstimatorResult},
     prices::{
-        TokenId, TokenPrice, TokensPriceData, defillama::pricing::DefiLlamaProvider,
-        gecko_terminal::pricing::GeckoTerminalProvider,
+        TokenId, TokenPrice, TokensPriceData, codex::pricing::CodexProvider,
+        defillama::pricing::DefiLlamaProvider, gecko_terminal::pricing::GeckoTerminalProvider,
     },
     utils::number_conversion::{f64_to_u128, u128_to_f64},
 };
@@ -15,6 +15,13 @@ use crate::{
 lazy_static::lazy_static! {
     pub static ref DEFILLAMA_PROVIDER: DefiLlamaProvider = DefiLlamaProvider::new();
     pub static ref GECKO_TERMINAL_PROVIDER: GeckoTerminalProvider = GeckoTerminalProvider::new();
+
+    pub static ref CODEX_PROVIDER: Option<CodexProvider> = {
+        // Load API key from environment variable
+        dotenv::dotenv().ok();
+        let api_key = std::env::var("CODEX_API_KEY").ok()?;
+        Some(CodexProvider::new(api_key))
+    };
 }
 
 #[derive(Debug, Clone)]

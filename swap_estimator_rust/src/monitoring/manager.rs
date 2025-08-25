@@ -14,7 +14,9 @@ use crate::{
     monitoring::messages::{MonitorAlert, MonitorRequest},
     prices::{
         PriceProvider, TokenId, TokenPrice,
-        estimating::{DEFILLAMA_PROVIDER, GECKO_TERMINAL_PROVIDER, OrderEstimationData},
+        estimating::{
+            CODEX_PROVIDER, DEFILLAMA_PROVIDER, GECKO_TERMINAL_PROVIDER, OrderEstimationData,
+        },
     },
     utils::number_conversion::u128_to_f64,
 };
@@ -282,10 +284,22 @@ async fn get_combined_tokens_data(
         .get_tokens_price(token_ids.clone())
         .await;
 
+    let codex_tokens_price = if CODEX_PROVIDER.is_some() {
+        CODEX_PROVIDER
+            .as_ref()
+            .unwrap()
+            .get_tokens_price(token_ids.clone())
+            .await
+    } else {
+        Ok(HashMap::new())
+    };
+
     if let Err(_) = defillama_tokens_price
         && let Err(_) = gecko_terminal_tokens_price
+        && CODEX_PROVIDER.is_some()
+        && let Err(_) = codex_tokens_price
     {
-        tracing::error!("Failed to fetch data from both Defillama and Gecko Terminal");
+        tracing::error!("Failed to fetch data from both Defillama, Gecko Terminal and Codex");
         return Err(Error::ResponseError);
     }
 
@@ -299,6 +313,7 @@ async fn get_combined_tokens_data(
             defillama_tokens_price
         );
     }
+
     if let Ok(gecko_data) = gecko_terminal_tokens_price {
         data.extend(gecko_data);
     } else {
@@ -306,6 +321,12 @@ async fn get_combined_tokens_data(
             "Failed to fetch data from Gecko Terminal: {:?}",
             gecko_terminal_tokens_price
         );
+    }
+
+    if let Ok(codex_data) = codex_tokens_price {
+        data.extend(codex_data);
+    } else {
+        tracing::error!("Failed to fetch data from Codex: {:?}", codex_tokens_price);
     }
     Ok(data)
 }
