@@ -54,6 +54,14 @@ impl SingleChainSolverStartOrderData {
             ))),
         }
     }
+    pub fn try_get_sui_data(&self) -> ModelResult<&SingleChainStartOrderSuiData> {
+        match self {
+            SingleChainSolverStartOrderData::Sui(data) => Ok(data),
+            _ => Err(report!(Error::LogicError(
+                "Non-Sui data passed".to_string()
+            ))),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
