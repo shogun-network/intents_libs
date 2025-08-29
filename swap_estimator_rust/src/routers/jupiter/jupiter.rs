@@ -49,6 +49,25 @@ pub struct QuoteResponse {
     timeTaken: f64,
 }
 
+impl Default for QuoteResponse {
+    fn default() -> Self {
+        QuoteResponse {
+            inputMint: String::new(),
+            inAmount: String::new(),
+            outputMint: String::new(),
+            outAmount: String::new(),
+            otherAmountThreshold: String::new(),
+            swapMode: String::new(),
+            slippageBps: 0,
+            platformFee: None,
+            priceImpactPct: String::new(),
+            routePlan: Vec::new(),
+            contextSlot: 0,
+            timeTaken: 0.0,
+        }
+    }
+}
+
 #[allow(non_snake_case)]
 #[derive(Deserialize, Debug)]
 pub struct JupiterSwapResponse {
@@ -155,9 +174,10 @@ pub async fn get_jupiter_transaction(
         "userPublicKey": generic_swap_request.spender,
         "dynamicComputeUnitLimit": true,
         "dynamicSlippage": true,
+        // TODO: To set this parameter to false, you need to have the WSOL token account initialized. Check this.
         // if destination token mint is requested as wSol, we don't want to unwrap it
         "wrapAndUnwrapSol": generic_swap_request.dest_token.to_string()
-            .ne(&WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS),
+            .ne(&WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS) && generic_swap_request.src_token.to_string().ne(&WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS),
         "destinationTokenAccount": destination_token_account,
     });
     if let Some(priority_fee) = priority_fee {

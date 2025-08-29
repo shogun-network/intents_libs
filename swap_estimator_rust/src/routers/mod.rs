@@ -17,6 +17,8 @@ lazy_static! {
     static ref HTTP_CLIENT: Arc<Client> = Arc::new(Client::new());
 }
 
+// TODO: We can add this calculated quotes and send it to swap functions in order to save another estimation inside swap function, like:
+// expanding the enum RouterType so each variant has its quotes added
 #[derive(Clone, Copy, Debug)]
 pub enum RouterType {
     /// In case no swap is required
@@ -26,6 +28,7 @@ pub enum RouterType {
     Liquidswap,
     Jupiter,
     Aftermath,
+    LaunchPad,
 }
 
 pub fn routers_by_chain(chain: ChainId) -> EstimatorResult<Vec<RouterType>> {
