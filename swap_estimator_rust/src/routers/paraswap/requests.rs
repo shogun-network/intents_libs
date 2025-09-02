@@ -1,10 +1,10 @@
-use super::responses::PriceRoute;
 use super::update_paraswap_native_token;
 use crate::{
     error::{Error, EstimatorResult},
     routers::{estimate::TradeType, swap::GenericSwapRequest},
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone)]
 pub struct ParaswapParams {
@@ -186,7 +186,7 @@ pub struct TransactionsBodyParams {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dest_amount: Option<String>,
     #[serde(rename = "priceRoute")]
-    pub price_route: PriceRoute,
+    pub price_route: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slippage: Option<u32>,
     #[serde(rename = "userAddress")]
@@ -289,7 +289,7 @@ pub struct ParaswapSwapCombinedRequest {
     pub dest_amount: Option<String>,
     #[serde(rename = "priceRoute")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub price_route: Option<PriceRoute>,
+    pub price_route: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slippage: Option<u32>,
     #[serde(rename = "txOrigin")]

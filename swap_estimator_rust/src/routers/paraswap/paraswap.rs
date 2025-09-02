@@ -182,20 +182,24 @@ pub async fn estimate_swap_paraswap_generic(
 /// * Approval address
 pub async fn estimate_amount_paraswap(
     request: GetPriceRouteRequest,
-) -> EstimatorResult<(u128, PriceRoute, String)> {
+) -> EstimatorResult<(u128, Value, String)> {
     let prices = paraswap_prices(request.clone()).await?;
+    let price_route: PriceRoute = serde_json::from_value(prices.price_route.clone())
+        .change_context(Error::SerdeSerialize(
+            "Failed to deserialize Paraswap quote response".to_string(),
+        ))?;
     let amount = match request.side {
         Some(side) => match side {
-            ParaswapSide::BUY => prices.price_route.src_amount.clone(),
-            ParaswapSide::SELL => prices.price_route.dest_amount.clone(),
+            ParaswapSide::BUY => price_route.src_amount.clone(),
+            ParaswapSide::SELL => price_route.dest_amount.clone(),
         },
         // default SELL
-        None => prices.price_route.dest_amount.clone(),
+        None => price_route.dest_amount.clone(),
     };
 
     let amount = amount.parse::<u128>().change_context(Error::ParseError)?;
 
-    let approval_address = prices.price_route.contract_address.clone();
+    let approval_address = price_route.contract_address.clone();
     Ok((amount, prices.price_route, approval_address))
 }
 
