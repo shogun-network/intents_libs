@@ -23,9 +23,9 @@ pub enum SingleChainIntentRequest {
 
 impl SingleChainIntentRequest {
     pub fn get_order_type(&self) -> OrderType {
-        match self {
+        match &self {
             SingleChainIntentRequest::SingleChainLimitOrder(_) => OrderType::SingleChainLimitOrder,
-            &SingleChainIntentRequest::SingleChainDcaOrder(_) => OrderType::SingleChainDCAOrder,
+            SingleChainIntentRequest::SingleChainDcaOrder(_) => OrderType::SingleChainDCAOrder,
         }
     }
     pub fn get_common_data(&self) -> &SingleChainGenericData {

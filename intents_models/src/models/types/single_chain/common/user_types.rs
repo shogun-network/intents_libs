@@ -1,7 +1,7 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
 use crate::models::types::common::TransferDetails;
-use crate::models::types::user_types::{EVMData, SuiData};
+use crate::models::types::user_types::EVMData;
 use error_stack::report;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
@@ -38,9 +38,21 @@ pub enum SingleChainChainSpecificData {
     /// EVM-based chain data (e.g., Ethereum, Binance Smart Chain)
     EVM(EVMData),
     /// Sui-based chain data
-    Sui(SuiData),
+    Sui(SingleChainSuiData),
     /// Solana-based chain data
     Solana(SingleChainSolanaData),
+}
+
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+/// Sui-specific single chain order data
+pub struct SingleChainSuiData {
+    /// Transaction hash for the Sui transaction
+    pub transaction_hash: String,
+    /// Secret number for validating `secret_hash` that is stored on chain
+    #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
+    pub secret_number: u64,
 }
 
 #[serde_as]
@@ -74,7 +86,7 @@ impl SingleChainChainSpecificData {
         }
     }
 
-    pub fn try_get_sui(&self) -> ModelResult<&SuiData> {
+    pub fn try_get_sui(&self) -> ModelResult<&SingleChainSuiData> {
         match self {
             SingleChainChainSpecificData::Sui(sui_data) => Ok(sui_data),
             _ => Err(report!(Error::LogicError(
