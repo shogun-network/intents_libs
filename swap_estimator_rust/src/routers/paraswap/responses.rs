@@ -32,7 +32,7 @@ pub struct TokenInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetPriceRouteResponse {
     #[serde(rename = "priceRoute")]
-    pub price_route: PriceRoute,
+    pub price_route: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
