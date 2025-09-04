@@ -1,8 +1,9 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::{
-    CrossChainExecutionTerms, CrossChainLimitOrderSolverStartPermission,
-    CrossChainSolverStartPermissionEnum, StartEvmCrossChainLimitOrderData,
+    CrossChainDcaOrderSolverStartPermission, CrossChainExecutionTerms,
+    CrossChainLimitOrderSolverStartPermission, CrossChainSolverStartPermissionEnum,
+    StartEvmCrossChainDcaOrderData, StartEvmCrossChainLimitOrderData,
 };
 use crate::models::types::single_chain::{
     SingleChainDcaOrderSolverStartPermission, SingleChainExecutionTerms,
@@ -11,7 +12,7 @@ use crate::models::types::single_chain::{
 };
 use error_stack::report;
 use serde::{Deserialize, Serialize};
-
+use crate::models::types::order::{DcaOrderFulfillmentData, OrderTypeFulfillmentData};
 /*********************************************************************/
 /**************************** START ORDER ****************************/
 /*********************************************************************/
@@ -50,7 +51,7 @@ pub enum SolverStartPermission {
     SingleChainLimit(SingleChainLimitOrderSolverStartPermission),
     SingleChainDca(SingleChainDcaOrderSolverStartPermission),
     CrossChainLimit(CrossChainLimitOrderSolverStartPermission),
-    // CrossChainDca(CrossChainDcaOrderSolverStartPermission), todo
+    CrossChainDca(CrossChainDcaOrderSolverStartPermission),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -73,6 +74,9 @@ impl SolverStartPermission {
             SolverStartPermission::CrossChainLimit(permission) => {
                 permission.common_data.expected_amount_out
             }
+            SolverStartPermission::CrossChainDca(permission) => {
+                permission.common_data.expected_amount_out
+            }
         }
     }
     pub fn get_src_chain_id(&self) -> ChainId {
@@ -84,6 +88,9 @@ impl SolverStartPermission {
                 permission.generic_data.common_data.chain_id
             }
             SolverStartPermission::CrossChainLimit(permission) => {
+                permission.generic_data.common_data.src_chain_id
+            }
+            SolverStartPermission::CrossChainDca(permission) => {
                 permission.generic_data.common_data.src_chain_id
             }
         }
@@ -99,12 +106,18 @@ impl SolverStartPermission {
             SolverStartPermission::CrossChainLimit(permission) => {
                 permission.generic_data.common_data.dest_chain_id
             }
+            SolverStartPermission::CrossChainDca(permission) => {
+                permission.generic_data.common_data.dest_chain_id
+            }
         }
     }
     pub fn try_into_cross_chain(self) -> ModelResult<CrossChainSolverStartPermissionEnum> {
         match self {
             SolverStartPermission::CrossChainLimit(permission) => {
                 Ok(CrossChainSolverStartPermissionEnum::Limit(permission))
+            }
+            SolverStartPermission::CrossChainDca(permission) => {
+                Ok(CrossChainSolverStartPermissionEnum::Dca(permission))
             }
             SolverStartPermission::SingleChainLimit(_)
             | SolverStartPermission::SingleChainDca(_) => Err(report!(Error::LogicError(
@@ -129,6 +142,23 @@ impl SolverStartPermission {
                     CrossChainSolverStartPermissionEnum::Limit(permission),
                 )
             }
+            SolverStartPermission::CrossChainDca(permission) => {
+                SolverStartPermissionChainNumber::CrossChain(
+                    CrossChainSolverStartPermissionEnum::Dca(permission),
+                )
+            }
+        }
+    }
+
+    pub fn get_order_type_fulfillment_data(&self) -> OrderTypeFulfillmentData {
+        match &self {
+            SolverStartPermission::SingleChainLimit(_) | SolverStartPermission::CrossChainLimit(_) => OrderTypeFulfillmentData::Limit,
+            SolverStartPermission::SingleChainDca(permission) => OrderTypeFulfillmentData::Dca(
+                DcaOrderFulfillmentData { interval_number: permission.interval_number }
+            ),
+            SolverStartPermission::CrossChainDca(permission) => OrderTypeFulfillmentData::Dca(
+                DcaOrderFulfillmentData { interval_number: permission.interval_number }
+            ),
         }
     }
 }
@@ -154,7 +184,7 @@ pub enum StartEvmOrderTypeData {
     SingleChainLimit(StartEvmSingleChainLimitOrderData),
     SingleChainDca(StartEvmSingleChainDcaOrderData),
     CrossChainLimit(StartEvmCrossChainLimitOrderData),
-    // CrossChainDca(StartEvmCrossChainDcaOrderData), // todo
+    CrossChainDca(StartEvmCrossChainDcaOrderData),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

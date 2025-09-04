@@ -1,13 +1,11 @@
-use crate::constants::chains::ChainId;
-use crate::models::types::order::{OrderType, OrderTypeFulfillmentData};
-use serde::{Deserialize, Serialize};
-
 mod common;
 mod dca_orders;
 mod fulfillment;
 mod limit_orders;
 mod order;
 
+use crate::constants::chains::ChainId;
+use crate::models::types::order::{DcaOrderFulfillmentData, OrderType, OrderTypeFulfillmentData};
 use crate::models::types::solver_types::SolverStartPermission;
 use crate::models::types::user_types::IntentRequest;
 pub use common::*;
@@ -15,23 +13,29 @@ pub use dca_orders::*;
 pub use fulfillment::*;
 pub use limit_orders::*;
 pub use order::*;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum CrossChainIntentRequest {
     CrossChainLimitOrder(CrossChainLimitOrderIntentRequest),
-    // CrossChainDcaOrder(CrossChainDcaOrderIntentRequest), todo
+    CrossChainDcaOrder(CrossChainDcaOrderIntentRequest),
 }
 
 impl CrossChainIntentRequest {
     pub fn get_order_type(&self) -> OrderType {
         match self {
             CrossChainIntentRequest::CrossChainLimitOrder(_) => OrderType::CrossChainLimitOrder,
+            &CrossChainIntentRequest::CrossChainDcaOrder(_) => OrderType::CrossChainDCAOrder,
         }
     }
     pub fn get_common_data(&self) -> (&CrossChainGenericData, &CrossChainChainSpecificData) {
         match self {
             CrossChainIntentRequest::CrossChainLimitOrder(intent) => (
+                &intent.generic_data.common_data,
+                &intent.chain_specific_data,
+            ),
+            CrossChainIntentRequest::CrossChainDcaOrder(intent) => (
                 &intent.generic_data.common_data,
                 &intent.chain_specific_data,
             ),
@@ -42,6 +46,9 @@ impl CrossChainIntentRequest {
             CrossChainIntentRequest::CrossChainLimitOrder(intent) => {
                 intent.generic_data.common_data.src_chain_id
             }
+            CrossChainIntentRequest::CrossChainDcaOrder(intent) => {
+                intent.generic_data.common_data.src_chain_id
+            }
         }
     }
     pub fn into_intent_request(self) -> IntentRequest {
@@ -49,12 +56,18 @@ impl CrossChainIntentRequest {
             CrossChainIntentRequest::CrossChainLimitOrder(intent) => {
                 IntentRequest::CrossChainLimitOrder(intent)
             }
+            CrossChainIntentRequest::CrossChainDcaOrder(intent) => {
+                IntentRequest::CrossChainDcaOrder(intent)
+            }
         }
     }
 
     pub fn get_amount_out_min(&self) -> u128 {
         match self {
             CrossChainIntentRequest::CrossChainLimitOrder(intent) => {
+                intent.generic_data.common_data.amount_out_min
+            }
+            CrossChainIntentRequest::CrossChainDcaOrder(intent) => {
                 intent.generic_data.common_data.amount_out_min
             }
         }
@@ -87,7 +100,7 @@ impl CrossChainGenericDataEnum {
 #[serde(tag = "type")]
 pub enum CrossChainSolverStartPermissionEnum {
     Limit(CrossChainLimitOrderSolverStartPermission),
-    // Dca(CrossChainDcaOrderSolverStartPermission), todo
+    Dca(CrossChainDcaOrderSolverStartPermission),
 }
 
 impl CrossChainSolverStartPermissionEnum {
@@ -96,6 +109,12 @@ impl CrossChainSolverStartPermissionEnum {
             CrossChainSolverStartPermissionEnum::Limit(permission) => {
                 permission.generic_data.amount_in
             }
+            CrossChainSolverStartPermissionEnum::Dca(permission) => {
+                permission
+                    .generic_data
+                    .common_dca_order_data
+                    .amount_in_per_interval
+            }
         }
     }
     pub fn get_src_chain_id(&self) -> ChainId {
@@ -103,11 +122,17 @@ impl CrossChainSolverStartPermissionEnum {
             CrossChainSolverStartPermissionEnum::Limit(permission) => {
                 permission.generic_data.common_data.src_chain_id
             }
+            CrossChainSolverStartPermissionEnum::Dca(permission) => {
+                permission.generic_data.common_data.src_chain_id
+            }
         }
     }
     pub fn get_dest_chain_id(&self) -> ChainId {
         match self {
             CrossChainSolverStartPermissionEnum::Limit(permission) => {
+                permission.generic_data.common_data.dest_chain_id
+            }
+            CrossChainSolverStartPermissionEnum::Dca(permission) => {
                 permission.generic_data.common_data.dest_chain_id
             }
         }
@@ -118,6 +143,10 @@ impl CrossChainSolverStartPermissionEnum {
                 &permission.common_data,
                 &permission.generic_data.common_data,
             ),
+            CrossChainSolverStartPermissionEnum::Dca(permission) => (
+                &permission.common_data,
+                &permission.generic_data.common_data,
+            ),
         }
     }
     pub fn get_chain_specific_data(&self) -> &CrossChainSolverStartOrderData {
@@ -125,11 +154,24 @@ impl CrossChainSolverStartPermissionEnum {
             CrossChainSolverStartPermissionEnum::Limit(permission) => {
                 &permission.common_data.src_chain_specific_data
             }
+            CrossChainSolverStartPermissionEnum::Dca(permission) => {
+                &permission.common_data.src_chain_specific_data
+            }
         }
     }
     pub fn get_order_type_fulfillment_data(&self) -> OrderTypeFulfillmentData {
         match self {
             CrossChainSolverStartPermissionEnum::Limit(_) => OrderTypeFulfillmentData::Limit,
+            // Wa assume next interval number is requested to be fulfilled
+            CrossChainSolverStartPermissionEnum::Dca(intent) => {
+                OrderTypeFulfillmentData::Dca(DcaOrderFulfillmentData {
+                    interval_number: intent
+                        .generic_data
+                        .common_dca_state
+                        .total_executed_intervals
+                        + 1,
+                })
+            }
         }
     }
 
@@ -137,6 +179,9 @@ impl CrossChainSolverStartPermissionEnum {
         match self {
             CrossChainSolverStartPermissionEnum::Limit(permission) => {
                 SolverStartPermission::CrossChainLimit(permission)
+            }
+            CrossChainSolverStartPermissionEnum::Dca(permission) => {
+                SolverStartPermission::CrossChainDca(permission)
             }
         }
     }
@@ -146,13 +191,14 @@ impl CrossChainSolverStartPermissionEnum {
 /// Collected on chain order data about current on chain order state
 pub enum CrossChainOnChainOrderDataEnum {
     CrossChainLimitOrder(CrossChainOnChainLimitOrderData),
-    // CrossChainDcaOrder(CrossChainOnChainDcaOrderData), todo
+    CrossChainDcaOrder(CrossChainOnChainDcaOrderData),
 }
 
 impl CrossChainOnChainOrderDataEnum {
     pub fn get_common_data(&self) -> &CrossChainOnChainOrderData {
         match self {
             CrossChainOnChainOrderDataEnum::CrossChainLimitOrder(data) => &data.common_data,
+            CrossChainOnChainOrderDataEnum::CrossChainDcaOrder(data) => &data.common_data,
         }
     }
 }

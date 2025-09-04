@@ -1,8 +1,8 @@
 use crate::constants::chains::{ChainId, ChainType};
 use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::{
-    CrossChainChainSpecificData, CrossChainIntentRequest, CrossChainLimitOrderIntentRequest,
-    CrossChainUserLimitOrderResponse,
+    CrossChainChainSpecificData, CrossChainDcaOrderIntentRequest, CrossChainIntentRequest,
+    CrossChainLimitOrderIntentRequest, CrossChainUserLimitOrderResponse,
 };
 use crate::models::types::order::OrderType;
 use crate::models::types::single_chain::{
@@ -132,6 +132,7 @@ impl From<&IntentRequest> for OnChainOrderDataRequestChainData {
             IntentRequest::SingleChainLimitOrder(i) => Self::from(i),
             IntentRequest::SingleChainDcaOrder(i) => Self::from(i),
             IntentRequest::CrossChainLimitOrder(i) => Self::from(i),
+            IntentRequest::CrossChainDcaOrder(i) => Self::from(i),
         }
     }
 }
@@ -149,6 +150,7 @@ impl From<&CrossChainIntentRequest> for OnChainOrderDataRequestChainData {
     fn from(intent: &CrossChainIntentRequest) -> Self {
         match &intent {
             CrossChainIntentRequest::CrossChainLimitOrder(i) => Self::from(i),
+            CrossChainIntentRequest::CrossChainDcaOrder(i) => Self::from(i),
         }
     }
 }
@@ -173,6 +175,15 @@ impl From<&SingleChainDcaOrderIntentRequest> for OnChainOrderDataRequestChainDat
 
 impl From<&CrossChainLimitOrderIntentRequest> for OnChainOrderDataRequestChainData {
     fn from(intent: &CrossChainLimitOrderIntentRequest) -> Self {
+        Self::from_cross_chain_values(
+            &intent.chain_specific_data,
+            intent.generic_data.common_data.user.clone(),
+        )
+    }
+}
+
+impl From<&CrossChainDcaOrderIntentRequest> for OnChainOrderDataRequestChainData {
+    fn from(intent: &CrossChainDcaOrderIntentRequest) -> Self {
         Self::from_cross_chain_values(
             &intent.chain_specific_data,
             intent.generic_data.common_data.user.clone(),
