@@ -103,6 +103,7 @@ pub struct EvmCrossChainLimitSolverPermission {
     pub collateral_amount: u128,
     #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
     pub protocol_fee: u128,
+    pub protocol_fee_receiver: String,
     pub allow_swap: bool,
     #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
     pub min_stablecoins_amount: u128,
