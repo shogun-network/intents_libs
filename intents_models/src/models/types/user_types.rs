@@ -1,8 +1,8 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
-use crate::models::types::cross_chain::CrossChainGenericData;
 use crate::models::types::cross_chain::CrossChainIntentRequest;
 use crate::models::types::cross_chain::CrossChainLimitOrderIntentRequest;
+use crate::models::types::cross_chain::{CrossChainDcaOrderIntentRequest, CrossChainGenericData};
 use crate::models::types::order::{DcaOrderFulfillmentData, OrderType, OrderTypeFulfillmentData};
 use crate::models::types::single_chain::SingleChainLimitOrderIntentRequest;
 use crate::models::types::single_chain::{
@@ -18,7 +18,7 @@ pub enum IntentRequest {
     SingleChainLimitOrder(SingleChainLimitOrderIntentRequest),
     SingleChainDcaOrder(SingleChainDcaOrderIntentRequest),
     CrossChainLimitOrder(CrossChainLimitOrderIntentRequest),
-    // CrossChainDcaOrder(CrossChainDcaOrderIntentRequest), todo
+    CrossChainDcaOrder(CrossChainDcaOrderIntentRequest),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -35,12 +35,16 @@ impl IntentRequest {
             IntentRequest::SingleChainLimitOrder(_) => OrderType::SingleChainLimitOrder,
             IntentRequest::SingleChainDcaOrder(_) => OrderType::SingleChainDCAOrder,
             IntentRequest::CrossChainLimitOrder(_) => OrderType::CrossChainLimitOrder,
+            IntentRequest::CrossChainDcaOrder(_) => OrderType::CrossChainDCAOrder,
         }
     }
     pub fn try_into_cross_chain(self) -> ModelResult<CrossChainIntentRequest> {
         match self {
             IntentRequest::CrossChainLimitOrder(intent) => {
                 Ok(CrossChainIntentRequest::CrossChainLimitOrder(intent))
+            }
+            IntentRequest::CrossChainDcaOrder(intent) => {
+                Ok(CrossChainIntentRequest::CrossChainDcaOrder(intent))
             }
             IntentRequest::SingleChainLimitOrder(_) | IntentRequest::SingleChainDcaOrder(_) => {
                 Err(report!(Error::LogicError(
@@ -51,9 +55,11 @@ impl IntentRequest {
     }
     pub fn try_into_single_chain(self) -> ModelResult<SingleChainIntentRequest> {
         match self {
-            IntentRequest::CrossChainLimitOrder(_) => Err(report!(Error::LogicError(
-                "Non-single-chain intent passed".to_string()
-            ))),
+            IntentRequest::CrossChainLimitOrder(_) | IntentRequest::CrossChainDcaOrder(_) => {
+                Err(report!(Error::LogicError(
+                    "Non-single-chain intent passed".to_string()
+                )))
+            }
             IntentRequest::SingleChainLimitOrder(intent) => {
                 Ok(SingleChainIntentRequest::SingleChainLimitOrder(intent))
             }
@@ -73,11 +79,15 @@ impl IntentRequest {
             IntentRequest::CrossChainLimitOrder(intent) => IntentRequestChainsNum::CrossChain(
                 CrossChainIntentRequest::CrossChainLimitOrder(intent),
             ),
+            IntentRequest::CrossChainDcaOrder(intent) => IntentRequestChainsNum::CrossChain(
+                CrossChainIntentRequest::CrossChainDcaOrder(intent),
+            ),
         }
     }
     pub fn try_get_cross_chain_common_data(&self) -> ModelResult<&CrossChainGenericData> {
         match self {
             IntentRequest::CrossChainLimitOrder(intent) => Ok(&intent.generic_data.common_data),
+            IntentRequest::CrossChainDcaOrder(intent) => Ok(&intent.generic_data.common_data),
             IntentRequest::SingleChainLimitOrder(_) | IntentRequest::SingleChainDcaOrder(_) => {
                 Err(report!(Error::LogicError(
                     "Non-cross-chain intent passed".to_string()
@@ -94,6 +104,9 @@ impl IntentRequest {
             IntentRequest::CrossChainLimitOrder(intent) => {
                 intent.generic_data.common_data.src_chain_id
             }
+            IntentRequest::CrossChainDcaOrder(intent) => {
+                intent.generic_data.common_data.src_chain_id
+            }
         }
     }
     pub fn get_dest_chain(&self) -> ChainId {
@@ -103,6 +116,9 @@ impl IntentRequest {
             }
             IntentRequest::SingleChainDcaOrder(intent) => intent.generic_data.common_data.chain_id,
             IntentRequest::CrossChainLimitOrder(intent) => {
+                intent.generic_data.common_data.dest_chain_id
+            }
+            IntentRequest::CrossChainDcaOrder(intent) => {
                 intent.generic_data.common_data.dest_chain_id
             }
         }
@@ -119,6 +135,12 @@ impl IntentRequest {
                     * intent.generic_data.common_dca_order_data.total_intervals as u128
             }
             IntentRequest::CrossChainLimitOrder(intent) => intent.generic_data.amount_in,
+            IntentRequest::CrossChainDcaOrder(intent) => {
+                intent
+                    .generic_data
+                    .common_dca_order_data
+                    .amount_in_per_interval
+            }
         }
     }
     pub fn get_amount_out_min(&self) -> u128 {
@@ -130,6 +152,9 @@ impl IntentRequest {
                 intent.generic_data.common_data.amount_out_min
             }
             IntentRequest::CrossChainLimitOrder(intent) => intent.generic_data.get_amount_out_min(),
+            IntentRequest::CrossChainDcaOrder(intent) => {
+                intent.generic_data.common_data.amount_out_min
+            }
         }
     }
     pub fn get_user_address(&self) -> &str {
@@ -137,6 +162,7 @@ impl IntentRequest {
             IntentRequest::SingleChainLimitOrder(intent) => &intent.generic_data.common_data.user,
             IntentRequest::SingleChainDcaOrder(intent) => &intent.generic_data.common_data.user,
             IntentRequest::CrossChainLimitOrder(intent) => &intent.generic_data.common_data.user,
+            IntentRequest::CrossChainDcaOrder(intent) => &intent.generic_data.common_data.user,
         }
     }
     pub fn get_token_in_address(&self) -> &str {
@@ -148,6 +174,7 @@ impl IntentRequest {
             IntentRequest::CrossChainLimitOrder(intent) => {
                 &intent.generic_data.common_data.token_in
             }
+            IntentRequest::CrossChainDcaOrder(intent) => &intent.generic_data.common_data.token_in,
         }
     }
     pub fn get_token_out_address(&self) -> &str {
@@ -161,6 +188,7 @@ impl IntentRequest {
             IntentRequest::CrossChainLimitOrder(intent) => {
                 &intent.generic_data.common_data.token_out
             }
+            IntentRequest::CrossChainDcaOrder(intent) => &intent.generic_data.common_data.token_out,
         }
     }
     pub fn get_deadline(&self) -> u64 {
@@ -170,6 +198,7 @@ impl IntentRequest {
             }
             IntentRequest::SingleChainDcaOrder(intent) => intent.generic_data.common_data.deadline,
             IntentRequest::CrossChainLimitOrder(intent) => intent.generic_data.common_data.deadline,
+            IntentRequest::CrossChainDcaOrder(intent) => intent.generic_data.common_data.deadline,
         }
     }
 
@@ -185,6 +214,7 @@ impl IntentRequest {
                 .generic_data
                 .common_limit_order_data
                 .check_order_can_be_fulfilled(),
+            IntentRequest::CrossChainDcaOrder(_) => Ok(()),
         }
     }
     pub fn get_order_type_fulfillment_data(&self) -> OrderTypeFulfillmentData {
@@ -194,6 +224,16 @@ impl IntentRequest {
             }
             // Wa assume next interval number is requested to be fulfilled
             IntentRequest::SingleChainDcaOrder(intent) => {
+                OrderTypeFulfillmentData::Dca(DcaOrderFulfillmentData {
+                    interval_number: intent
+                        .generic_data
+                        .common_dca_state
+                        .total_executed_intervals
+                        + 1,
+                })
+            }
+            // Wa assume next interval number is requested to be fulfilled
+            IntentRequest::CrossChainDcaOrder(intent) => {
                 OrderTypeFulfillmentData::Dca(DcaOrderFulfillmentData {
                     interval_number: intent
                         .generic_data
