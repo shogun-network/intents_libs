@@ -19,7 +19,7 @@ lazy_static! {
 
 // TODO: We can add this calculated quotes and send it to swap functions in order to save another estimation inside swap function, like:
 // expanding the enum RouterType so each variant has its quotes added
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RouterType {
     /// In case no swap is required
     SimpleTransfer,
@@ -29,6 +29,7 @@ pub enum RouterType {
     Jupiter,
     Aftermath,
     LaunchPad,
+    PumpFun,
 }
 
 pub fn routers_by_chain(chain: ChainId) -> EstimatorResult<Vec<RouterType>> {

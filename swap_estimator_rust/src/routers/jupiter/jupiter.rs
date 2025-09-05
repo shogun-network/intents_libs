@@ -174,10 +174,8 @@ pub async fn get_jupiter_transaction(
         "userPublicKey": generic_swap_request.spender,
         "dynamicComputeUnitLimit": true,
         "dynamicSlippage": true,
-        // TODO: To set this parameter to false, you need to have the WSOL token account initialized. Check this.
-        // if destination token mint is requested as wSol, we don't want to unwrap it
         "wrapAndUnwrapSol": generic_swap_request.dest_token.to_string()
-            .ne(&WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS) && generic_swap_request.src_token.to_string().ne(&WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS),
+            .ne(&WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS),
         "destinationTokenAccount": destination_token_account,
     });
     if let Some(priority_fee) = priority_fee {
