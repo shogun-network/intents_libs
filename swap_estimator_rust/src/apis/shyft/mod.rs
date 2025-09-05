@@ -9,7 +9,7 @@ use crate::{
 
 pub mod responses;
 
-async fn get_pump_fun_pools_by_liquidity_pair(
+pub async fn get_pump_fun_pools_by_liquidity_pair(
     api_key: &str,
     mint_a: &str,
     mint_b: &str,

@@ -11,6 +11,7 @@ pub enum ShyftResponse {
 
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
+#[allow(non_snake_case)]
 pub enum ShyftResponseData {
     PumpPoolData {
         pump_fun_amm_Pool: Vec<PumpPoolData>,
