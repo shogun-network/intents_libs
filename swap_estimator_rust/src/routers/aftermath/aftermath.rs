@@ -84,7 +84,9 @@ pub async fn quote_aftermath_swap(
         },
         TradeType::ExactOut => GenericEstimateResponse {
             amount_quote: amount_in as u128,
-            amount_limit: get_limit_amount_u64(trade_type, amount_in, slippage) as u128,
+            // Aftermath exact OUT is in fact exact IN,
+            // so we know exact amount of tokens we're going to spend
+            amount_limit: amount_in as u128,
         },
     };
 
