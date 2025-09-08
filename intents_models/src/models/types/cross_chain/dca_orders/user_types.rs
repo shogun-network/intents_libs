@@ -29,12 +29,7 @@ pub struct CrossChainDcaOrderGenericData {
     #[serde(flatten)]
     pub common_dca_state: CommonDcaOrderState,
 
-    /// INDEX of last interval that was successfully executed
-    ///
-    /// 0 if there was no successful execution yet
-    pub previous_executed_interval_index: u32,
-
     /// Address of the Solver that successfully executed interval with `previous_executed_interval_index` INDEX
     /// None if there was no successful execution yet
-    pub previous_executed_interval_solver: Option<String>,
+    pub last_executed_interval_solver: Option<String>,
 }
