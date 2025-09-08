@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
-use crate::models::types::single_chain::DcaIntervalExecutionResponse;
+use crate::models::types::common::DcaIntervalExecutionResponse;
 use crate::models::types::{order::OrderStatus, single_chain::SingleChainDcaOrderGenericData};
 
 #[serde_as]

@@ -3,7 +3,7 @@ use serde_with::{DisplayFromStr, PickFirst, serde_as};
 
 use crate::models::types::cross_chain::CrossChainLimitOrderGenericData;
 use crate::models::types::order::OrderStatus;
-use crate::models::types::single_chain::DcaIntervalExecutionResponse;
+use crate::models::types::common::DcaIntervalExecutionResponse;
 
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
