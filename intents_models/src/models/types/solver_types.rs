@@ -5,6 +5,7 @@ use crate::models::types::cross_chain::{
     CrossChainLimitOrderSolverStartPermission, CrossChainSolverStartPermissionEnum,
     StartEvmCrossChainDcaOrderData, StartEvmCrossChainLimitOrderData,
 };
+use crate::models::types::order::{DcaOrderFulfillmentData, OrderTypeFulfillmentData};
 use crate::models::types::single_chain::{
     SingleChainDcaOrderSolverStartPermission, SingleChainExecutionTerms,
     SingleChainLimitOrderSolverStartPermission, SingleChainSolverStartPermissionEnum,
@@ -12,7 +13,6 @@ use crate::models::types::single_chain::{
 };
 use error_stack::report;
 use serde::{Deserialize, Serialize};
-use crate::models::types::order::{DcaOrderFulfillmentData, OrderTypeFulfillmentData};
 /*********************************************************************/
 /**************************** START ORDER ****************************/
 /*********************************************************************/
@@ -152,13 +152,18 @@ impl SolverStartPermission {
 
     pub fn get_order_type_fulfillment_data(&self) -> OrderTypeFulfillmentData {
         match &self {
-            SolverStartPermission::SingleChainLimit(_) | SolverStartPermission::CrossChainLimit(_) => OrderTypeFulfillmentData::Limit,
-            SolverStartPermission::SingleChainDca(permission) => OrderTypeFulfillmentData::Dca(
-                DcaOrderFulfillmentData { interval_number: permission.interval_number }
-            ),
-            SolverStartPermission::CrossChainDca(permission) => OrderTypeFulfillmentData::Dca(
-                DcaOrderFulfillmentData { interval_number: permission.interval_number }
-            ),
+            SolverStartPermission::SingleChainLimit(_)
+            | SolverStartPermission::CrossChainLimit(_) => OrderTypeFulfillmentData::Limit,
+            SolverStartPermission::SingleChainDca(permission) => {
+                OrderTypeFulfillmentData::Dca(DcaOrderFulfillmentData {
+                    interval_number: permission.interval_number,
+                })
+            }
+            SolverStartPermission::CrossChainDca(permission) => {
+                OrderTypeFulfillmentData::Dca(DcaOrderFulfillmentData {
+                    interval_number: permission.interval_number,
+                })
+            }
         }
     }
 }

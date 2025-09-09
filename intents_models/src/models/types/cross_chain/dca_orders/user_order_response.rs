@@ -1,8 +1,8 @@
-use serde::{Deserialize, Serialize};
-use serde_with::{DisplayFromStr, PickFirst, serde_as};
 use crate::models::types::common::DcaIntervalExecutionResponse;
 use crate::models::types::cross_chain::CrossChainDcaOrderGenericData;
 use crate::models::types::order::OrderStatus;
+use serde::{Deserialize, Serialize};
+use serde_with::{DisplayFromStr, PickFirst, serde_as};
 
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]

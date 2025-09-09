@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
 
+use crate::models::types::common::DcaIntervalExecutionResponse;
 use crate::models::types::cross_chain::CrossChainLimitOrderGenericData;
 use crate::models::types::order::OrderStatus;
-use crate::models::types::common::DcaIntervalExecutionResponse;
 
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -45,4 +45,5 @@ pub struct CrossChainUserLimitOrderResponse {
     /// The output amount
     #[serde_as(as = "Option<PickFirst<(DisplayFromStr, _)>>")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub amount_out: Option<u128>,}
+    pub amount_out: Option<u128>,
+}

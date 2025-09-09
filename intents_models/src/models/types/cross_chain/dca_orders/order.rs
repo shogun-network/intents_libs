@@ -11,5 +11,4 @@ pub struct CrossChainOnChainDcaOrderData {
     /// Common DCA order state
     #[serde(flatten)]
     pub common_dca_state: CommonDcaOrderState,
-    // todo previous interval? solver? etc?
 }

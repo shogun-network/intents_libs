@@ -1,11 +1,9 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
-use crate::models::types::common::{
-    CommonLimitOrderData, CommonLimitOrderUserRequestData, TransferDetails,
-};
+use crate::models::types::common::{CommonDcaOrderData, CommonDcaOrderState, TransferDetails};
 use crate::models::types::cross_chain::{
-    CrossChainChainSpecificData, CrossChainGenericData, CrossChainLimitOrderGenericData,
-    CrossChainLimitOrderIntentRequest,
+    CrossChainChainSpecificData, CrossChainDcaOrderGenericData, CrossChainDcaOrderIntentRequest,
+    CrossChainGenericData,
 };
 use crate::models::types::user_types::IntentRequest;
 use error_stack::{ResultExt, report};
@@ -16,10 +14,10 @@ use sha2::Digest;
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// Cross chain limit order intent request, received from the user
-pub struct CrossChainLimitOrderUserIntentRequest {
+/// Cross chain dca order intent request, received from the user
+pub struct CrossChainDcaOrderUserIntentRequest {
     /// Contains the common data for the intent
-    pub generic_data: CrossChainLimitOrderGenericRequestData,
+    pub generic_data: CrossChainDcaOrderGenericRequestData,
     /// Contains chain-specific data
     pub chain_specific_data: CrossChainChainSpecificData,
     /// JSON string of additional execution details
@@ -29,8 +27,8 @@ pub struct CrossChainLimitOrderUserIntentRequest {
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// A structure to hold generic data related to the cross chain limit order intent
-pub struct CrossChainLimitOrderGenericRequestData {
+/// A structure to hold generic data related to the cross chain dca order intent
+pub struct CrossChainDcaOrderGenericRequestData {
     /// User address initiating the intent
     pub user: String,
 
@@ -38,9 +36,6 @@ pub struct CrossChainLimitOrderGenericRequestData {
     pub src_chain_id: ChainId,
     /// The token being spent in the operation (e.g., "ETH", "BTC")
     pub token_in: String,
-    /// The amount of the input token to be used in the operation
-    #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
-    pub amount_in: u128,
     /// Minimum amount of stablecoins that Tokens IN may be swapped for
     #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
     pub min_stablecoins_amount: u128,
@@ -50,25 +45,25 @@ pub struct CrossChainLimitOrderGenericRequestData {
     /// SHA-256 hash of `execution_details` JSON String (hex format)
     pub execution_details_hash: String,
 
-    // todo DCA: this is LIMIT order. should we move it to CrossChainLimitOrderExecutionDetails?
-    /// Common limit order data to trigger "take profit" or "stop loss" execution
+    /// Common DCA order data
     #[serde(flatten)]
-    pub common_limit_order_data: CommonLimitOrderUserRequestData,
+    pub common_dca_order_data: CommonDcaOrderData,
 }
 
-impl From<CrossChainLimitOrderGenericData> for CrossChainLimitOrderGenericRequestData {
-    fn from(value: CrossChainLimitOrderGenericData) -> Self {
+impl From<CrossChainDcaOrderGenericData> for CrossChainDcaOrderGenericRequestData {
+    fn from(value: CrossChainDcaOrderGenericData) -> Self {
         Self {
             user: value.common_data.user,
             src_chain_id: value.common_data.src_chain_id,
             token_in: value.common_data.token_in,
-            amount_in: value.amount_in,
             min_stablecoins_amount: value.common_data.min_stablecoins_amount,
             deadline: value.common_data.deadline,
             execution_details_hash: value.common_data.execution_details_hash,
-            common_limit_order_data: CommonLimitOrderUserRequestData {
-                take_profit_min_out: value.common_limit_order_data.take_profit_min_out,
-                stop_loss_max_out: value.common_limit_order_data.stop_loss_max_out,
+            common_dca_order_data: CommonDcaOrderData {
+                start_time: value.common_dca_order_data.start_time,
+                amount_in_per_interval: value.common_dca_order_data.amount_in_per_interval,
+                total_intervals: value.common_dca_order_data.total_intervals,
+                interval_duration: value.common_dca_order_data.interval_duration,
             },
         }
     }
@@ -77,8 +72,8 @@ impl From<CrossChainLimitOrderGenericData> for CrossChainLimitOrderGenericReques
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-/// A structure to hold execution details of cross chain limit order, provided by the user
-pub struct CrossChainLimitOrderExecutionDetails {
+/// A structure to hold execution details of cross chain DCA order, provided by the user
+pub struct CrossChainDcaOrderExecutionDetails {
     /// Destination chain identifier
     pub dest_chain_id: ChainId,
     /// Token to be received after the operation (e.g., "USDT", "DAI")
@@ -93,7 +88,7 @@ pub struct CrossChainLimitOrderExecutionDetails {
     pub extra_transfers: Option<Vec<TransferDetails>>,
 }
 
-impl CrossChainLimitOrderUserIntentRequest {
+impl CrossChainDcaOrderUserIntentRequest {
     pub fn try_into_into_intent_request(self) -> ModelResult<IntentRequest> {
         let mut hasher = sha2::Sha256::new();
         hasher.update(&self.execution_details);
@@ -111,12 +106,12 @@ impl CrossChainLimitOrderUserIntentRequest {
                 .attach_printable("Execution details hash does not match the provided hash."));
         }
 
-        let execution_details: CrossChainLimitOrderExecutionDetails =
+        let execution_details: CrossChainDcaOrderExecutionDetails =
             serde_json::from_str(&self.execution_details)
                 .change_context(Error::ValidationError)
                 .attach_printable("Invalid execution_details object.")?;
 
-        let generic_data = CrossChainLimitOrderGenericData {
+        let generic_data = CrossChainDcaOrderGenericData {
             common_data: CrossChainGenericData {
                 user: self.generic_data.user.clone(),
                 src_chain_id: self.generic_data.src_chain_id,
@@ -130,19 +125,24 @@ impl CrossChainLimitOrderUserIntentRequest {
                 deadline: self.generic_data.deadline,
                 execution_details_hash: self.generic_data.execution_details_hash.clone(),
             },
-            common_limit_order_data: CommonLimitOrderData {
-                take_profit_min_out: self
+            common_dca_order_data: CommonDcaOrderData {
+                start_time: self.generic_data.common_dca_order_data.start_time,
+                amount_in_per_interval: self
                     .generic_data
-                    .common_limit_order_data
-                    .take_profit_min_out,
-                stop_loss_max_out: self.generic_data.common_limit_order_data.stop_loss_max_out,
-                stop_loss_triggered: false,
+                    .common_dca_order_data
+                    .amount_in_per_interval,
+                total_intervals: self.generic_data.common_dca_order_data.total_intervals,
+                interval_duration: self.generic_data.common_dca_order_data.interval_duration,
             },
-            amount_in: self.generic_data.amount_in,
+            common_dca_state: CommonDcaOrderState {
+                total_executed_intervals: 0,
+                last_executed_interval_index: 0,
+            },
+            last_executed_interval_solver: None,
         };
 
-        Ok(IntentRequest::CrossChainLimitOrder(
-            CrossChainLimitOrderIntentRequest {
+        Ok(IntentRequest::CrossChainDcaOrder(
+            CrossChainDcaOrderIntentRequest {
                 generic_data,
                 chain_specific_data: self.chain_specific_data.clone(),
             },
