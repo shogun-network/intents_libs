@@ -35,6 +35,14 @@ pub struct CrossChainUserLimitOrderResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub nonce: Option<String>,
 
-    /// List of DCA interval executions for this order
-    pub interval_executions: Vec<DcaIntervalExecutionResponse>,
-}
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order_fulfillment_timestamp: Option<u64>,
+
+    /// Link to the transaction details.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_hash: Option<String>,
+
+    /// The output amount
+    #[serde_as(as = "Option<PickFirst<(DisplayFromStr, _)>>")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amount_out: Option<u128>,}
