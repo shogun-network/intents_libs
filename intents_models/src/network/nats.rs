@@ -6,6 +6,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use std::future::Future;
 use std::marker::PhantomData;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use crate::network::validate_and_parse_json;
@@ -16,6 +17,7 @@ pub struct NatsManager<MsgOut, MsgIn> {
     max_request_body_size: usize,
     max_json_depth: usize,
     chunk_processing_interval: usize,
+    max_concurrency: usize,
     _marker: PhantomData<(MsgOut, MsgIn)>,
 }
 
@@ -34,6 +36,7 @@ where
         max_request_body_size: usize,
         max_json_depth: usize,
         chunk_processing_interval: usize,
+        max_concurrency: usize,
     ) -> ModelResult<Self> {
         let mut conn_opt = ConnectOptions::new()
             .user_and_password(user, passwd)
@@ -58,6 +61,7 @@ where
             max_request_body_size,
             max_json_depth,
             chunk_processing_interval,
+            max_concurrency,
             _marker: PhantomData,
         })
     }
@@ -83,47 +87,69 @@ where
         processor: F,
     ) -> ModelResult<()>
     where
-        F: Fn(MsgIn) -> Fut,
-        Fut: Future<Output = MsgOut>,
+        F: Fn(MsgIn) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = MsgOut> + Send + 'static,
+        MsgIn: DeserializeOwned + Send + 'static,
+        MsgOut: Serialize + Send + 'static,
     {
-        let mut subscriber =
-            self.client
-                .subscribe(subject)
-                .await
-                .change_context(Error::NatsError(
-                    "Failed to subscribe to nats subject".to_string(),
-                ))?;
+        let subscriber = self
+            .client
+            .subscribe(subject)
+            .await
+            .change_context(Error::NatsError(
+                "Failed to subscribe to nats subject".to_string(),
+            ))?;
 
-        while let Some(message) = subscriber.next().await {
-            let client_msg: MsgIn = match validate_and_parse_json(
-                &message.payload,
-                self.max_request_body_size,
-                self.max_json_depth,
-                self.chunk_processing_interval,
-            ) {
-                Ok(msg) => msg,
-                Err(e) => {
-                    tracing::error!("Failed to parse message: {}", e);
-                    continue; // Skip this message if parsing fails
+        // Making it capable of processing multiple messages concurrently
+        let client = self.client.clone();
+        let max_request_body_size = self.max_request_body_size;
+        let max_json_depth = self.max_json_depth;
+        let chunk_processing_interval = self.chunk_processing_interval;
+        let max_concurrency = self.max_concurrency;
+
+        let processor = Arc::new(processor);
+
+        subscriber
+            .for_each_concurrent(max_concurrency, |message| {
+                let client = client.clone();
+                let processor = Arc::clone(&processor);
+                async move {
+                    // Parse with limits (prevents large/complex JSON abuse)
+                    let client_msg: MsgIn = match validate_and_parse_json(
+                        &message.payload,
+                        max_request_body_size,
+                        max_json_depth,
+                        chunk_processing_interval,
+                    ) {
+                        Ok(msg) => msg,
+                        Err(e) => {
+                            tracing::error!("Failed to parse message: {}", e);
+                            return;
+                        }
+                    };
+
+                    // Process request
+                    let response = processor(client_msg).await;
+
+                    // Reply to request
+                    if let Some(reply) = message.reply {
+                        match serde_json::to_vec(&response) {
+                            Ok(bytes) => {
+                                if let Err(e) = client.publish(reply, bytes.into()).await {
+                                    tracing::error!("Failed to publish nats response: {:?}", e);
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to serialize nats response: {:?}", e);
+                            }
+                        }
+                    } else {
+                        tracing::error!("No reply subject found for message. Ignoring");
+                    }
                 }
-            };
+            })
+            .await;
 
-            let response = processor(client_msg).await;
-            // Reply
-            if let Some(reply) = message.reply {
-                let response_bytes = serde_json::to_vec(&response).change_context(
-                    Error::SerdeSerialize("Failed to serialize nats response".to_string()),
-                )?;
-                self.client
-                    .publish(reply, response_bytes.into())
-                    .await
-                    .change_context(Error::NatsError(
-                        "Failed to publish nats response".to_string(),
-                    ))?;
-            } else {
-                tracing::error!("No reply subject found for message. Ignoring");
-            }
-        }
         Ok(())
     }
 }
