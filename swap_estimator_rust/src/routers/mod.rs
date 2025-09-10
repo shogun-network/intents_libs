@@ -40,7 +40,11 @@ pub fn routers_by_chain(chain: ChainId) -> EstimatorResult<Vec<RouterType>> {
         | ChainId::Base
         | ChainId::Optimism => Ok(vec![RouterType::Paraswap]),
         ChainId::HyperEVM => Ok(vec![RouterType::Liquidswap]),
-        ChainId::Solana => Ok(vec![RouterType::Jupiter]),
+        ChainId::Solana => Ok(vec![
+            RouterType::Jupiter,
+            RouterType::LaunchPad,
+            RouterType::PumpFun,
+        ]),
         ChainId::Sui => Ok(vec![RouterType::Aftermath]),
     }
 }

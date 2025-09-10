@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::routers::swap::GenericSwapRequest;
 
-#[derive(Copy, Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TradeType {
     ExactIn,
     ExactOut,

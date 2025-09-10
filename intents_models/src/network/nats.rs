@@ -82,15 +82,13 @@ where
     }
 
     pub async fn subscribe_and_process<F, Fut>(
-        &self,
+        self,
         subject: &'static str,
         processor: F,
     ) -> ModelResult<()>
     where
         F: Fn(MsgIn) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = MsgOut> + Send + 'static,
-        MsgIn: DeserializeOwned + Send + 'static,
-        MsgOut: Serialize + Send + 'static,
     {
         let subscriber = self
             .client
