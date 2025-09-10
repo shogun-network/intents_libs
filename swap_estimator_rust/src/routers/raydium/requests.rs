@@ -4,7 +4,7 @@ use crate::routers::raydium::responses::RaydiumResponse;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RaydiumGetQuote {
+pub struct RaydiumGetQuoteRequest {
     /// Input token mint address
     pub input_mint: String,
     /// Output token mint address
@@ -18,7 +18,7 @@ pub struct RaydiumGetQuote {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RaydiumCreateTransaction {
+pub struct RaydiumCreateTransactionRequest {
     /// Use 'V0' for versioned transaction, and 'LEGACY' for legacy transaction.
     pub tx_version: String,
     /// Need to be true to accept SOL as inputToken.

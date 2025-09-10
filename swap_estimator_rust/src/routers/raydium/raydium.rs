@@ -1,12 +1,12 @@
 use crate::error::Error;
-use crate::routers::raydium::requests::RaydiumCreateTransaction;
+use crate::routers::raydium::requests::RaydiumCreateTransactionRequest;
 use crate::routers::raydium::responses::{
     PriorityFeeResponse, RaydiumResponse, RaydiumResponseData, SwapResponseData, Transaction,
 };
 use crate::routers::raydium::{PRIORITY_FEE, SWAP_API_URL};
 use crate::{
     error::EstimatorResult,
-    routers::{estimate::TradeType, raydium::requests::RaydiumGetQuote},
+    routers::{estimate::TradeType, raydium::requests::RaydiumGetQuoteRequest},
 };
 use error_stack::{ResultExt, report};
 use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
@@ -35,7 +35,7 @@ pub async fn raydium_get_priority_fee() -> EstimatorResult<PriorityFeeResponse> 
 }
 
 pub async fn raydium_get_price_route(
-    request: RaydiumGetQuote,
+    request: RaydiumGetQuoteRequest,
     trade_type: TradeType,
 ) -> EstimatorResult<RaydiumResponse> {
     let swap_type_uri = match trade_type {
@@ -67,14 +67,6 @@ pub async fn raydium_get_price_route(
     )?;
 
     Ok(raydium_response)
-    // let raydium_response = handle_raydium_response(raydium_response)?;
-
-    // let RaydiumResponseData::GetPriceRoute(get_price_route_response) = raydium_response else {
-    //     return Err(report!(Error::ResponseError)
-    //         .attach_printable("Unexpected response type from Raydium get price route"));
-    // };
-
-    // Ok(get_price_route_response)
 }
 
 pub fn raydium_get_price_route_from_swap_response(
@@ -91,7 +83,7 @@ pub fn raydium_get_price_route_from_swap_response(
 }
 
 pub async fn raydium_create_transaction(
-    request: RaydiumCreateTransaction,
+    request: RaydiumCreateTransactionRequest,
     trade_type: TradeType,
 ) -> EstimatorResult<Vec<Transaction>> {
     let swap_type_uri = match trade_type {
@@ -160,7 +152,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_raydium_get_price_route() {
-        let request = RaydiumGetQuote {
+        let request = RaydiumGetQuoteRequest {
             input_mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(), // USDC
             output_mint: "w6iohhdC6zbq2DP1uwtmvXPJibbFroDnni1A222bonk".to_string(), // BONK
             amount: 1000000,
@@ -178,9 +170,9 @@ mod tests {
     #[tokio::test]
     async fn test_raydium_create_transaction() {
         // Get quote first
-        let request = RaydiumGetQuote {
+        let request = RaydiumGetQuoteRequest {
             input_mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(), // USDC
-            output_mint: "w6iohhdC6zbq2DP1uwtmvXPJibbFroDnni1A222bonk".to_string(), // BONK
+            output_mint: "w6iohhdC6zbq2DP1uwtmvXPJibbFroDnni1A222bonk".to_string(),
             amount: 1000000,
             slippage_bps: 200,
             tx_version: "V0".to_string(),
@@ -192,13 +184,47 @@ mod tests {
         println!("{:?}", result);
         assert!(result.is_ok());
 
-        let request = RaydiumCreateTransaction {
+        let request = RaydiumCreateTransactionRequest {
             swap_response: result.unwrap(),
-            compute_unit_price_micro_lamports: "10000".to_string(),
+            compute_unit_price_micro_lamports: "0".to_string(),
             wrap_sol: false,
             unwrap_sol: false,
             tx_version: "V0".to_string(),
             input_account: "5JzgVH4JD97RT6rG6tRyvh5yaqYthgmKQvzwMKhSvV3E".to_string(),
+            output_account: "2BVTs72czvwooFQxvRXoCidh1d6eEZwvVzTtLyUxNbQc".to_string(),
+            wallet: "7kDXEH3xPS5TvScR1czWvSCJMaeHHB9693mWTrdTRQVB".to_string(),
+        };
+
+        let result = raydium_create_transaction(request, trade_type).await;
+
+        println!("{:?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_raydium_create_transaction_native_sol_in() {
+        // Get quote first
+        let request = RaydiumGetQuoteRequest {
+            input_mint: "So11111111111111111111111111111111111111112".to_string(), // SOL
+            output_mint: "w6iohhdC6zbq2DP1uwtmvXPJibbFroDnni1A222bonk".to_string(),
+            amount: 1000000,
+            slippage_bps: 200,
+            tx_version: "V0".to_string(),
+        };
+        let trade_type = TradeType::ExactIn;
+
+        let result = raydium_get_price_route(request, trade_type).await;
+
+        println!("{:?}", result);
+        assert!(result.is_ok());
+
+        let request = RaydiumCreateTransactionRequest {
+            swap_response: result.unwrap(),
+            compute_unit_price_micro_lamports: "0".to_string(),
+            wrap_sol: true,
+            unwrap_sol: false,
+            tx_version: "V0".to_string(),
+            input_account: "7kDXEH3xPS5TvScR1czWvSCJMaeHHB9693mWTrdTRQVB".to_string(),
             output_account: "2BVTs72czvwooFQxvRXoCidh1d6eEZwvVzTtLyUxNbQc".to_string(),
             wallet: "7kDXEH3xPS5TvScR1czWvSCJMaeHHB9693mWTrdTRQVB".to_string(),
         };

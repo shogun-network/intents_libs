@@ -32,7 +32,7 @@ pub struct SwapResponseData {
     pub output_amount: String,
     pub output_mint: String,
     pub price_impact_pct: f64,
-    pub referrer_amount: String,
+    pub referrer_amount: Option<String>,
     pub route_plan: Value,
     pub slippage_bps: u32,
     pub swap_type: RaydiumSwapType,
