@@ -1,7 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
 
-use crate::models::types::common::DcaIntervalExecutionResponse;
 use crate::models::types::cross_chain::CrossChainLimitOrderGenericData;
 use crate::models::types::order::OrderStatus;
 
