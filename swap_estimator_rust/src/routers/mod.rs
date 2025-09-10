@@ -5,6 +5,7 @@ pub mod jupiter;
 pub mod liquidswap;
 pub mod one_inch;
 pub mod paraswap;
+pub mod raydium;
 pub mod swap;
 
 use crate::error::EstimatorResult;
