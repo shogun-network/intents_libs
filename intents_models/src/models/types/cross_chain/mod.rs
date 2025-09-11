@@ -72,6 +72,17 @@ impl CrossChainIntentRequest {
             }
         }
     }
+    pub fn get_execution_amount_in(&self) -> u128 {
+        match self {
+            CrossChainIntentRequest::CrossChainLimitOrder(intent) => intent.generic_data.amount_in,
+            CrossChainIntentRequest::CrossChainDcaOrder(intent) => {
+                intent
+                    .generic_data
+                    .common_dca_order_data
+                    .amount_in_per_interval
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
