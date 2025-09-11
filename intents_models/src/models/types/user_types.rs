@@ -140,6 +140,7 @@ impl IntentRequest {
                     .generic_data
                     .common_dca_order_data
                     .amount_in_per_interval
+                    * intent.generic_data.common_dca_order_data.total_intervals as u128
             }
         }
     }
