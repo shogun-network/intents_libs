@@ -1,7 +1,7 @@
 use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::{
-    CrossChainOnChainLimitOrderData, CrossChainOnChainOrderDataEnum,
-    CrossChainUserLimitOrderResponse,
+    CrossChainOnChainDcaOrderData, CrossChainOnChainLimitOrderData, CrossChainOnChainOrderDataEnum,
+    CrossChainUserDcaOrderResponse, CrossChainUserLimitOrderResponse,
 };
 use crate::models::types::single_chain::{
     SingleChainOnChainDcaOrderData, SingleChainOnChainLimitOrderData,
@@ -24,7 +24,7 @@ pub enum OnChainOrderDataEnum {
     SingleChainLimitOrder(SingleChainOnChainLimitOrderData),
     SingleChainDcaOrder(SingleChainOnChainDcaOrderData),
     CrossChainLimitOrder(CrossChainOnChainLimitOrderData),
-    // CrossChainDcaOrder(CrossChainOnChainDcaOrderData), todo
+    CrossChainDcaOrder(CrossChainOnChainDcaOrderData),
 }
 
 impl OnChainOrderDataEnum {
@@ -36,7 +36,8 @@ impl OnChainOrderDataEnum {
             OnChainOrderDataEnum::SingleChainDcaOrder(data) => {
                 Ok(SingleChainOnChainOrderDataEnum::SingleChainDcaOrder(data))
             }
-            OnChainOrderDataEnum::CrossChainLimitOrder(_) => Err(report!(Error::LogicError(
+            OnChainOrderDataEnum::CrossChainLimitOrder(_)
+            | OnChainOrderDataEnum::CrossChainDcaOrder(_) => Err(report!(Error::LogicError(
                 "Non-single-chain intent passed".to_string()
             ))),
         }
@@ -49,6 +50,9 @@ impl OnChainOrderDataEnum {
             ))),
             OnChainOrderDataEnum::CrossChainLimitOrder(data) => {
                 Ok(CrossChainOnChainOrderDataEnum::CrossChainLimitOrder(data))
+            }
+            OnChainOrderDataEnum::CrossChainDcaOrder(data) => {
+                Ok(CrossChainOnChainOrderDataEnum::CrossChainDcaOrder(data))
             }
         }
     }
@@ -63,6 +67,10 @@ impl OnChainOrderDataEnum {
                 let deactivated = order_data.common_data.deactivated.unwrap_or(false);
                 !deactivated
             }
+            OnChainOrderDataEnum::CrossChainDcaOrder(order_data) => {
+                let deactivated = order_data.common_data.deactivated.unwrap_or(false);
+                !deactivated
+            }
         }
     }
 }
@@ -70,7 +78,7 @@ impl OnChainOrderDataEnum {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone, Eq, Hash, Copy)]
 pub enum OrderType {
     CrossChainLimitOrder,
-    // CrossChainDCAOrder,
+    CrossChainDCAOrder,
     SingleChainLimitOrder,
     SingleChainDCAOrder,
 }
@@ -79,6 +87,7 @@ impl fmt::Display for OrderType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let value = match self {
             OrderType::CrossChainLimitOrder => "CrossChainLimitOrder",
+            OrderType::CrossChainDCAOrder => "CrossChainDCAOrder",
             OrderType::SingleChainLimitOrder => "SingleChainLimitOrder",
             OrderType::SingleChainDCAOrder => "SingleChainDCAOrder",
         };
@@ -148,5 +157,5 @@ pub struct UserOrders {
     pub single_chain_limit_orders: Vec<SingleChainUserLimitOrderResponse>,
     pub single_chain_dca_orders: Vec<SingleChainUserDcaOrderResponse>,
     pub cross_chain_limit_orders: Vec<CrossChainUserLimitOrderResponse>,
-    // todo cross chain dca
+    pub cross_chain_dca_orders: Vec<CrossChainUserDcaOrderResponse>,
 }

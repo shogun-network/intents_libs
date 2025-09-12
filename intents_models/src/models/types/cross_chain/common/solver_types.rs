@@ -1,7 +1,7 @@
 use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::{
     CrossChainGenericDataEnum, EvmCrossChainFulfillmentData,
-    EvmSuccessConfirmationCrossChainLimitOrderData,
+    EvmSuccessConfirmationCrossChainDcaOrderData, EvmSuccessConfirmationCrossChainLimitOrderData,
 };
 use crate::models::types::order::OrderTypeFulfillmentData;
 use crate::models::types::solver_types::{StartOrderEVMData, StartOrderSolanaData};
@@ -236,7 +236,7 @@ pub struct SuccessConfirmationEVMData {
 #[serde(tag = "type")]
 pub enum EvmSuccessConfirmationOrderTypeData {
     CrossChainLimit(EvmSuccessConfirmationCrossChainLimitOrderData),
-    // CrossChainDca(EvmSuccessConfirmationCrossChainDcaOrderData) // todo
+    CrossChainDca(EvmSuccessConfirmationCrossChainDcaOrderData),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
