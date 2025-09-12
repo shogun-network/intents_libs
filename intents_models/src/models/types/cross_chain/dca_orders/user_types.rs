@@ -1,4 +1,4 @@
-use crate::models::types::common::CommonDcaOrderData;
+use crate::models::types::common::{CommonDcaOrderData, CommonDcaOrderState};
 use crate::models::types::cross_chain::{CrossChainChainSpecificData, CrossChainGenericData};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -25,4 +25,11 @@ pub struct CrossChainDcaOrderGenericData {
     /// Common DCA order data
     #[serde(flatten)]
     pub common_dca_order_data: CommonDcaOrderData,
+    /// Common DCA order state
+    #[serde(flatten)]
+    pub common_dca_state: CommonDcaOrderState,
+
+    /// Address of the Solver that successfully executed interval with `previous_executed_interval_index` INDEX
+    /// None if there was no successful execution yet
+    pub last_executed_interval_solver: Option<String>,
 }

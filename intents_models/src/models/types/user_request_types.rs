@@ -1,7 +1,8 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::{
-    CrossChainLimitOrderGenericRequestData, CrossChainLimitOrderUserIntentRequest,
+    CrossChainDcaOrderUserIntentRequest, CrossChainLimitOrderGenericRequestData,
+    CrossChainLimitOrderUserIntentRequest,
 };
 use crate::models::types::single_chain::{
     SingleChainDcaOrderUserIntentRequest, SingleChainLimitOrderGenericRequestData,
@@ -19,7 +20,7 @@ pub enum UserIntentRequest {
     SingleChainLimitOrder(SingleChainLimitOrderUserIntentRequest),
     SingleChainDcaOrder(SingleChainDcaOrderUserIntentRequest),
     CrossChainLimitOrder(CrossChainLimitOrderUserIntentRequest),
-    // CrossChainDcaOrder(CrossChainDcaOrderUserIntentRequest),
+    CrossChainDcaOrder(CrossChainDcaOrderUserIntentRequest),
 }
 
 impl UserIntentRequest {
@@ -28,6 +29,9 @@ impl UserIntentRequest {
             UserIntentRequest::SingleChainLimitOrder(intent) => intent.into_into_intent_request(),
             UserIntentRequest::SingleChainDcaOrder(intent) => intent.into_into_intent_request(),
             UserIntentRequest::CrossChainLimitOrder(intent) => {
+                intent.try_into_into_intent_request()?
+            }
+            UserIntentRequest::CrossChainDcaOrder(intent) => {
                 intent.try_into_into_intent_request()?
             }
         })
@@ -39,6 +43,7 @@ impl UserIntentRequest {
                 "Non-cross-chain data passed".to_string()
             ))),
             UserIntentRequest::CrossChainLimitOrder(intent) => Ok(intent.execution_details.clone()),
+            UserIntentRequest::CrossChainDcaOrder(intent) => Ok(intent.execution_details.clone()),
         }
     }
 }

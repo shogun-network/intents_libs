@@ -6,7 +6,6 @@ use serde::{Deserialize, Serialize};
 /// Enum that has all possible variants of execution search requests
 pub enum ExecutionSearchRequest {
     SingleChainDca(DcaIntervalExecutionSearchRequest),
-    // CrossChainDca(DcaIntervalExecutionSearchRequest),
 }
 
 impl ExecutionSearchRequest {

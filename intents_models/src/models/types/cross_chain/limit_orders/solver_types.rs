@@ -55,19 +55,7 @@ impl TryFrom<&CrossChainLimitOrderIntentRequest> for EvmCrossChainLimitOrderInfo
         let generic_intent_data = intent_request.generic_data.clone();
         let evm_data = intent_request.chain_specific_data.try_get_evm()?;
 
-        Ok(EvmCrossChainLimitOrderInfo {
-            user: generic_intent_data.common_data.user.clone(),
-            token_in: generic_intent_data.common_data.token_in.clone(),
-            src_chain_id: generic_intent_data.common_data.src_chain_id,
-            deadline: generic_intent_data.common_data.deadline as u32,
-            amount_in: generic_intent_data.amount_in,
-            min_stablecoins_amount: generic_intent_data.common_data.min_stablecoins_amount,
-            execution_details_hash: generic_intent_data
-                .common_data
-                .execution_details_hash
-                .clone(),
-            nonce: evm_data.nonce.clone(),
-        })
+        Self::try_from((&generic_intent_data, evm_data))
     }
 }
 
