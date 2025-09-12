@@ -37,7 +37,7 @@ pub struct EvmSwapResponse {
     pub require_transfer: bool,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum SolanaPriorityFeeType {
     /// (lamports)
     JitoTip(u64),
