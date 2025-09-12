@@ -49,11 +49,6 @@ pub struct CrossChainLimitOrderGenericRequestData {
     pub deadline: u64,
     /// SHA-256 hash of `execution_details` JSON String (hex format)
     pub execution_details_hash: String,
-
-    // todo DCA: this is LIMIT order. should we move it to CrossChainLimitOrderExecutionDetails?
-    /// Common limit order data to trigger "take profit" or "stop loss" execution
-    #[serde(flatten)]
-    pub common_limit_order_data: CommonLimitOrderUserRequestData,
 }
 
 impl From<CrossChainLimitOrderGenericData> for CrossChainLimitOrderGenericRequestData {
@@ -66,10 +61,6 @@ impl From<CrossChainLimitOrderGenericData> for CrossChainLimitOrderGenericReques
             min_stablecoins_amount: value.common_data.min_stablecoins_amount,
             deadline: value.common_data.deadline,
             execution_details_hash: value.common_data.execution_details_hash,
-            common_limit_order_data: CommonLimitOrderUserRequestData {
-                take_profit_min_out: value.common_limit_order_data.take_profit_min_out,
-                stop_loss_max_out: value.common_limit_order_data.stop_loss_max_out,
-            },
         }
     }
 }
@@ -91,6 +82,10 @@ pub struct CrossChainLimitOrderExecutionDetails {
     /// Requested array of extra transfers with fixed amounts
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_transfers: Option<Vec<TransferDetails>>,
+
+    /// Common limit order data to trigger "take profit" or "stop loss" execution
+    #[serde(flatten)]
+    pub common_limit_order_data: CommonLimitOrderUserRequestData,
 }
 
 impl CrossChainLimitOrderUserIntentRequest {
@@ -131,11 +126,10 @@ impl CrossChainLimitOrderUserIntentRequest {
                 execution_details_hash: self.generic_data.execution_details_hash.clone(),
             },
             common_limit_order_data: CommonLimitOrderData {
-                take_profit_min_out: self
-                    .generic_data
+                take_profit_min_out: execution_details
                     .common_limit_order_data
                     .take_profit_min_out,
-                stop_loss_max_out: self.generic_data.common_limit_order_data.stop_loss_max_out,
+                stop_loss_max_out: execution_details.common_limit_order_data.stop_loss_max_out,
                 stop_loss_triggered: false,
             },
             amount_in: self.generic_data.amount_in,
