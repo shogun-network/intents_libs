@@ -86,18 +86,24 @@ pub async fn handle_reqwest_response<T: DeserializeOwned>(response: Response) ->
             // Use Json as default content type
                 if content_type.contains("application/json") || content_type.is_empty() {
                     // Handle JSON response
+                    let json: Value = response
+                    .json()
+                    .await
+                    .change_context(Error::SerdeDeserialize("Failed to deserialize JSON".to_string()))?;
                     // DEBUG:
-                    // let json: Value = response
+                    println!("JSON Response: {}", serde_json::to_string_pretty(&json).unwrap());
+                    match serde_json::from_value(json) {
+                        Ok(data) => data,
+                        Err(e) => {
+                            println!("Deserialization error: {}", e);
+                            return Err(report!(Error::SerdeDeserialize("Failed to deserialize JSON".to_string()))
+                                .attach_printable(format!("Deserialization error: {}", e)));
+                        }
+                    }
+                    // response
                     //     .json()
                     //     .await
-                    //     .change_context(Error::SerdeDeserialize("Failed to deserialize JSON".to_string()))?;
-                    // println!("JSON Response: {}", serde_json::to_string_pretty(&json).unwrap());
-                    // serde_json::from_value(json)
                     //     .change_context(Error::SerdeDeserialize("Failed to deserialize JSON".to_string()))?
-                    response
-                        .json()
-                        .await
-                        .change_context(Error::SerdeDeserialize("Failed to deserialize JSON".to_string()))?
                 } else if content_type.contains("text/") {
                     // Handle text response
                     let text = response

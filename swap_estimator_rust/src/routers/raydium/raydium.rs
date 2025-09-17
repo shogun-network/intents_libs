@@ -1,9 +1,10 @@
 use crate::error::Error;
 use crate::routers::raydium::requests::RaydiumCreateTransactionRequest;
 use crate::routers::raydium::responses::{
-    PriorityFeeResponse, RaydiumResponse, RaydiumResponseData, SwapResponseData, Transaction,
+    GetPoolsInfo, Pool, PriorityFeeResponse, RaydiumResponse, RaydiumResponseData,
+    SwapResponseData, Transaction,
 };
-use crate::routers::raydium::{PRIORITY_FEE, SWAP_API_URL};
+use crate::routers::raydium::{BASE_HOST_URL, PRIORITY_FEE, SWAP_API_URL};
 use crate::{
     error::EstimatorResult,
     routers::{estimate::TradeType, raydium::requests::RaydiumGetQuoteRequest},
@@ -114,6 +115,25 @@ pub async fn raydium_create_transaction(
     };
 
     Ok(transaction_response)
+}
+
+pub async fn raydium_get_pools_info(pool_ids: Vec<String>) -> EstimatorResult<Vec<Pool>> {
+    let url = format!("{BASE_HOST_URL}/pools/key/ids");
+
+    let pool_ids_join = pool_ids.join(",");
+
+    let response = HTTP_CLIENT
+        .get(format!("{url}?ids={pool_ids_join}"))
+        .send()
+        .await
+        .change_context(Error::ReqwestError)
+        .attach_printable("Error sending request to Raydium API")?;
+
+    let raydium_response: GetPoolsInfo = handle_reqwest_response(response)
+        .await
+        .change_context(Error::ModelsError)?;
+
+    Ok(raydium_response.data)
 }
 
 fn handle_raydium_response(response: RaydiumResponse) -> EstimatorResult<RaydiumResponseData> {
@@ -233,5 +253,21 @@ mod tests {
 
         println!("{:?}", result);
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_raydium_get_pools_info() {
+        let pool_ids = vec![
+            "HnwJxwi7hxjnwFNLxdgYrvNHsQG1ZK7Ga6ye6aSAkqQS".to_string(),
+            "3KzeAMn3S3RNgdLpr1nwVMdZ1E1Cq4QAv2UadQuKKZiP".to_string(),
+        ];
+
+        let result = raydium_get_pools_info(pool_ids).await;
+
+        assert!(result.is_ok());
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&result.unwrap()).unwrap()
+        );
     }
 }
