@@ -35,31 +35,104 @@ pub struct GetPoolsInfo {
 pub enum Pool {
     Cpmm(CpmmPool),
     Clmm(ClmmPool),
+    AmmV4(AmmV4Pool),
+    AmmV5(AmmV5Pool),
+}
+
+impl Pool {
+    pub fn get_mints(&self) -> (MintInfo, MintInfo) {
+        match &self {
+            Pool::Cpmm(cpmm) => (cpmm.base.mint_a.clone(), cpmm.base.mint_b.clone()),
+            Pool::Clmm(clmm) => (clmm.base.mint_a.clone(), clmm.base.mint_b.clone()),
+            Pool::AmmV4(amm_v4) => (amm_v4.base.mint_a.clone(), amm_v4.base.mint_b.clone()),
+            Pool::AmmV5(amm_v5) => (amm_v5.base.mint_a.clone(), amm_v5.base.mint_b.clone()),
+        }
+    }
+
+    pub fn get_program_id(&self) -> String {
+        match &self {
+            Pool::Cpmm(cpmm) => cpmm.base.program_id.clone(),
+            Pool::Clmm(clmm) => clmm.base.program_id.clone(),
+            Pool::AmmV4(amm_v4) => amm_v4.base.program_id.clone(),
+            Pool::AmmV5(amm_v5) => amm_v5.base.program_id.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolBase {
+    pub program_id: String,
+    pub id: String,
+    pub mint_a: MintInfo,
+    pub mint_b: MintInfo,
+    pub lookup_table_account: Option<String>,
+    pub open_time: String,
+    pub vault: VaultAB,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AmmBase {
+    pub authority: String,
+    pub open_orders: String,
+    pub target_orders: String,
+    pub mint_lp: MintInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MarketBase {
+    pub market_program_id: String,
+    pub market_id: String,
+    pub market_authority: String,
+    pub market_base_vault: String,
+    pub market_quote_vault: String,
+    pub market_bids: String,
+    pub market_asks: String,
+    pub market_event_queue: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AmmV4Pool {
+    #[serde(flatten)]
+    pub base: PoolBase,
+    #[serde(flatten)]
+    pub amm_base: AmmBase,
+    #[serde(flatten)]
+    pub market_base: MarketBase,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AmmV5Pool {
+    #[serde(flatten)]
+    pub base: PoolBase,
+    #[serde(flatten)]
+    pub amm_base: AmmBase,
+    #[serde(flatten)]
+    pub market_base: MarketBase,
+    pub model_data_account: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CpmmPool {
+    #[serde(flatten)]
+    pub base: PoolBase,
     pub authority: String,
     pub config: CpmmConfig,
-    pub id: String,
-    pub lookup_table_account: String,
-    pub mint_a: MintInfo,
-    pub mint_b: MintInfo,
     #[serde(default)]
     pub mint_lp: Option<MintInfo>,
     pub observation_id: String,
-    // openTime viene como string ("1757531658"); mantenlo String o deserializa desde str.
-    pub open_time: String,
-    pub program_id: String,
-    pub vault: VaultAB,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CpmmConfig {
     pub create_pool_fee: String,
-    pub creator_fee_rate: u64,
+    pub creator_fee_rate: Option<u64>,
     pub fund_fee_rate: u64,
     pub id: String,
     pub index: u64,
@@ -70,18 +143,13 @@ pub struct CpmmConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClmmPool {
+    #[serde(flatten)]
+    pub base: PoolBase,
     pub config: ClmmConfig,
     pub ex_bitmap_account: String,
-    pub id: String,
-    pub lookup_table_account: String,
-    pub mint_a: MintInfo,
-    pub mint_b: MintInfo,
-    pub observation_id: String,
-    pub open_time: String,
-    pub program_id: String,
     #[serde(default)]
     pub reward_infos: Vec<serde_json::Value>,
-    pub vault: VaultAB,
+    pub observation_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +163,7 @@ pub struct ClmmConfig {
     pub protocol_fee_rate: u64,
     pub tick_spacing: u64,
     pub trade_fee_rate: u64,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,6 +180,8 @@ pub struct MintInfo {
     pub symbol: String,
     #[serde(default)]
     pub tags: Vec<String>,
+    pub freeze_authority: Option<String>,
+    pub mint_authority: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,4 +228,26 @@ pub struct PriorityFeeDataDefault {
     pub h: u64,
     pub m: u64,
     pub vh: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutePlan {
+    pub fee_amount: String,
+    pub fee_mint: String,
+    pub fee_rate: u64,
+    pub input_mint: String,
+    pub output_mint: String,
+    pub pool_id: String,
+    pub remaining_accounts: Vec<String>,
+    pub last_pool_price_x64: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutePlans(pub Vec<RoutePlan>);
+
+impl RoutePlans {
+    pub fn get_pool_ids(&self) -> Vec<String> {
+        self.0.iter().map(|plan| plan.pool_id.clone()).collect()
+    }
 }
