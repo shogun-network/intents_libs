@@ -11,4 +11,12 @@ pub struct CrossChainOnChainDcaOrderData {
     /// Common DCA order state
     #[serde(flatten)]
     pub common_dca_state: CommonDcaOrderState,
+    /// Interval INDEX when latest order execution has started
+    pub latest_execution_start: ExecutionStart,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum ExecutionStart {
+    TimestampSeconds(u32),
+    IntervalIndex(u32)
 }
