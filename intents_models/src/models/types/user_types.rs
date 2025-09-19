@@ -3,7 +3,7 @@ use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::CrossChainIntentRequest;
 use crate::models::types::cross_chain::CrossChainLimitOrderIntentRequest;
 use crate::models::types::cross_chain::{CrossChainDcaOrderIntentRequest, CrossChainGenericData};
-use crate::models::types::order::{DcaOrderFulfillmentData, OrderType, OrderTypeFulfillmentData};
+use crate::models::types::order::OrderType;
 use crate::models::types::single_chain::SingleChainLimitOrderIntentRequest;
 use crate::models::types::single_chain::{
     SingleChainDcaOrderIntentRequest, SingleChainIntentRequest,

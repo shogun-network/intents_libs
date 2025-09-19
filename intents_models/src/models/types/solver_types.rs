@@ -42,6 +42,12 @@ impl ExecutionTerms {
             ))),
         }
     }
+    pub fn get_order_type_fulfillment_data(&self) -> &OrderTypeFulfillmentData {
+        match self {
+            ExecutionTerms::SingleChain(terms) => &terms.order_type_specific_data,
+            ExecutionTerms::CrossChain(terms) => &terms.order_type_specific_data,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

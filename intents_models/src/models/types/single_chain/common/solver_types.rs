@@ -1,6 +1,7 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
 use crate::models::types::common::TransferDetails;
+use crate::models::types::order::OrderTypeFulfillmentData;
 use crate::models::types::solver_types::{StartOrderEVMData, StartOrderSolanaData};
 use error_stack::report;
 use serde::{Deserialize, Serialize};
@@ -71,6 +72,8 @@ pub struct SingleChainExecutionTerms {
     pub protocol_fee_transfer: TransferDetails,
     /// Deadline in seconds, by which Solver must execute the intent
     pub solver_execution_duration: u64,
+    /// Fulfillment data for a specific order type
+    pub order_type_specific_data: OrderTypeFulfillmentData,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

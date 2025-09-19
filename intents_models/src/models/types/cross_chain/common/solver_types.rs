@@ -133,6 +133,8 @@ pub struct CrossChainExecutionTerms {
     /// Amount of stablecoins locked after tokens IN swap. 0 If tokens IN were not swapped
     #[serde_as(as = "DisplayFromStr")]
     pub stablecoins_locked: u128,
+    /// Fulfillment data for a specific order type
+    pub order_type_specific_data: OrderTypeFulfillmentData,
 }
 
 /*********************************************************************/
