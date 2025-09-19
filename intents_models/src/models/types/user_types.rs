@@ -218,33 +218,6 @@ impl IntentRequest {
             IntentRequest::CrossChainDcaOrder(_) => Ok(()),
         }
     }
-    pub fn get_order_type_fulfillment_data(&self) -> OrderTypeFulfillmentData {
-        match self {
-            IntentRequest::SingleChainLimitOrder(_) | IntentRequest::CrossChainLimitOrder(_) => {
-                OrderTypeFulfillmentData::Limit
-            }
-            // Wa assume next interval number is requested to be fulfilled
-            IntentRequest::SingleChainDcaOrder(intent) => {
-                OrderTypeFulfillmentData::Dca(DcaOrderFulfillmentData {
-                    interval_number: intent
-                        .generic_data
-                        .common_dca_state
-                        .total_executed_intervals
-                        + 1,
-                })
-            }
-            // Wa assume next interval number is requested to be fulfilled
-            IntentRequest::CrossChainDcaOrder(intent) => {
-                OrderTypeFulfillmentData::Dca(DcaOrderFulfillmentData {
-                    interval_number: intent
-                        .generic_data
-                        .common_dca_state
-                        .total_executed_intervals
-                        + 1,
-                })
-            }
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

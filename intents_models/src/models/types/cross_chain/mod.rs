@@ -174,13 +174,9 @@ impl CrossChainSolverStartPermissionEnum {
         match self {
             CrossChainSolverStartPermissionEnum::Limit(_) => OrderTypeFulfillmentData::Limit,
             // Wa assume next interval number is requested to be fulfilled
-            CrossChainSolverStartPermissionEnum::Dca(intent) => {
+            CrossChainSolverStartPermissionEnum::Dca(permission) => {
                 OrderTypeFulfillmentData::Dca(DcaOrderFulfillmentData {
-                    interval_number: intent
-                        .generic_data
-                        .common_dca_state
-                        .total_executed_intervals
-                        + 1,
+                    interval_number: permission.interval_number,
                 })
             }
         }
