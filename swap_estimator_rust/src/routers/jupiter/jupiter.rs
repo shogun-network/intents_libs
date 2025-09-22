@@ -2,7 +2,7 @@ use crate::error::{Error, EstimatorResult};
 use crate::routers::HTTP_CLIENT;
 use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType};
 use crate::routers::swap::{GenericSwapRequest, SolanaPriorityFeeType};
-use error_stack::ResultExt;
+use error_stack::{ResultExt, report};
 use intents_models::constants::chains::{
     WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS, is_native_token_solana_address,
 };
@@ -47,6 +47,25 @@ pub struct QuoteResponse {
     routePlan: Vec<RoutePlan>,
     contextSlot: u64,
     timeTaken: f64,
+}
+
+impl Default for QuoteResponse {
+    fn default() -> Self {
+        QuoteResponse {
+            inputMint: String::new(),
+            inAmount: String::new(),
+            outputMint: String::new(),
+            outAmount: String::new(),
+            otherAmountThreshold: String::new(),
+            swapMode: String::new(),
+            slippageBps: 0,
+            platformFee: None,
+            priceImpactPct: String::new(),
+            routePlan: Vec::new(),
+            contextSlot: 0,
+            timeTaken: 0.0,
+        }
+    }
 }
 
 #[allow(non_snake_case)]
@@ -112,9 +131,20 @@ pub async fn get_jupiter_quote(
         .change_context(Error::Unknown)
         .attach_printable("Failed to get text from Jupiter quote response")?;
 
-    let quote: QuoteResponse = serde_json::from_str(&response).change_context(
-        Error::SerdeDeserialize("Error deserializing Jupiter quote response".to_string()),
-    )?;
+    let quote: QuoteResponse = match serde_json::from_str(&response) {
+        Ok(quote) => quote,
+        Err(error) => {
+            tracing::error!(
+                "Error deserializing Jupiter quote response: {}, response: {}",
+                error,
+                response
+            );
+            return Err(report!(Error::SerdeDeserialize(format!(
+                "Error deserializing Jupiter quote response: {}",
+                error
+            ))));
+        }
+    };
 
     let generic_response = GenericEstimateResponse {
         amount_quote: u128::from_str(match generic_solana_estimate_request.trade_type {
@@ -144,7 +174,6 @@ pub async fn get_jupiter_transaction(
         "userPublicKey": generic_swap_request.spender,
         "dynamicComputeUnitLimit": true,
         "dynamicSlippage": true,
-        // if destination token mint is requested as wSol, we don't want to unwrap it
         "wrapAndUnwrapSol": generic_swap_request.dest_token.to_string()
             .ne(&WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS),
         "destinationTokenAccount": destination_token_account,

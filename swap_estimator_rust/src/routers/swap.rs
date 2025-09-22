@@ -1,7 +1,7 @@
 use crate::routers::estimate::TradeType;
 use intents_models::constants::chains::ChainId;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GenericSwapRequest {
     pub trade_type: TradeType,
     /// Chain ID where swap should be executed
@@ -37,7 +37,7 @@ pub struct EvmSwapResponse {
     pub require_transfer: bool,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum SolanaPriorityFeeType {
     /// (lamports)
     JitoTip(u64),
