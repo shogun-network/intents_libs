@@ -91,7 +91,7 @@ pub async fn handle_reqwest_response<T: DeserializeOwned>(response: Response) ->
                     .await
                     .change_context(Error::SerdeDeserialize("Failed to deserialize JSON".to_string()))?;
                     // DEBUG:
-                    println!("JSON Response: {}", serde_json::to_string_pretty(&json).unwrap());
+                    // println!("JSON Response: {}", serde_json::to_string_pretty(&json).unwrap());
                     match serde_json::from_value(json) {
                         Ok(data) => data,
                         Err(e) => {
