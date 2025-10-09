@@ -61,14 +61,9 @@ impl PriceProvider for GeckoTerminalProvider {
                     price: gt_token_info
                         .attributes
                         .price_usd
-                        .parse::<f64>()
-                        .change_context(Error::ParseError)
-                        .attach_printable_lazy(|| {
-                            format!(
-                                "Failed to parse geckoterminal price as f64: {:?}",
-                                gt_token_info.attributes
-                            )
-                        })?,
+                        .as_ref()
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .unwrap_or_default(),
                     decimals: gt_token_info.attributes.decimals,
                 };
                 tokens_info.insert(token_id, token_price);
