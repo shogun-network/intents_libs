@@ -106,6 +106,7 @@ pub fn get_jupiter_token_mint(token_mint: &str) -> String {
 pub async fn get_jupiter_quote(
     generic_solana_estimate_request: &GenericEstimateRequest,
     jupiter_url: &str,
+    jupiter_api_key: Option<String>,
 ) -> EstimatorResult<(GenericEstimateResponse, QuoteResponse)> {
     let query_value = json!({
         "amount": generic_solana_estimate_request.amount_fixed,
@@ -121,8 +122,12 @@ pub async fn get_jupiter_quote(
         value_to_sorted_querystring(&query_value).change_context(Error::ModelsError)?;
     let url = format!("{jupiter_url}quote?{query_string}");
 
-    let response = HTTP_CLIENT
-        .get(&url)
+    let mut request = HTTP_CLIENT.get(&url);
+    if let Some(ref key) = jupiter_api_key {
+        request = request.header("x-api-key", key.as_str());
+    }
+
+    let response = request
         .send()
         .await
         .change_context(Error::ReqwestError)?
@@ -166,6 +171,7 @@ pub async fn get_jupiter_transaction(
     generic_swap_request: GenericSwapRequest,
     quote: QuoteResponse,
     jupiter_url: &str,
+    jupiter_api_key: Option<String>,
     priority_fee: Option<SolanaPriorityFeeType>,
     destination_token_account: Option<String>,
 ) -> EstimatorResult<JupiterSwapResponse> {
@@ -193,8 +199,14 @@ pub async fn get_jupiter_transaction(
         };
     };
 
-    let response = HTTP_CLIENT
-        .post(format!("{jupiter_url}swap"))
+    let url = format!("{jupiter_url}swap");
+
+    let mut request = HTTP_CLIENT.post(&url);
+    if let Some(ref key) = jupiter_api_key {
+        request = request.header("x-api-key", key.as_str());
+    }
+
+    let response = request
         .json(&swap_request_body)
         .send()
         .await
@@ -204,4 +216,32 @@ pub async fn get_jupiter_transaction(
         .await
         .change_context(Error::ModelsError)?;
     Ok(swap_response)
+}
+
+#[cfg(test)]
+mod tests {
+    use intents_models::constants::chains::ChainId;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_get_jupiter_quote() {
+        dotenv::dotenv().ok();
+        let request = GenericEstimateRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id: ChainId::Solana,
+            src_token: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+            dest_token: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
+            amount_fixed: 1000000,
+            slippage: 0.02,
+        };
+
+        let jupiter_url = std::env::var("JUPITER_URL").unwrap();
+
+        let (response, quote) = get_jupiter_quote(&request, &jupiter_url, None)
+            .await
+            .unwrap();
+        println!("Generic Response: {:?}", response);
+        println!("Jupiter Quote: {:?}", quote);
+    }
 }
