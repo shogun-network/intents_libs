@@ -259,8 +259,9 @@ impl MonitorManager {
             self.coin_cache
                 .insert(token_id.clone(), token_price.clone());
         }
+        result.extend(data);
 
-        Ok(data)
+        Ok(result)
     }
 
     pub async fn update_cache(&mut self) -> EstimatorResult<()> {
