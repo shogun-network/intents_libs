@@ -105,7 +105,18 @@ pub async fn gecko_terminal_get_tokens_info(
     if let GeckoTerminalOkResponseType::TokensInfo(tokens_info) =
         handle_gecko_terminal_response(tokens_response)?
     {
-        Ok(tokens_info)
+        Ok(tokens_info
+            .into_iter()
+            .filter_map(
+                |v| match serde_json::from_value::<GeckoTerminalTokensInfo>(v) {
+                    Ok(info) => Some(info),
+                    Err(e) => {
+                        tracing::error!("Failed to parse gecko terminal token info: {:?}", e);
+                        None
+                    }
+                },
+            )
+            .collect())
     } else {
         tracing::error!("Unexpected response in gecko terminal request");
         Err(report!(Error::ResponseError)

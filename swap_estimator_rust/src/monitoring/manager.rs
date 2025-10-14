@@ -225,7 +225,7 @@ impl MonitorManager {
         token_ids: HashSet<TokenId>,
     ) -> Result<HashMap<TokenId, TokenPrice>, Error> {
         let mut result = HashMap::new();
-        let mut toknes_not_in_cache = HashSet::new();
+        let mut tokens_not_in_cache = HashSet::new();
 
         for token_id in token_ids.into_iter() {
             // Add token to cache if not already present
@@ -244,15 +244,15 @@ impl MonitorManager {
                     chain,
                     address
                 );
-                toknes_not_in_cache.insert(TokenId { chain, address });
+                tokens_not_in_cache.insert(TokenId { chain, address });
             }
         }
         // If we have tokens not in cache, fetch them
-        if toknes_not_in_cache.is_empty() {
+        if tokens_not_in_cache.is_empty() {
             return Ok(result);
         }
         // Fetch data from Defillama and Gecko Terminal
-        let data = get_combined_tokens_data(toknes_not_in_cache).await?;
+        let data = get_combined_tokens_data(tokens_not_in_cache).await?;
 
         // Update cache with fetched data
         for (token_id, token_price) in data.iter() {
