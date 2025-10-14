@@ -237,3 +237,12 @@ pub struct SuiData {
     /// Transaction hash for the Sui transaction
     pub transaction_hash: String,
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct OrderCreatedResponse {
+    /// Created intent ID
+    pub intent_id: String,
+    /// Updated or created JWT for an order user wallet
+    pub jwt: String,
+}
