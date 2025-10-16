@@ -138,6 +138,10 @@ impl SingleChainSolverStartPermissionEnum {
             }
         }
     }
+
+    pub fn get_intent_id(&self) -> String {
+        self.get_common_data().0.chain_specific_data.get_intent_id()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
