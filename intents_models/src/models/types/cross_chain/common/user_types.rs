@@ -2,6 +2,7 @@ use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
 use crate::models::types::common::TransferDetails;
 use crate::models::types::user_types::{EVMData, SuiData};
+use crate::models::types::utils::get_number_of_unique_receivers;
 use error_stack::report;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
@@ -38,6 +39,16 @@ pub struct CrossChainGenericData {
     pub deadline: u64,
     /// SHA-256 hash of `execution_details` JSON String (hex format)
     pub execution_details_hash: String,
+}
+
+impl CrossChainGenericData {
+    pub fn get_number_of_unique_receivers(&self) -> usize {
+        get_number_of_unique_receivers(
+            &self.token_out,
+            &self.destination_address,
+            &self.extra_transfers,
+        )
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
