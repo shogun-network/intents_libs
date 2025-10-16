@@ -192,6 +192,13 @@ impl CrossChainSolverStartPermissionEnum {
             }
         }
     }
+
+    pub fn get_intent_id(&self) -> String {
+        self.get_common_data()
+            .0
+            .src_chain_specific_data
+            .get_intent_id()
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -83,6 +83,15 @@ impl CrossChainSolverStartOrderData {
             ))),
         }
     }
+    pub fn get_intent_id(&self) -> String {
+        match &self {
+            CrossChainSolverStartOrderData::EVM(evm_data) => {
+                evm_data.order_type_data.get_intent_id()
+            }
+            CrossChainSolverStartOrderData::Solana(solana_data) => solana_data.order.to_owned(),
+            CrossChainSolverStartOrderData::Sui(sui_data) => sui_data.order_id.to_owned(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

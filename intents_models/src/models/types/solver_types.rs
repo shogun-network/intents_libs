@@ -172,6 +172,22 @@ impl SolverStartPermission {
             }
         }
     }
+    pub fn get_intent_id(&self) -> String {
+        match &self {
+            SolverStartPermission::SingleChainLimit(data) => {
+                data.common_data.chain_specific_data.get_intent_id()
+            }
+            SolverStartPermission::SingleChainDca(data) => {
+                data.common_data.chain_specific_data.get_intent_id()
+            }
+            SolverStartPermission::CrossChainLimit(data) => {
+                data.common_data.src_chain_specific_data.get_intent_id()
+            }
+            SolverStartPermission::CrossChainDca(data) => {
+                data.common_data.src_chain_specific_data.get_intent_id()
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -196,6 +212,25 @@ pub enum StartEvmOrderTypeData {
     SingleChainDca(StartEvmSingleChainDcaOrderData),
     CrossChainLimit(StartEvmCrossChainLimitOrderData),
     CrossChainDca(StartEvmCrossChainDcaOrderData),
+}
+
+impl StartEvmOrderTypeData {
+    pub fn get_intent_id(&self) -> String {
+        match self {
+            StartEvmOrderTypeData::SingleChainLimit(data) => {
+                data.start_permission.order_hash.to_owned()
+            }
+            StartEvmOrderTypeData::SingleChainDca(data) => {
+                data.start_permission.order_hash.to_owned()
+            }
+            StartEvmOrderTypeData::CrossChainLimit(data) => {
+                data.start_permission.order_hash.to_owned()
+            }
+            StartEvmOrderTypeData::CrossChainDca(data) => {
+                data.start_permission.order_hash.to_owned()
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

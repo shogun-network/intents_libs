@@ -63,6 +63,16 @@ impl SingleChainSolverStartOrderData {
             ))),
         }
     }
+
+    pub fn get_intent_id(&self) -> String {
+        match &self {
+            SingleChainSolverStartOrderData::EVM(evm_data) => {
+                evm_data.order_type_data.get_intent_id()
+            }
+            SingleChainSolverStartOrderData::Solana(solana_data) => solana_data.order.to_owned(),
+            SingleChainSolverStartOrderData::Sui(sui_data) => sui_data.order_id.to_owned(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

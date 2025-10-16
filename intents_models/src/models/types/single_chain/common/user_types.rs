@@ -2,6 +2,7 @@ use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
 use crate::models::types::common::TransferDetails;
 use crate::models::types::user_types::EVMData;
+use crate::models::types::utils::get_number_of_unique_receivers;
 use error_stack::report;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
@@ -30,6 +31,16 @@ pub struct SingleChainGenericData {
     pub extra_transfers: Option<Vec<TransferDetails>>,
     /// Deadline for the operation, in Unix timestamp format, in SECONDS
     pub deadline: u64,
+}
+
+impl SingleChainGenericData {
+    pub fn get_number_of_unique_receivers(&self) -> usize {
+        get_number_of_unique_receivers(
+            &self.token_out,
+            &self.destination_address,
+            &self.extra_transfers,
+        )
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
