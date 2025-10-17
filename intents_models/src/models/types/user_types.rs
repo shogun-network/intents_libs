@@ -243,6 +243,4 @@ pub struct SuiData {
 pub struct OrderCreatedResponse {
     /// Created intent ID
     pub intent_id: String,
-    /// Updated or created JWT for an order user wallet
-    pub jwt: String,
 }
