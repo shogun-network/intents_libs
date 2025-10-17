@@ -179,7 +179,6 @@ pub async fn get_jupiter_transaction(
         "quoteResponse": quote,
         "userPublicKey": generic_swap_request.spender,
         "dynamicComputeUnitLimit": true,
-        "dynamicSlippage": true,
         "wrapAndUnwrapSol": generic_swap_request.dest_token.to_string()
             .ne(&WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS),
         "destinationTokenAccount": destination_token_account,
