@@ -150,7 +150,7 @@ pub fn parse_order_status(status: &str) -> ModelResult<OrderStatus> {
     })
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 /// List of orders provided to user on request
 pub struct UserOrders {

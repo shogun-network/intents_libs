@@ -11,6 +11,7 @@ use crate::models::types::single_chain::{
 use crate::models::types::user_types::IntentRequest;
 use error_stack::report;
 use serde::{Deserialize, Serialize};
+use serde_with::{StringWithSeparator, formats::CommaSeparator, serde_as};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
@@ -96,4 +97,19 @@ impl UserRequestGenericData {
             UserRequestGenericData::CrossChain(data) => data.deadline,
         }
     }
+}
+
+#[serde_as]
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetUserIntentsRequest {
+    #[serde_as(as = "StringWithSeparator<CommaSeparator, String>")]
+    #[serde(default)]
+    pub evm_wallets: Vec<String>,
+    #[serde_as(as = "StringWithSeparator<CommaSeparator, String>")]
+    #[serde(default)]
+    pub solana_wallets: Vec<String>,
+    #[serde_as(as = "StringWithSeparator<CommaSeparator, String>")]
+    #[serde(default)]
+    pub sui_wallets: Vec<String>,
 }
