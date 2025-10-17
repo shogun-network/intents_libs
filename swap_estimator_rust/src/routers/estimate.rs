@@ -1,7 +1,7 @@
 use intents_models::constants::chains::ChainId;
 use serde::{Deserialize, Serialize};
 
-use crate::routers::swap::GenericSwapRequest;
+use crate::routers::{Slippage, swap::GenericSwapRequest};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TradeType {
@@ -22,7 +22,7 @@ pub struct GenericEstimateRequest {
     /// Amount IN for exact IN trade and amount OUT for exact OUT trade
     pub amount_fixed: u128,
     /// Decimal slippage
-    pub slippage: f64,
+    pub slippage: Slippage,
 }
 
 impl From<GenericSwapRequest> for GenericEstimateRequest {

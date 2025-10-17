@@ -12,10 +12,17 @@ use crate::error::EstimatorResult;
 use intents_models::constants::chains::ChainId;
 use lazy_static::lazy_static;
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 lazy_static! {
     static ref HTTP_CLIENT: Arc<Client> = Arc::new(Client::new());
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Slippage {
+    Percent(f64),
+    AmountLimit(u128),
 }
 
 // TODO: We can add this calculated quotes and send it to swap functions in order to save another estimation inside swap function, like:
