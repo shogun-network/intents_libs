@@ -2,6 +2,7 @@ use crate::routers::aftermath::AFTERMATH_BASE_API_URL;
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
+        Slippage,
         aftermath::responses::AftermathQuoteResponse,
         estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType},
         swap::GenericSwapRequest,
@@ -35,6 +36,14 @@ pub async fn quote_aftermath_swap(
         chain_id: _,
     } = generic_estimate_request;
     // subtracting 1.0 since Aftermath already adds 1% by default
+    let slippage = match slippage {
+        Slippage::Percent(slippage) => slippage,
+        Slippage::AmountLimit(_) => {
+            return Err(report!(Error::ModelsError).attach_printable(
+                "Aftermath API route endpoint only supports slippage in percent form",
+            ));
+        }
+    };
     let aftermath_slippage = get_aftermath_slippage(slippage);
 
     let body: Value = match generic_estimate_request.trade_type {
@@ -108,6 +117,13 @@ pub async fn prepare_swap_ptb_with_aftermath(
         slippage,
         chain_id: _,
     } = generic_swap_request;
+    println!("Routes Value: {routes_value:#?}",);
+    let slippage = match slippage {
+        Slippage::Percent(slippage) => slippage,
+        Slippage::AmountLimit(amount_limit) => {
+            todo!();
+        }
+    };
     let aftermath_slippage = get_aftermath_slippage(slippage);
 
     let (body, uri_path) = match serialized_tx_and_coin_id {
@@ -176,7 +192,7 @@ mod tests {
                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
                     .to_string(),
             amount_fixed: 1_000_000, // 1 USDC
-            slippage: 1.0,
+            slippage: Slippage::Percent(1.0),
         };
 
         let (_, routes) = quote_aftermath_swap(request)
@@ -200,7 +216,7 @@ mod tests {
                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
                     .to_string(),
             amount_fixed: 1_000_000_000, // 1 SUI
-            slippage: 1.0,
+            slippage: Slippage::Percent(1.0),
         };
         let (_, routes) = quote_aftermath_swap(request)
             .await
@@ -232,7 +248,7 @@ mod tests {
             dest_token:
                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
                     .to_string(),
-            slippage: 2.0,
+            slippage: Slippage::Percent(2.0),
             dest_address: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
                 .to_string(),
         };
@@ -264,7 +280,7 @@ mod tests {
             dest_token:
                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
                     .to_string(),
-            slippage: 2.0,
+            slippage: Slippage::Percent(2.0),
             dest_address: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
                 .to_string(),
         };
@@ -296,7 +312,7 @@ mod tests {
             dest_token:
                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
                     .to_string(),
-            slippage: 2.0,
+            slippage: Slippage::Percent(2.0),
             dest_address: "0xd929d817e0ef0338b25254fec67ef6f42a65e248fb2bfaf1d81d1d0aa4d74e67"
                 .to_string(),
         };
@@ -337,7 +353,7 @@ mod tests {
             dest_token:
                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
                     .to_string(),
-            slippage: 2.0,
+            slippage: Slippage::Percent(2.0),
             dest_address: "0xd929d817e0ef0338b25254fec67ef6f42a65e248fb2bfaf1d81d1d0aa4d74e67"
                 .to_string(),
         };

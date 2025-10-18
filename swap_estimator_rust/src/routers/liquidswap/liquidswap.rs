@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
-        HTTP_CLIENT,
+        HTTP_CLIENT, Slippage,
         constants::LIQUIDSWAP_BASE_API_URL,
         estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType},
         liquidswap::{
@@ -139,7 +139,7 @@ fn get_amount_quote_and_fixed(
     token_in_decimals: u8,
     token_out_decimals: u8,
     trade_type: TradeType,
-    slippage: f64,
+    slippage: Slippage,
 ) -> EstimatorResult<(u128, u128)> {
     let amount_quote = match trade_type {
         TradeType::ExactIn => {
@@ -151,7 +151,10 @@ fn get_amount_quote_and_fixed(
             decimal_string_to_u128(&route_response.amount_in, token_in_decimals)?
         }
     };
-    let amount_limit = get_limit_amount(trade_type, amount_quote, slippage);
+    let amount_limit = match slippage {
+        Slippage::Percent(slippage) => get_limit_amount(trade_type, amount_quote, slippage),
+        Slippage::AmountLimit(amount_limit) => amount_limit,
+    };
     Ok((amount_quote, amount_limit))
 }
 
@@ -366,7 +369,7 @@ mod tests {
             src_token: src_token.to_string(),
             dest_token: dest_token.to_string(),
             amount_fixed: amount,
-            slippage: 2.0,
+            slippage: Slippage::Percent(2.0),
         }
     }
 
@@ -384,7 +387,7 @@ mod tests {
             src_token: src_token.to_string(),
             dest_token: dest_token.to_string(),
             amount_fixed: amount,
-            slippage: 2.0,
+            slippage: Slippage::Percent(2.0),
         }
     }
 
