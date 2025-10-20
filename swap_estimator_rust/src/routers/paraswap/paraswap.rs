@@ -207,14 +207,25 @@ pub async fn prepare_swap_paraswap_generic(
     generic_swap_request: GenericSwapRequest,
     src_decimals: u8,
     dest_decimals: u8,
-    amount_quote_and_prices_response: Option<(u128, GetPriceRouteResponse)>,
+    estimate_response: Option<GenericEstimateResponse>,
 ) -> EstimatorResult<EvmSwapResponse> {
-    let (amount_quote, prices_response, approval_address) = match amount_quote_and_prices_response {
-        Some((amount_quote, prices_response)) => {
+    let (amount_quote, prices_response, approval_address) = match estimate_response {
+        Some(estimate_response) => {
+            let prices_response: GetPriceRouteResponse = serde_json::from_value(
+                estimate_response.router_data,
+            )
+            .change_context(Error::SerdeDeserialize(
+                "Failed to deserialize Paraswap quote response".to_string(),
+            ))?;
+            let amount_quote = estimate_response.amount_quote;
             let approval_address = prices_response
                 .price_route
                 .get("contractAddress")
                 .cloned()
+                .ok_or(report!(Error::AggregatorError(
+                    "Error getting contract_address in paraswap response".to_string()
+                )))?
+                .as_str()
                 .ok_or(report!(Error::AggregatorError(
                     "Error getting contract_address in paraswap response".to_string()
                 )))?
@@ -427,13 +438,53 @@ mod tests {
         );
         let response = result.unwrap();
 
-        let get_price_route_response: GetPriceRouteResponse =
-            serde_json::from_value(response.router_data).expect("Can't fail");
         let result = prepare_swap_paraswap_generic(
             request,
             src_token_decimals,
             dst_token_decimals,
-            Some((response.amount_quote, get_price_route_response)),
+            Some(response),
+        )
+        .await;
+        println!("Result: {:#?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_paraswap_swap_exact_in_with_quote_amount_limit() {
+        let chain_id = ChainId::Base;
+        let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
+        let dest_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
+        let src_token_decimals = 18;
+        let dst_token_decimals = 6;
+        let request = GenericSwapRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id,
+            spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
+            dest_address: "0x4E28f22DE1DBDe92310db2779217a74607691038".to_string(),
+            src_token,
+            dest_token,
+            amount_fixed: 10_000_000_000u128,
+            slippage: Slippage::AmountLimit(20),
+        };
+
+        let generic_estimate_request = GenericEstimateRequest::from(request.clone());
+        let result = estimate_swap_paraswap_generic(
+            generic_estimate_request,
+            src_token_decimals,
+            dst_token_decimals,
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "Expected a successful estimate swap response"
+        );
+        let response = result.unwrap();
+
+        let result = prepare_swap_paraswap_generic(
+            request,
+            src_token_decimals,
+            dst_token_decimals,
+            Some(response),
         )
         .await;
         println!("Result: {:#?}", result);

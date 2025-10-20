@@ -119,7 +119,6 @@ pub async fn prepare_swap_ptb_with_aftermath(
         slippage,
         chain_id: _,
     } = generic_swap_request;
-    println!("Routes Value: {routes_value:#?}",);
     let slippage = match slippage {
         Slippage::Percent(slippage) => slippage,
         Slippage::AmountLimit(amount_limit) => {
