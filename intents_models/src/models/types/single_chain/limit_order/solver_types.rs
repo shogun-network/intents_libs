@@ -1,3 +1,4 @@
+use crate::constants::chains::{EVM_NULL_ADDRESS, is_native_token_evm_address};
 use crate::error::{Error, ModelResult};
 use crate::models::types::common::TransferDetails;
 use crate::models::types::single_chain::{
@@ -72,7 +73,11 @@ impl TryFrom<(&SingleChainLimitOrderGenericData, &EVMData)> for EvmSingleChainLi
     ) -> ModelResult<Self> {
         let requested_output = TransferDetails {
             amount: generic_intent_data.common_data.amount_out_min,
-            token: generic_intent_data.common_data.token_out.clone(),
+            token: if is_native_token_evm_address(&generic_intent_data.common_data.token_out) {
+                EVM_NULL_ADDRESS.to_owned()
+            } else {
+                generic_intent_data.common_data.token_out.clone()
+            },
             receiver: generic_intent_data.common_data.destination_address.clone(),
         };
 
@@ -80,7 +85,17 @@ impl TryFrom<(&SingleChainLimitOrderGenericData, &EVMData)> for EvmSingleChainLi
             .common_data
             .extra_transfers
             .clone()
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| TransferDetails {
+                token: if is_native_token_evm_address(&t.token) {
+                    EVM_NULL_ADDRESS.to_owned()
+                } else {
+                    t.token
+                },
+                ..t
+            })
+            .collect();
 
         let order = EvmSingleChainLimitOrderInfo {
             user: generic_intent_data.common_data.user.clone(),
