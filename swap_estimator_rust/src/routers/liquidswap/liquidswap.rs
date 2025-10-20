@@ -154,6 +154,7 @@ fn get_amount_quote_and_fixed(
     let amount_limit = match slippage {
         Slippage::Percent(slippage) => get_limit_amount(trade_type, amount_quote, slippage),
         Slippage::AmountLimit(amount_limit) => amount_limit,
+        Slippage::MaxSlippage => 0,
     };
     Ok((amount_quote, amount_limit))
 }
@@ -201,6 +202,9 @@ pub async fn estimate_swap_liquidswap_generic(
     Ok(GenericEstimateResponse {
         amount_quote,
         amount_limit,
+        router_data: serde_json::to_value(&route_response).change_context(
+            Error::SerdeSerialize("Error serializing Liquidswap route response".to_string()),
+        )?,
     })
 }
 

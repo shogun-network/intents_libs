@@ -44,4 +44,6 @@ pub struct GenericEstimateResponse {
     pub amount_quote: u128,
     /// Amount IN MAX for exact OUT trade or amount OUT MIN for exact IN trade
     pub amount_limit: u128,
+    /// Response data specific to router
+    pub router_data: serde_json::Value,
 }

@@ -23,6 +23,7 @@ lazy_static! {
 pub enum Slippage {
     Percent(f64),
     AmountLimit(u128),
+    MaxSlippage,
 }
 
 // TODO: We can add this calculated quotes and send it to swap functions in order to save another estimation inside swap function, like:

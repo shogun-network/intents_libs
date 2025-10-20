@@ -1,5 +1,6 @@
 use crate::error::{Error, EstimatorResult};
 use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType};
+use crate::routers::jupiter::get_jupiter_max_slippage;
 use crate::routers::swap::{GenericSwapRequest, SolanaPriorityFeeType};
 use crate::routers::{HTTP_CLIENT, Slippage};
 use error_stack::{ResultExt, report};
@@ -115,6 +116,7 @@ pub async fn get_jupiter_quote(
                 "Jupiter API route endpoint only supports slippage in percent form",
             ));
         }
+        Slippage::MaxSlippage => get_jupiter_max_slippage(),
     };
     let query_value = json!({
         "amount": generic_solana_estimate_request.amount_fixed,
@@ -170,6 +172,9 @@ pub async fn get_jupiter_quote(
         amount_limit: u128::from_str(&quote.otherAmountThreshold).change_context(
             Error::SerdeSerialize("Error serializing Jupiter quote response".to_string()),
         )?,
+        router_data: serde_json::to_value(&quote).change_context(Error::SerdeSerialize(
+            "Error serializing Jupiter quote response".to_string(),
+        ))?,
     };
 
     Ok((generic_response, quote))
@@ -257,6 +262,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_get_jupiter_quote_max_slippage() {
+        dotenv::dotenv().ok();
+        let request = GenericEstimateRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id: ChainId::Solana,
+            src_token: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+            dest_token: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
+            amount_fixed: 1000000,
+            slippage: Slippage::MaxSlippage,
+        };
+
+        let jupiter_url = std::env::var("JUPITER_URL").unwrap();
+
+        let (response, quote) = get_jupiter_quote(&request, &jupiter_url, None)
+            .await
+            .unwrap();
+        println!("Generic Response: {:?}", response);
+        println!("Jupiter Quote: {:?}", quote);
+    }
+
+    #[tokio::test]
     async fn test_get_jupiter_transaction() {
         dotenv::dotenv().ok();
         let request = GenericEstimateRequest {
@@ -285,6 +311,44 @@ mod tests {
             dest_token: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
             amount_fixed: 1000000,
             slippage: Slippage::Percent(0.005),
+        };
+
+        let jupiter_tx =
+            get_jupiter_transaction(swap_request, quote, &jupiter_url, None, None, None)
+                .await
+                .expect("Jupiter swap transaction failed");
+        println!("Jupiter Swap Transaction: {:?}", jupiter_tx);
+    }
+
+    #[tokio::test]
+    async fn test_get_jupiter_transaction_max_slippage() {
+        dotenv::dotenv().ok();
+        let request = GenericEstimateRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id: ChainId::Solana,
+            src_token: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+            dest_token: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
+            amount_fixed: 1000000,
+            slippage: Slippage::MaxSlippage,
+        };
+
+        let jupiter_url = std::env::var("JUPITER_URL").unwrap();
+
+        let (response, quote) = get_jupiter_quote(&request, &jupiter_url, None)
+            .await
+            .unwrap();
+        println!("Generic Response: {:?}", response);
+        println!("Jupiter Quote: {:?}", quote);
+
+        let swap_request = GenericSwapRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id: ChainId::Solana,
+            spender: "7kDXEH3xPS5TvScR1czWvSCJMaeHHB9693mWTrdTRQVB".to_string(),
+            dest_address: "G22xmTDQHKnn9TiVbqgLAiBhoVPdhL1A3NqMELWYBGXa".to_string(),
+            src_token: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+            dest_token: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
+            amount_fixed: 1000000,
+            slippage: Slippage::MaxSlippage,
         };
 
         let jupiter_tx =

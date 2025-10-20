@@ -1,4 +1,4 @@
-use crate::routers::aftermath::AFTERMATH_BASE_API_URL;
+use crate::routers::aftermath::{AFTERMATH_BASE_API_URL, get_aftermath_max_slippage};
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
@@ -26,7 +26,7 @@ use serde_json::{Value, json};
 /// * Response value
 pub async fn quote_aftermath_swap(
     generic_estimate_request: GenericEstimateRequest,
-) -> EstimatorResult<(GenericEstimateResponse, Value)> {
+) -> EstimatorResult<GenericEstimateResponse> {
     let GenericEstimateRequest {
         trade_type,
         src_token,
@@ -43,6 +43,7 @@ pub async fn quote_aftermath_swap(
                 "Aftermath API route endpoint only supports slippage in percent form",
             ));
         }
+        Slippage::MaxSlippage => get_aftermath_max_slippage(),
     };
     let aftermath_slippage = get_aftermath_slippage(slippage);
 
@@ -90,16 +91,17 @@ pub async fn quote_aftermath_swap(
         TradeType::ExactIn => GenericEstimateResponse {
             amount_quote: amount_out as u128,
             amount_limit: get_limit_amount_u64(trade_type, amount_out, slippage) as u128,
+            router_data: response,
         },
         TradeType::ExactOut => GenericEstimateResponse {
             amount_quote: amount_in as u128,
             // Aftermath exact OUT is in fact exact IN,
-            // so we know exact amount of tokens we're going to spend
             amount_limit: amount_in as u128,
+            router_data: response,
         },
     };
 
-    Ok((generic_response, response))
+    Ok(generic_response)
 }
 
 pub async fn prepare_swap_ptb_with_aftermath(
@@ -108,7 +110,7 @@ pub async fn prepare_swap_ptb_with_aftermath(
     serialized_tx_and_coin_id: Option<(Value, Value)>,
 ) -> EstimatorResult<Value> {
     let GenericSwapRequest {
-        trade_type: _,
+        trade_type,
         dest_address,
         src_token: _,
         dest_token: _,
@@ -121,8 +123,57 @@ pub async fn prepare_swap_ptb_with_aftermath(
     let slippage = match slippage {
         Slippage::Percent(slippage) => slippage,
         Slippage::AmountLimit(amount_limit) => {
-            todo!();
+            // Derive percent slippage from quote contained in routes_value
+            let decoded: AftermathQuoteResponse = serde_json::from_value(routes_value.clone())
+                .change_context(Error::SerdeSerialize(
+                    "Failed to deserialize Aftermath routes in prepare".to_string(),
+                ))?;
+            // Amounts come as strings with a trailing 'n'
+            let amount_in_quote: u128 = decoded
+                .coin_in
+                .amount
+                .trim_end_matches('n')
+                .parse::<u128>()
+                .change_context(Error::ParseError)?;
+            let amount_out_quote: u128 = decoded
+                .coin_out
+                .amount
+                .trim_end_matches('n')
+                .parse::<u128>()
+                .change_context(Error::ParseError)?;
+
+            // Compute percent slippage that matches the provided limit
+            let mut percent = match trade_type {
+                TradeType::ExactIn => {
+                    // amount_out_min = amount_out_quote * (1 - p/100)
+                    if amount_out_quote == 0 {
+                        0.0
+                    } else {
+                        let ratio = (amount_limit as f64) / (amount_out_quote as f64);
+                        ((1.0 - ratio) * 100.0).max(0.0)
+                    }
+                }
+                TradeType::ExactOut => {
+                    // amount_in_max = amount_in_quote * (1 + p/100)
+                    if amount_in_quote == 0 {
+                        0.0
+                    } else {
+                        let ratio = (amount_limit as f64) / (amount_in_quote as f64);
+                        ((ratio - 1.0) * 100.0).max(0.0)
+                    }
+                }
+            };
+
+            // Clamp to API maximum
+            let max_pct = get_aftermath_max_slippage();
+            if percent.is_finite() {
+                percent = percent.clamp(0.0, max_pct);
+            } else {
+                percent = 0.0;
+            }
+            percent
         }
+        Slippage::MaxSlippage => get_aftermath_max_slippage(),
     };
     let aftermath_slippage = get_aftermath_slippage(slippage);
 
@@ -195,11 +246,39 @@ mod tests {
             slippage: Slippage::Percent(1.0),
         };
 
-        let (_, routes) = quote_aftermath_swap(request)
+        let routes = quote_aftermath_swap(request)
             .await
-            .expect("Should not fail");
+            .expect("Should not fail")
+            .router_data;
 
         let routes: AftermathQuoteResponse = serde_json::from_value(routes).unwrap();
+        println!("Routes: {:#?}", routes);
+        let amount_in: u64 = routes.coin_in.amount.trim_end_matches("n").parse().unwrap();
+        assert_eq!(amount_in, 1_000_000);
+    }
+
+    #[tokio::test]
+    async fn test_quote_aftermath_exact_in_max_slippage() {
+        let request = GenericEstimateRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id: ChainId::Sui,
+            src_token:
+                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+                    .to_string(),
+            dest_token:
+                "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                    .to_string(),
+            amount_fixed: 1_000_000, // 1 USDC
+            slippage: Slippage::MaxSlippage,
+        };
+
+        let routes = quote_aftermath_swap(request)
+            .await
+            .expect("Should not fail")
+            .router_data;
+
+        let routes: AftermathQuoteResponse = serde_json::from_value(routes).unwrap();
+        println!("Routes: {:#?}", routes);
         let amount_in: u64 = routes.coin_in.amount.trim_end_matches("n").parse().unwrap();
         assert_eq!(amount_in, 1_000_000);
     }
@@ -218,9 +297,10 @@ mod tests {
             amount_fixed: 1_000_000_000, // 1 SUI
             slippage: Slippage::Percent(1.0),
         };
-        let (_, routes) = quote_aftermath_swap(request)
+        let routes = quote_aftermath_swap(request)
             .await
-            .expect("Should not fail");
+            .expect("Should not fail")
+            .router_data;
 
         let routes: AftermathQuoteResponse = serde_json::from_value(routes).unwrap();
         let amount_out: u64 = routes
@@ -254,13 +334,84 @@ mod tests {
         };
 
         let quote_request = GenericEstimateRequest::from(swap_request.clone());
-        let (_, routes) = quote_aftermath_swap(quote_request)
+        let routes = quote_aftermath_swap(quote_request)
             .await
-            .expect("Should not fail");
+            .expect("Should not fail")
+            .router_data;
 
         let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None)
             .await
             .expect("Should not fail");
+        println!("RES: {:#?}", res);
+
+        assert!(res.get("coinOutId").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_prepare_swap_ptb_with_aftermath_exact_in_max_slippage() {
+        let swap_request = GenericSwapRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id: ChainId::Sui,
+            spender: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
+                .to_string(),
+            amount_fixed: 10_000, // 0.01 USDC
+
+            src_token:
+                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+                    .to_string(),
+            dest_token:
+                "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                    .to_string(),
+            slippage: Slippage::MaxSlippage,
+            dest_address: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
+                .to_string(),
+        };
+
+        let quote_request = GenericEstimateRequest::from(swap_request.clone());
+        let routes = quote_aftermath_swap(quote_request)
+            .await
+            .expect("Should not fail")
+            .router_data;
+
+        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None)
+            .await
+            .expect("Should not fail");
+        println!("RES: {:#?}", res);
+
+        assert!(res.get("coinOutId").is_none());
+    }
+
+    #[tokio::test]
+    async fn test_prepare_swap_ptb_with_aftermath_exact_in_amount_limit() {
+        let swap_request = GenericSwapRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id: ChainId::Sui,
+            spender: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
+                .to_string(),
+            amount_fixed: 10_000, // 0.01 USDC
+
+            src_token:
+                "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+                    .to_string(),
+            dest_token:
+                "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                    .to_string(),
+            slippage: Slippage::AmountLimit(0),
+            dest_address: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
+                .to_string(),
+        };
+
+        let mut quote_request = GenericEstimateRequest::from(swap_request.clone());
+        quote_request.slippage = Slippage::Percent(2.0);
+        let routes = quote_aftermath_swap(quote_request)
+            .await
+            .expect("Should not fail")
+            .router_data;
+
+        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None)
+            .await
+            .expect("Should not fail");
+        println!("RES: {:#?}", res);
 
         assert!(res.get("coinOutId").is_none());
     }
@@ -286,9 +437,10 @@ mod tests {
         };
 
         let quote_request = GenericEstimateRequest::from(swap_request.clone());
-        let (_, routes) = quote_aftermath_swap(quote_request)
+        let routes = quote_aftermath_swap(quote_request)
             .await
-            .expect("Should not fail");
+            .expect("Should not fail")
+            .router_data;
 
         let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None)
             .await
@@ -317,9 +469,10 @@ mod tests {
                 .to_string(),
         };
         let quote_request = GenericEstimateRequest::from(swap_request.clone());
-        let (_, routes) = quote_aftermath_swap(quote_request)
+        let routes = quote_aftermath_swap(quote_request)
             .await
-            .expect("Should not fail");
+            .expect("Should not fail")
+            .router_data;
 
         let serialized_tx = serde_json::from_str(TEST_TX).unwrap();
 
@@ -335,17 +488,18 @@ mod tests {
 
         assert!(res.get("coinOutId").is_some());
     }
+
     #[tokio::test]
     async fn test_prepare_swap_ptb_with_aftermath_exact_in_with_ptb() {
         let src_token =
             "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
                 .to_string();
-        let amount_in = 10_000; // 0.01 USDC
+        let amount_in = 200_000; // 0.2 USDC
 
         let swap_request = GenericSwapRequest {
-            trade_type: TradeType::ExactOut,
+            trade_type: TradeType::ExactIn,
             chain_id: ChainId::Sui,
-            spender: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
+            spender: "0x9f80d9f13b268f1285c58a9402d004938ca0c2b267d3aa7b346602bf98a365ce"
                 .to_string(),
             amount_fixed: amount_in,
 
@@ -359,9 +513,10 @@ mod tests {
         };
 
         let quote_request = GenericEstimateRequest::from(swap_request.clone());
-        let (_, routes) = quote_aftermath_swap(quote_request)
+        let routes = quote_aftermath_swap(quote_request)
             .await
-            .expect("Should not fail");
+            .expect("Should not fail")
+            .router_data;
 
         let serialized_tx = serde_json::from_str(TEST_TX).unwrap();
 
@@ -374,6 +529,54 @@ mod tests {
             prepare_swap_ptb_with_aftermath(swap_request, routes, Some((serialized_tx, coin_id)))
                 .await
                 .expect("Should not fail");
+
+        assert!(res.get("coinOutId").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_prepare_swap_ptb_with_aftermath_exact_in_with_ptb_max_slippage() {
+        let src_token =
+            "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+                .to_string();
+        let amount_in = 200_000; // 0.2 USDC
+
+        let swap_request = GenericSwapRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id: ChainId::Sui,
+            spender: "0x9f80d9f13b268f1285c58a9402d004938ca0c2b267d3aa7b346602bf98a365ce"
+                .to_string(),
+            amount_fixed: amount_in,
+
+            src_token,
+            dest_token:
+                "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
+                    .to_string(),
+            slippage: Slippage::Percent(2.0),
+            dest_address: "0xd929d817e0ef0338b25254fec67ef6f42a65e248fb2bfaf1d81d1d0aa4d74e67"
+                .to_string(),
+        };
+
+        let quote_request = GenericEstimateRequest::from(swap_request.clone());
+        println!("Quote Request: {:#?}", quote_request);
+        let routes = quote_aftermath_swap(quote_request)
+            .await
+            .expect("Should not fail")
+            .router_data;
+
+        println!("Routes: {:#?}", routes);
+
+        let serialized_tx = serde_json::from_str(TEST_TX).unwrap();
+
+        let coin_id = json!({
+            "$kind": "NestedResult",
+            "NestedResult": [1,0]
+        });
+
+        let res =
+            prepare_swap_ptb_with_aftermath(swap_request, routes, Some((serialized_tx, coin_id)))
+                .await;
+        println!("Res: {:#?}", res);
+        let res = res.expect("Should not fail");
 
         assert!(res.get("coinOutId").is_some());
     }

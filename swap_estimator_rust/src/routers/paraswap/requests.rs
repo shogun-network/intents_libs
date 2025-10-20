@@ -1,7 +1,12 @@
 use super::update_paraswap_native_token;
 use crate::{
-    error::{Error, EstimatorResult},
-    routers::{estimate::TradeType, swap::GenericSwapRequest},
+    error::EstimatorResult,
+    routers::{
+        Slippage,
+        estimate::{GenericEstimateRequest, TradeType},
+        paraswap::get_paraswap_max_slippage,
+        swap::GenericSwapRequest,
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -319,36 +324,36 @@ pub struct ParaswapSwapCombinedRequest {
     pub is_direct_fee_transfer: Option<bool>,
 }
 
-impl ParaswapSwapCombinedRequest {
-    pub async fn try_from_generic_parameters(
-        generic_req: GenericSwapRequest,
+impl GetPriceRouteRequest {
+    pub fn from_generic_estimate_request(
+        request: &GenericEstimateRequest,
         src_decimals: u8,
         dest_decimals: u8,
-    ) -> EstimatorResult<Self> {
-        let src_token = update_paraswap_native_token(generic_req.src_token).to_string();
-        let dest_token = update_paraswap_native_token(generic_req.dest_token).to_string();
-        Ok(Self {
+    ) -> Self {
+        let src_token = update_paraswap_native_token(request.src_token.clone()).to_string();
+        let dest_token = update_paraswap_native_token(request.dest_token.clone()).to_string();
+        Self {
             src_token,
             src_decimals,
             dest_token,
             dest_decimals,
-            amount: generic_req.amount_fixed.to_string(),
-            side: Some(match generic_req.trade_type {
+            amount: request.amount_fixed.to_string(),
+            side: Some(match request.trade_type {
                 TradeType::ExactIn => ParaswapSide::SELL,
                 TradeType::ExactOut => ParaswapSide::BUY,
             }),
-            chain_id: generic_req.chain_id as u32,
+            chain_id: request.chain_id as u32,
             other_exchange_prices: None,
             include_dexs: None,
             exclude_dexs: None,
             exclude_rfq: None,
             include_contract_methods: None,
             exclude_contract_methods: None,
-            user_address: generic_req.spender.to_string(),
+            user_address: None,
             route: None,
             partner: None,
             max_impact: None,
-            receiver: Some(generic_req.dest_address.to_string()),
+            receiver: None,
             src_token_transfer_fee: None,
             dest_token_transfer_fee: None,
             src_token_dex_transfer_fee: None,
@@ -356,143 +361,63 @@ impl ParaswapSwapCombinedRequest {
             version: Some(6.2),
             exclude_contract_methods_without_fee_model: None,
             ignore_bad_usd_price: None,
-            gas_price: "0".to_string(),
-            ignore_checks: Some(true),
-            ignore_gas_estimate: Some(true),
-            only_params: Some(false),
-            eip1559: None,
-            src_amount: None,
-            dest_amount: None,
-            price_route: None,
-            tx_origin: None,
-            partner_address: None,
-            partner_fee_bps: None,
-            permit: None,
-            deadline: None,
-            is_cap_surplus: None,
-            take_surplus: None,
-            is_surplus_to_user: None,
-            is_direct_fee_transfer: None,
-            slippage: Some((generic_req.slippage * 100.0) as u32), // As 2% is 200, we have to multiply by 100
-        })
-    }
-    pub fn to_get_price_route_request(&self) -> GetPriceRouteRequest {
-        let src_token = update_paraswap_native_token(self.src_token.clone()).to_string();
-        let dest_token = update_paraswap_native_token(self.dest_token.clone()).to_string();
-        GetPriceRouteRequest {
-            src_token,
-            src_decimals: self.src_decimals,
-            dest_token,
-            amount: self.amount.clone(),
-            side: self.side.clone(),
-            chain_id: self.chain_id,
-            other_exchange_prices: self.other_exchange_prices,
-            include_dexs: self.include_dexs.clone(),
-            exclude_dexs: self.exclude_dexs.clone(),
-            exclude_rfq: self.exclude_rfq,
-            include_contract_methods: self.include_contract_methods.clone(),
-            exclude_contract_methods: self.exclude_contract_methods.clone(),
-            user_address: None,
-            route: self.route.clone(),
-            partner: None,
-            dest_decimals: self.dest_decimals,
-            max_impact: self.max_impact,
-            receiver: None,
-            src_token_transfer_fee: self.src_token_transfer_fee.clone(),
-            dest_token_transfer_fee: self.dest_token_transfer_fee.clone(),
-            src_token_dex_transfer_fee: self.src_token_dex_transfer_fee.clone(),
-            dest_token_dex_transfer_fee: self.dest_token_dex_transfer_fee.clone(),
-            version: self.version,
-            exclude_contract_methods_without_fee_model: self
-                .exclude_contract_methods_without_fee_model,
-            ignore_bad_usd_price: self.ignore_bad_usd_price,
         }
-    }
-
-    pub fn to_transactions_request(&self) -> EstimatorResult<TransactionsRequest> {
-        Ok(TransactionsRequest {
-            chain_id: self.chain_id,
-            query_params: TransactionsQueryParams {
-                gas_price: self.gas_price.clone(),
-                ignore_checks: self.ignore_checks,
-                ignore_gas_estimate: self.ignore_gas_estimate,
-                only_params: self.only_params,
-                eip1559: self.eip1559,
-            },
-            body_params: TransactionsBodyParams {
-                src_token: self.src_token.clone(),
-                src_decimals: self.src_decimals,
-                dest_token: self.dest_token.clone(),
-                dest_decimals: self.dest_decimals,
-                src_amount: self.src_amount.clone(),
-                dest_amount: self.dest_amount.clone(),
-                price_route: self.price_route.clone().ok_or(Error::Unknown)?,
-                slippage: self.slippage,
-                user_address: self.user_address.clone(),
-                tx_origin: self.tx_origin.clone(),
-                receiver: self.receiver.clone(),
-                partner_address: self.partner_address.clone(),
-                partner_fee_bps: self.partner_fee_bps.clone(),
-                partner: self.partner.clone(),
-                permit: self.permit.clone(),
-                deadline: self.deadline,
-                is_cap_surplus: self.is_cap_surplus,
-                take_surplus: self.take_surplus,
-                is_surplus_to_user: self.is_surplus_to_user,
-                is_direct_fee_transfer: self.is_direct_fee_transfer,
-            },
-        })
     }
 }
 
-impl From<ParaswapParams> for ParaswapSwapCombinedRequest {
-    fn from(params: ParaswapParams) -> Self {
-        let src_token = update_paraswap_native_token(params.token_in).to_string();
-        let dest_token = update_paraswap_native_token(params.token_out).to_string();
-        ParaswapSwapCombinedRequest {
-            src_token,
-            src_decimals: params.token0_decimals,
-            dest_token,
-            amount: params.amount.to_string(),
-            chain_id: params.chain_id,
-            other_exchange_prices: None,
-            include_dexs: None,
-            exclude_dexs: None,
-            exclude_rfq: None,
-            include_contract_methods: None,
-            exclude_contract_methods: None,
-            user_address: params.wallet_address,
-            route: None,
-            partner: Some("paraswap.io".to_string()),
-            dest_decimals: params.token1_decimals,
-            max_impact: Some(10),
-            receiver: Some(params.receiver_address),
-            src_token_transfer_fee: None,
-            dest_token_transfer_fee: None,
-            src_token_dex_transfer_fee: None,
-            dest_token_dex_transfer_fee: None,
-            version: Some(6.2),
-            exclude_contract_methods_without_fee_model: None,
-            ignore_bad_usd_price: None,
-            gas_price: "0".to_string(),
-            ignore_checks: Some(true),
-            ignore_gas_estimate: Some(true),
-            only_params: Some(false),
-            eip1559: None,
-            src_amount: None,
-            dest_amount: None,
-            price_route: None,
-            side: Some(params.side),
-            slippage: Some(params.slippage),
-            tx_origin: None,
-            partner_address: None,
-            partner_fee_bps: None,
-            permit: None,
-            deadline: None,
-            is_cap_surplus: None,
-            take_surplus: None,
-            is_surplus_to_user: None,
-            is_direct_fee_transfer: None,
-        }
+impl TransactionsRequest {
+    pub fn from_generic_swap_request(
+        request: &GenericSwapRequest,
+        src_decimals: u8,
+        dest_decimals: u8,
+        price_route: Value,
+    ) -> EstimatorResult<Self> {
+        let src_token = update_paraswap_native_token(request.src_token.clone()).to_string();
+        let dest_token = update_paraswap_native_token(request.dest_token.clone()).to_string();
+        let (src_amount, dest_amount, slippage) = {
+            let (slippage, amount_limit) = match request.slippage {
+                Slippage::Percent(slippage) => (Some((slippage * 100.0) as u32), None),
+                Slippage::AmountLimit(amount_limit) => (None, Some(amount_limit)),
+                Slippage::MaxSlippage => (Some(get_paraswap_max_slippage()), None),
+            };
+            let (src_amount, dest_amount) = match request.trade_type {
+                TradeType::ExactIn => (Some(request.amount_fixed), amount_limit),
+                TradeType::ExactOut => (amount_limit, Some(request.amount_fixed)),
+            };
+            (src_amount, dest_amount, slippage)
+        };
+
+        Ok(Self {
+            chain_id: request.chain_id as u32,
+            query_params: TransactionsQueryParams {
+                gas_price: "0".to_string(),
+                ignore_checks: Some(true),
+                ignore_gas_estimate: Some(true),
+                only_params: Some(false),
+                eip1559: None,
+            },
+            body_params: TransactionsBodyParams {
+                src_token,
+                src_decimals,
+                dest_token,
+                dest_decimals,
+                src_amount: src_amount.map(|amt| amt.to_string()),
+                dest_amount: dest_amount.map(|amt| amt.to_string()),
+                price_route,
+                slippage,
+                user_address: request.spender.to_string(),
+                tx_origin: None,
+                receiver: Some(request.dest_address.to_string()),
+                partner_address: None,
+                partner_fee_bps: None,
+                partner: None,
+                permit: None,
+                deadline: None,
+                is_cap_surplus: None,
+                take_surplus: None,
+                is_surplus_to_user: None,
+                is_direct_fee_transfer: None,
+            },
+        })
     }
 }
