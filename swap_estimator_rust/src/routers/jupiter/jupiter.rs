@@ -111,10 +111,12 @@ pub async fn get_jupiter_quote(
 ) -> EstimatorResult<(GenericEstimateResponse, QuoteResponse)> {
     let slippage_bps = match generic_solana_estimate_request.slippage {
         Slippage::Percent(percent) => (percent * 100.0) as u16,
-        Slippage::AmountLimit(_) => {
-            return Err(report!(Error::ModelsError).attach_printable(
-                "Jupiter API route endpoint only supports slippage in percent form",
-            ));
+        Slippage::AmountLimit {
+            amount_limit: _,
+            fallback_slippage,
+        } => {
+            // Using fallback slippage for Jupiter quote, as we cannot derive bps from amount limit here
+            (fallback_slippage * 100.0) as u16
         }
         Slippage::MaxSlippage => get_jupiter_max_slippage(),
     };

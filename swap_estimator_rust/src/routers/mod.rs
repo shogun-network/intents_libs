@@ -22,7 +22,11 @@ lazy_static! {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Slippage {
     Percent(f64),
-    AmountLimit(u128),
+    AmountLimit {
+        amount_limit: u128,
+        /// Fallback slippage percentage in case aggregator doesn't support amount_limit (mostly on estimations)
+        fallback_slippage: f64,
+    },
     MaxSlippage,
 }
 

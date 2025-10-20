@@ -152,7 +152,10 @@ pub async fn estimate_swap_paraswap_generic(
 
     let amount_limit = match request.slippage {
         Slippage::Percent(slippage) => get_limit_amount(request.trade_type, amount_quote, slippage),
-        Slippage::AmountLimit(amount_limit) => amount_limit,
+        Slippage::AmountLimit {
+            amount_limit,
+            fallback_slippage: _,
+        } => amount_limit,
         Slippage::MaxSlippage => get_limit_amount(
             request.trade_type,
             amount_quote,
@@ -261,7 +264,10 @@ pub async fn prepare_swap_paraswap_generic(
         Slippage::Percent(slippage) => {
             get_limit_amount(generic_swap_request.trade_type, amount_quote, slippage)
         }
-        Slippage::AmountLimit(amount_limit) => amount_limit,
+        Slippage::AmountLimit {
+            amount_limit,
+            fallback_slippage: _,
+        } => amount_limit,
         Slippage::MaxSlippage => get_limit_amount(
             generic_swap_request.trade_type,
             amount_quote,
@@ -409,11 +415,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_paraswap_swap_exact_in_with_quote() {
-        let chain_id = ChainId::Base;
-        let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
-        let dest_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
+        let chain_id = ChainId::Bsc;
+        let src_token = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c".to_string();
+        let dest_token = "0x55d398326f99059ff775485246999027b3197955".to_string();
         let src_token_decimals = 18;
-        let dst_token_decimals = 6;
+        let dst_token_decimals = 18;
         let request = GenericSwapRequest {
             trade_type: TradeType::ExactIn,
             chain_id,
@@ -464,7 +470,10 @@ mod tests {
             src_token,
             dest_token,
             amount_fixed: 10_000_000_000u128,
-            slippage: Slippage::AmountLimit(20),
+            slippage: Slippage::AmountLimit {
+                amount_limit: 20,
+                fallback_slippage: 2.0,
+            },
         };
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());

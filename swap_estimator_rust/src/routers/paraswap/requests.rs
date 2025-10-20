@@ -377,7 +377,10 @@ impl TransactionsRequest {
         let (src_amount, dest_amount, slippage) = {
             let (slippage, amount_limit) = match request.slippage {
                 Slippage::Percent(slippage) => (Some((slippage * 100.0) as u32), None),
-                Slippage::AmountLimit(amount_limit) => (None, Some(amount_limit)),
+                Slippage::AmountLimit {
+                    amount_limit,
+                    fallback_slippage: _,
+                } => (None, Some(amount_limit)),
                 Slippage::MaxSlippage => (Some(get_paraswap_max_slippage()), None),
             };
             let (src_amount, dest_amount) = match request.trade_type {

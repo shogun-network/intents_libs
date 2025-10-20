@@ -153,7 +153,10 @@ fn get_amount_quote_and_fixed(
     };
     let amount_limit = match slippage {
         Slippage::Percent(slippage) => get_limit_amount(trade_type, amount_quote, slippage),
-        Slippage::AmountLimit(amount_limit) => amount_limit,
+        Slippage::AmountLimit {
+            amount_limit,
+            fallback_slippage: _,
+        } => amount_limit,
         Slippage::MaxSlippage => 0,
     };
     Ok((amount_quote, amount_limit))

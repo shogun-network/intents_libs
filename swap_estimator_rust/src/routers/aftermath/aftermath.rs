@@ -38,10 +38,12 @@ pub async fn quote_aftermath_swap(
     // subtracting 1.0 since Aftermath already adds 1% by default
     let slippage = match slippage {
         Slippage::Percent(slippage) => slippage,
-        Slippage::AmountLimit(_) => {
-            return Err(report!(Error::ModelsError).attach_printable(
-                "Aftermath API route endpoint only supports slippage in percent form",
-            ));
+        Slippage::AmountLimit {
+            amount_limit: _,
+            fallback_slippage,
+        } => {
+            // Using fallback slippage for Aftermath quote, as we cannot derive percent from amount limit here
+            fallback_slippage
         }
         Slippage::MaxSlippage => get_aftermath_max_slippage(),
     };
@@ -121,7 +123,10 @@ pub async fn prepare_swap_ptb_with_aftermath(
     } = generic_swap_request;
     let slippage = match slippage {
         Slippage::Percent(slippage) => slippage,
-        Slippage::AmountLimit(amount_limit) => {
+        Slippage::AmountLimit {
+            amount_limit,
+            fallback_slippage: _,
+        } => {
             // Derive percent slippage from quote contained in routes_value
             let decoded: AftermathQuoteResponse = serde_json::from_value(routes_value.clone())
                 .change_context(Error::SerdeSerialize(
@@ -395,7 +400,10 @@ mod tests {
             dest_token:
                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
                     .to_string(),
-            slippage: Slippage::AmountLimit(0),
+            slippage: Slippage::AmountLimit {
+                amount_limit: 0,
+                fallback_slippage: 2.0,
+            },
             dest_address: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
                 .to_string(),
         };
