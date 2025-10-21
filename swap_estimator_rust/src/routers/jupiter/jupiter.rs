@@ -3,7 +3,7 @@ use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse, 
 use crate::routers::jupiter::get_jupiter_max_slippage;
 use crate::routers::swap::{GenericSwapRequest, SolanaPriorityFeeType};
 use crate::routers::{HTTP_CLIENT, Slippage};
-use crate::utils::limit_amount::get_slippage_percentage;
+use crate::utils::number_conversion::slippage_to_bps;
 use error_stack::{ResultExt, report};
 use intents_models::constants::chains::{
     WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS, is_native_token_solana_address,
@@ -37,18 +37,18 @@ pub struct RoutePlan {
 #[allow(non_snake_case)]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct QuoteResponse {
-    inputMint: String,
-    inAmount: String,
-    outputMint: String,
-    outAmount: String,
-    otherAmountThreshold: String,
-    swapMode: String,
-    slippageBps: u64,
-    platformFee: Option<String>,
-    priceImpactPct: String,
-    routePlan: Vec<RoutePlan>,
-    contextSlot: u64,
-    timeTaken: f64,
+    pub inputMint: String,
+    pub inAmount: String,
+    pub outputMint: String,
+    pub outAmount: String,
+    pub otherAmountThreshold: String,
+    pub swapMode: String,
+    pub slippageBps: u64,
+    pub platformFee: Option<String>,
+    pub priceImpactPct: String,
+    pub routePlan: Vec<RoutePlan>,
+    pub contextSlot: u64,
+    pub timeTaken: f64,
 }
 
 impl Default for QuoteResponse {
@@ -111,17 +111,11 @@ pub async fn get_jupiter_quote(
     jupiter_api_key: Option<String>,
 ) -> EstimatorResult<(GenericEstimateResponse, QuoteResponse)> {
     let slippage_bps = match generic_solana_estimate_request.slippage {
-        Slippage::Percent(percent) => (percent * 100.0) as u16,
+        Slippage::Percent(percent) => slippage_to_bps(percent)?,
         Slippage::AmountLimit {
-            amount_limit,
-            amount_estimated,
-        } => {
-            (get_slippage_percentage(
-                amount_estimated,
-                amount_limit,
-                generic_solana_estimate_request.trade_type,
-            )? * 100.0) as u16
-        }
+            amount_limit: _,
+            fallback_slippage,
+        } => slippage_to_bps(fallback_slippage)?,
         Slippage::MaxSlippage => get_jupiter_max_slippage(),
     };
     let query_value = json!({
@@ -202,10 +196,6 @@ pub async fn get_jupiter_transaction(
             .ne(&WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS),
         "destinationTokenAccount": destination_token_account,
     });
-    println!(
-        "SWAP REQ BODY BEFORE PRIORITY FEE: {:#?}",
-        swap_request_body
-    );
     if let Some(priority_fee) = priority_fee {
         swap_request_body["prioritizationFeeLamports"] = match priority_fee {
             SolanaPriorityFeeType::JitoTip(jito_tip_amount) => json!({

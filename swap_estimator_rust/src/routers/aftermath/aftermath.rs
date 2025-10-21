@@ -40,9 +40,9 @@ pub async fn quote_aftermath_swap(
     let slippage_percent = match slippage {
         Slippage::Percent(slippage) => slippage,
         Slippage::AmountLimit {
-            amount_limit,
-            amount_estimated,
-        } => get_slippage_percentage(amount_estimated, amount_limit, trade_type)?,
+            amount_limit: _,
+            fallback_slippage,
+        } => fallback_slippage,
         Slippage::MaxSlippage => get_aftermath_max_slippage(),
     };
     let aftermath_slippage = get_aftermath_slippage(slippage_percent);
@@ -108,6 +108,7 @@ pub async fn prepare_swap_ptb_with_aftermath(
     generic_swap_request: GenericSwapRequest,
     routes_value: Value,
     serialized_tx_and_coin_id: Option<(Value, Value)>,
+    amount_estimated: Option<u128>,
 ) -> EstimatorResult<Value> {
     let GenericSwapRequest {
         trade_type,
@@ -123,8 +124,15 @@ pub async fn prepare_swap_ptb_with_aftermath(
         Slippage::Percent(slippage) => slippage,
         Slippage::AmountLimit {
             amount_limit,
-            amount_estimated,
-        } => get_slippage_percentage(amount_estimated, amount_limit, trade_type)?,
+            fallback_slippage: _,
+        } => {
+            let amount_estimated = amount_estimated.ok_or_else(|| {
+                report!(Error::AggregatorError(
+                    "amount_estimated is required for AmountLimit slippage".to_string()
+                ))
+            })?;
+            get_slippage_percentage(amount_estimated, amount_limit, trade_type)?
+        }
         Slippage::MaxSlippage => get_aftermath_max_slippage(),
     };
     let aftermath_slippage = get_aftermath_slippage(slippage);
@@ -291,7 +299,7 @@ mod tests {
             .expect("Should not fail")
             .router_data;
 
-        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None)
+        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None, None)
             .await
             .expect("Should not fail");
         println!("RES: {:#?}", res);
@@ -325,7 +333,7 @@ mod tests {
             .expect("Should not fail")
             .router_data;
 
-        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None)
+        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None, None)
             .await
             .expect("Should not fail");
         println!("RES: {:#?}", res);
@@ -348,10 +356,7 @@ mod tests {
             dest_token:
                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
                     .to_string(),
-            slippage: Slippage::AmountLimit {
-                amount_limit: 100,
-                amount_estimated: 90,
-            },
+            slippage: Slippage::Percent(2.0),
             dest_address: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
                 .to_string(),
         };
@@ -363,7 +368,7 @@ mod tests {
             .expect("Should not fail")
             .router_data;
 
-        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None)
+        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None, None)
             .await
             .expect("Should not fail");
         println!("RES: {:#?}", res);
@@ -397,7 +402,7 @@ mod tests {
             .expect("Should not fail")
             .router_data;
 
-        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None)
+        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None, None)
             .await
             .expect("Should not fail");
 
@@ -436,10 +441,14 @@ mod tests {
             "NestedResult": [1,0]
         });
 
-        let res =
-            prepare_swap_ptb_with_aftermath(swap_request, routes, Some((serialized_tx, coin_id)))
-                .await
-                .expect("Should not fail");
+        let res = prepare_swap_ptb_with_aftermath(
+            swap_request,
+            routes,
+            Some((serialized_tx, coin_id)),
+            None,
+        )
+        .await
+        .expect("Should not fail");
 
         assert!(res.get("coinOutId").is_some());
     }
@@ -480,10 +489,14 @@ mod tests {
             "NestedResult": [1,0]
         });
 
-        let res =
-            prepare_swap_ptb_with_aftermath(swap_request, routes, Some((serialized_tx, coin_id)))
-                .await
-                .expect("Should not fail");
+        let res = prepare_swap_ptb_with_aftermath(
+            swap_request,
+            routes,
+            Some((serialized_tx, coin_id)),
+            None,
+        )
+        .await
+        .expect("Should not fail");
 
         assert!(res.get("coinOutId").is_some());
     }
@@ -527,9 +540,13 @@ mod tests {
             "NestedResult": [1,0]
         });
 
-        let res =
-            prepare_swap_ptb_with_aftermath(swap_request, routes, Some((serialized_tx, coin_id)))
-                .await;
+        let res = prepare_swap_ptb_with_aftermath(
+            swap_request,
+            routes,
+            Some((serialized_tx, coin_id)),
+            None,
+        )
+        .await;
         println!("Res: {:#?}", res);
         let res = res.expect("Should not fail");
 

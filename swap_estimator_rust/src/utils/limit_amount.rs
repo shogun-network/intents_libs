@@ -2,7 +2,6 @@ use crate::error::Error;
 use crate::error::EstimatorResult;
 use crate::routers::Slippage;
 use crate::routers::estimate::TradeType;
-use crate::utils::number_conversion::u128_to_f64;
 use crate::utils::number_conversion::u128_to_u64;
 use error_stack::report;
 use rust_decimal::Decimal;
@@ -26,7 +25,7 @@ pub fn get_limit_amount(trade_type: TradeType, amount_quote: u128, slippage: Sli
         }
         Slippage::AmountLimit {
             amount_limit,
-            amount_estimated,
+            fallback_slippage: _,
         } => amount_limit,
         Slippage::MaxSlippage => match trade_type {
             TradeType::ExactIn => 0,
@@ -55,7 +54,7 @@ pub fn get_limit_amount_u64(
         }
         Slippage::AmountLimit {
             amount_limit,
-            amount_estimated: _,
+            fallback_slippage: _,
         } => u128_to_u64(amount_limit, "amount_limit")?,
         Slippage::MaxSlippage => match trade_type {
             TradeType::ExactIn => 0,
@@ -86,6 +85,12 @@ pub fn get_slippage_percentage(
             (lim - est) / est * Decimal::from(100u32)
         }
     };
+
+    // If it is negative, return error
+    if raw_pct.is_sign_negative() {
+        return Err(report!(Error::ParseError)
+            .attach_printable("Calculated slippage percentage is negative"));
+    }
 
     raw_pct
         .round_dp(6) // Round to 6 decimal places to avoid floating point precision issues

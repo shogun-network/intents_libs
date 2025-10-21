@@ -448,7 +448,7 @@ mod tests {
             amount_fixed: 10_000_000_000u128,
             slippage: Slippage::AmountLimit {
                 amount_limit: 20,
-                amount_estimated: 19,
+                fallback_slippage: 2.0,
             },
         };
 

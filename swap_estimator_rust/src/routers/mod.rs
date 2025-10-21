@@ -25,8 +25,8 @@ pub enum Slippage {
     AmountLimit {
         /// Min/max out/in amount accepted
         amount_limit: u128,
-        /// Estimated value we got. In case aggregator API don't accept min/max out/in we can calculate slippage % with this two values
-        amount_estimated: u128,
+        /// Fallback slippage percentage in case aggregator doesn't support amount_limit (mostly on estimations)
+        fallback_slippage: f64,
     },
     MaxSlippage,
 }

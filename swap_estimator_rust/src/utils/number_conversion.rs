@@ -83,6 +83,36 @@ pub fn u128_to_u64(x: u128, ctx: &'static str) -> EstimatorResult<u64> {
         .attach_printable(format!("Failed to parse {ctx} from u128 to u64"))
 }
 
+pub fn slippage_to_bps(slippage_percent: f64) -> EstimatorResult<u64> {
+    // 1. Verificar valores no finitos
+    if !slippage_percent.is_finite() {
+        return Err(
+            report!(Error::ParseError).attach_printable("Slippage percentage is not finite")
+        );
+    }
+
+    // 2. Verificar que no sea negativo, si tu lógica asume no negativo
+    if slippage_percent < 0.0 {
+        return Err(report!(Error::ParseError).attach_printable("Slippage percentage is negative"));
+    }
+
+    // 3. Escalar al valor en basis points (bps)
+    let scaled = slippage_percent * 100.0;
+
+    // 4. Verificar que scaled cabe en u64
+    if scaled > (u64::MAX as f64) {
+        return Err(report!(Error::ParseError).attach_printable("Slippage percentage is too large"));
+    }
+
+    // 5. Redondear/truncar según lo que necesites (aquí redondeo al entero más cercano)
+    let rounded = scaled.round();
+
+    // 6. Safe conversion al tipo u64
+    let result = rounded as u64;
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

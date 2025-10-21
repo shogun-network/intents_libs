@@ -379,7 +379,7 @@ impl TransactionsRequest {
                 Slippage::Percent(slippage) => (Some((slippage * 100.0) as u32), None),
                 Slippage::AmountLimit {
                     amount_limit,
-                    amount_estimated: _,
+                    fallback_slippage: _,
                 } => (None, Some(amount_limit)),
                 Slippage::MaxSlippage => (Some(get_paraswap_max_slippage()), None),
             };
