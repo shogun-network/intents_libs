@@ -154,7 +154,7 @@ pub async fn estimate_swap_paraswap_generic(
         Slippage::Percent(slippage) => get_limit_amount(request.trade_type, amount_quote, slippage),
         Slippage::AmountLimit {
             amount_limit,
-            fallback_slippage: _,
+            amount_estimated: _,
         } => amount_limit,
         Slippage::MaxSlippage => get_limit_amount(
             request.trade_type,
@@ -266,7 +266,7 @@ pub async fn prepare_swap_paraswap_generic(
         }
         Slippage::AmountLimit {
             amount_limit,
-            fallback_slippage: _,
+            amount_estimated: _,
         } => amount_limit,
         Slippage::MaxSlippage => get_limit_amount(
             generic_swap_request.trade_type,
@@ -472,7 +472,7 @@ mod tests {
             amount_fixed: 10_000_000_000u128,
             slippage: Slippage::AmountLimit {
                 amount_limit: 20,
-                fallback_slippage: 2.0,
+                amount_estimated: 19,
             },
         };
 

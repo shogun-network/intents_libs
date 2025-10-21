@@ -3,6 +3,7 @@ use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse, 
 use crate::routers::jupiter::get_jupiter_max_slippage;
 use crate::routers::swap::{GenericSwapRequest, SolanaPriorityFeeType};
 use crate::routers::{HTTP_CLIENT, Slippage};
+use crate::utils::limit_amount::get_slippage_percentage;
 use error_stack::{ResultExt, report};
 use intents_models::constants::chains::{
     WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS, is_native_token_solana_address,
@@ -112,11 +113,14 @@ pub async fn get_jupiter_quote(
     let slippage_bps = match generic_solana_estimate_request.slippage {
         Slippage::Percent(percent) => (percent * 100.0) as u16,
         Slippage::AmountLimit {
-            amount_limit: _,
-            fallback_slippage,
+            amount_limit,
+            amount_estimated,
         } => {
-            // Using fallback slippage for Jupiter quote, as we cannot derive bps from amount limit here
-            (fallback_slippage * 100.0) as u16
+            (get_slippage_percentage(
+                amount_estimated,
+                amount_limit,
+                generic_solana_estimate_request.trade_type,
+            )? * 100.0) as u16
         }
         Slippage::MaxSlippage => get_jupiter_max_slippage(),
     };

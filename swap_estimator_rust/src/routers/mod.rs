@@ -19,13 +19,14 @@ lazy_static! {
     static ref HTTP_CLIENT: Arc<Client> = Arc::new(Client::new());
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Slippage {
     Percent(f64),
     AmountLimit {
+        /// Min/max out/in amount accepted
         amount_limit: u128,
-        /// Fallback slippage percentage in case aggregator doesn't support amount_limit (mostly on estimations)
-        fallback_slippage: f64,
+        /// Estimated value we got. In case aggregator API don't accept min/max out/in we can calculate slippage % with this two values
+        amount_estimated: u128,
     },
     MaxSlippage,
 }

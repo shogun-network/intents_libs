@@ -1,4 +1,5 @@
 use crate::routers::aftermath::{AFTERMATH_BASE_API_URL, get_aftermath_max_slippage};
+use crate::utils::limit_amount::get_slippage_percentage;
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
@@ -39,12 +40,9 @@ pub async fn quote_aftermath_swap(
     let slippage = match slippage {
         Slippage::Percent(slippage) => slippage,
         Slippage::AmountLimit {
-            amount_limit: _,
-            fallback_slippage,
-        } => {
-            // Using fallback slippage for Aftermath quote, as we cannot derive percent from amount limit here
-            fallback_slippage
-        }
+            amount_limit,
+            amount_estimated,
+        } => get_slippage_percentage(amount_estimated, amount_limit, trade_type)?,
         Slippage::MaxSlippage => get_aftermath_max_slippage(),
     };
     let aftermath_slippage = get_aftermath_slippage(slippage);
@@ -125,58 +123,8 @@ pub async fn prepare_swap_ptb_with_aftermath(
         Slippage::Percent(slippage) => slippage,
         Slippage::AmountLimit {
             amount_limit,
-            fallback_slippage: _,
-        } => {
-            // Derive percent slippage from quote contained in routes_value
-            let decoded: AftermathQuoteResponse = serde_json::from_value(routes_value.clone())
-                .change_context(Error::SerdeSerialize(
-                    "Failed to deserialize Aftermath routes in prepare".to_string(),
-                ))?;
-            // Amounts come as strings with a trailing 'n'
-            let amount_in_quote: u128 = decoded
-                .coin_in
-                .amount
-                .trim_end_matches('n')
-                .parse::<u128>()
-                .change_context(Error::ParseError)?;
-            let amount_out_quote: u128 = decoded
-                .coin_out
-                .amount
-                .trim_end_matches('n')
-                .parse::<u128>()
-                .change_context(Error::ParseError)?;
-
-            // Compute percent slippage that matches the provided limit
-            let mut percent = match trade_type {
-                TradeType::ExactIn => {
-                    // amount_out_min = amount_out_quote * (1 - p/100)
-                    if amount_out_quote == 0 {
-                        0.0
-                    } else {
-                        let ratio = (amount_limit as f64) / (amount_out_quote as f64);
-                        ((1.0 - ratio) * 100.0).max(0.0)
-                    }
-                }
-                TradeType::ExactOut => {
-                    // amount_in_max = amount_in_quote * (1 + p/100)
-                    if amount_in_quote == 0 {
-                        0.0
-                    } else {
-                        let ratio = (amount_limit as f64) / (amount_in_quote as f64);
-                        ((ratio - 1.0) * 100.0).max(0.0)
-                    }
-                }
-            };
-
-            // Clamp to API maximum
-            let max_pct = get_aftermath_max_slippage();
-            if percent.is_finite() {
-                percent = percent.clamp(0.0, max_pct);
-            } else {
-                percent = 0.0;
-            }
-            percent
-        }
+            amount_estimated,
+        } => get_slippage_percentage(amount_estimated, amount_limit, trade_type)?,
         Slippage::MaxSlippage => get_aftermath_max_slippage(),
     };
     let aftermath_slippage = get_aftermath_slippage(slippage);
@@ -401,8 +349,8 @@ mod tests {
                 "0x0000000000000000000000000000000000000000000000000000000000000002::sui::SUI"
                     .to_string(),
             slippage: Slippage::AmountLimit {
-                amount_limit: 0,
-                fallback_slippage: 2.0,
+                amount_limit: 100,
+                amount_estimated: 90,
             },
             dest_address: "0xd422530e3f19bdd09baccfdaf8754ff9b5db01df825a96a581a1236c9b8edf84"
                 .to_string(),
