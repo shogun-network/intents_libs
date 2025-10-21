@@ -37,7 +37,7 @@ pub async fn quote_aftermath_swap(
         chain_id: _,
     } = generic_estimate_request;
     // subtracting 1.0 since Aftermath already adds 1% by default
-    let slippage = match slippage {
+    let slippage_percent = match slippage {
         Slippage::Percent(slippage) => slippage,
         Slippage::AmountLimit {
             amount_limit,
@@ -45,7 +45,7 @@ pub async fn quote_aftermath_swap(
         } => get_slippage_percentage(amount_estimated, amount_limit, trade_type)?,
         Slippage::MaxSlippage => get_aftermath_max_slippage(),
     };
-    let aftermath_slippage = get_aftermath_slippage(slippage);
+    let aftermath_slippage = get_aftermath_slippage(slippage_percent);
 
     let body: Value = match generic_estimate_request.trade_type {
         TradeType::ExactIn => json!({
@@ -90,7 +90,7 @@ pub async fn quote_aftermath_swap(
     let generic_response = match trade_type {
         TradeType::ExactIn => GenericEstimateResponse {
             amount_quote: amount_out as u128,
-            amount_limit: get_limit_amount_u64(trade_type, amount_out, slippage) as u128,
+            amount_limit: get_limit_amount_u64(trade_type, amount_out, slippage)? as u128,
             router_data: response,
         },
         TradeType::ExactOut => GenericEstimateResponse {

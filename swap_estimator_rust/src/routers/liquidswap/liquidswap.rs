@@ -151,14 +151,7 @@ fn get_amount_quote_and_fixed(
             decimal_string_to_u128(&route_response.amount_in, token_in_decimals)?
         }
     };
-    let amount_limit = match slippage {
-        Slippage::Percent(slippage) => get_limit_amount(trade_type, amount_quote, slippage),
-        Slippage::AmountLimit {
-            amount_limit,
-            amount_estimated: _,
-        } => amount_limit,
-        Slippage::MaxSlippage => 0,
-    };
+    let amount_limit = get_limit_amount(trade_type, amount_quote, slippage);
     Ok((amount_quote, amount_limit))
 }
 

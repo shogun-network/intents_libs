@@ -77,6 +77,12 @@ pub fn f64_to_u128(value: f64, decimals: u8) -> EstimatorResult<u128> {
     Ok(scaled_value as u128)
 }
 
+pub fn u128_to_u64(x: u128, ctx: &'static str) -> EstimatorResult<u64> {
+    u64::try_from(x)
+        .change_context(Error::ParseError)
+        .attach_printable(format!("Failed to parse {ctx} from u128 to u64"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -7,12 +7,8 @@ use super::{
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
-        Slippage,
         constants::ETH_TOKEN_DECIMALS,
-        paraswap::{
-            get_paraswap_max_slippage,
-            responses::{GetPriceRouteResponse, TransactionsResponse},
-        },
+        paraswap::responses::{GetPriceRouteResponse, TransactionsResponse},
     },
     utils::number_conversion::decimal_string_to_u128,
 };
@@ -150,18 +146,7 @@ pub async fn estimate_swap_paraswap_generic(
 
     let (amount_quote, router_data, _) = estimate_amount_paraswap(price_request).await?;
 
-    let amount_limit = match request.slippage {
-        Slippage::Percent(slippage) => get_limit_amount(request.trade_type, amount_quote, slippage),
-        Slippage::AmountLimit {
-            amount_limit,
-            amount_estimated: _,
-        } => amount_limit,
-        Slippage::MaxSlippage => get_limit_amount(
-            request.trade_type,
-            amount_quote,
-            get_paraswap_max_slippage() as f64 / 100.0,
-        ),
-    };
+    let amount_limit = get_limit_amount(request.trade_type, amount_quote, request.slippage);
 
     Ok(GenericEstimateResponse {
         amount_quote,
@@ -260,20 +245,11 @@ pub async fn prepare_swap_paraswap_generic(
 
     let transactions_response = paraswap_transactions(transactions_request).await?;
 
-    let amount_limit = match generic_swap_request.slippage {
-        Slippage::Percent(slippage) => {
-            get_limit_amount(generic_swap_request.trade_type, amount_quote, slippage)
-        }
-        Slippage::AmountLimit {
-            amount_limit,
-            amount_estimated: _,
-        } => amount_limit,
-        Slippage::MaxSlippage => get_limit_amount(
-            generic_swap_request.trade_type,
-            amount_quote,
-            get_paraswap_max_slippage() as f64 / 100.0,
-        ),
-    };
+    let amount_limit = get_limit_amount(
+        generic_swap_request.trade_type,
+        amount_quote,
+        generic_swap_request.slippage,
+    );
 
     Ok(EvmSwapResponse {
         amount_quote,
@@ -290,7 +266,7 @@ pub async fn prepare_swap_paraswap_generic(
 mod tests {
     use intents_models::constants::chains::ChainId;
 
-    use crate::routers::estimate::TradeType;
+    use crate::routers::{Slippage, estimate::TradeType};
 
     use super::*;
 
