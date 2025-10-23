@@ -1,27 +1,8 @@
-use graphql_client::GraphQLQuery;
 use intents_models::constants::chains::ChainId;
 
 pub mod pricing;
 // https://docs.codex.io/api-reference/introduction
-const CODEX_API_URL: &str = "https://graph.codex.io/graphql";
-
-// #[derive(GraphQLQuery)]
-// #[graphql(
-//     schema_path = "schemas/graphql/codex.graphql",
-//     query_path = "schemas/graphql/codex_queries.graphql",
-//     skip_serializing_none,
-//     response_derives = "Debug"
-// )]
-// pub struct GetTokenPrices;
-
-#[derive(GraphQLQuery)]
-#[graphql(
-    schema_path = "schemas/graphql/codex.graphql",
-    query_path = "schemas/graphql/codex_queries.graphql",
-    skip_serializing_none,
-    response_derives = "Debug"
-)]
-pub struct TokensWithPrices;
+pub const CODEX_WS_URL: &str = "wss://graph.codex.io/graphql";
 
 pub trait CodexChain {
     fn to_codex_chain_number(&self) -> i64;
