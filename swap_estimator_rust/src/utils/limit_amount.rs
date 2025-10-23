@@ -104,7 +104,7 @@ fn compute_limit_with_scaled_percentage(
         }
     }
 
-    todo!();
+    Err(report!(Error::ParseError).attach_printable("Unable to compute limit amount without overflow"))
 }
 
 #[inline]
