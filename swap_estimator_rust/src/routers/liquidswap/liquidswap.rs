@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
-        HTTP_CLIENT,
+        HTTP_CLIENT, Slippage,
         constants::LIQUIDSWAP_BASE_API_URL,
         estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType},
         liquidswap::{
@@ -139,7 +139,7 @@ fn get_amount_quote_and_fixed(
     token_in_decimals: u8,
     token_out_decimals: u8,
     trade_type: TradeType,
-    slippage: f64,
+    slippage: Slippage,
 ) -> EstimatorResult<(u128, u128)> {
     let amount_quote = match trade_type {
         TradeType::ExactIn => {
@@ -198,11 +198,15 @@ pub async fn estimate_swap_liquidswap_generic(
     Ok(GenericEstimateResponse {
         amount_quote,
         amount_limit,
+        router_data: serde_json::to_value(&route_response).change_context(
+            Error::SerdeSerialize("Error serializing Liquidswap route response".to_string()),
+        )?,
     })
 }
 
 pub async fn prepare_swap_liquidswap_generic(
     generic_swap_request: GenericSwapRequest,
+    estimate_response: Option<GenericEstimateResponse>,
 ) -> EstimatorResult<EvmSwapResponse> {
     let (token_in_decimals, token_out_decimals) = get_in_out_token_decimals(
         generic_swap_request.src_token.to_string(),
@@ -210,32 +214,53 @@ pub async fn prepare_swap_liquidswap_generic(
     )
     .await?;
 
-    let mut router_request = create_route_request_from_generic_swap(generic_swap_request.clone());
-
-    let amount_fixed = u128::try_from(generic_swap_request.amount_fixed)
-        .change_context(Error::ParseError)
-        .attach_printable("Error parsing fixed amount")?;
-    match generic_swap_request.trade_type {
-        TradeType::ExactIn => {
-            router_request.amount_in = Some(u128_to_f64(amount_fixed, token_in_decimals));
+    let (amount_quote, amount_limit, route_response, use_native_hype) = match estimate_response {
+        Some(estimate_response) => {
+            let router_request =
+                create_route_request_from_generic_swap(generic_swap_request.clone());
+            let use_native_hype = router_request.use_native_hype.is_some()
+                && router_request.use_native_hype.clone().unwrap();
+            let route_response: GetPriceRouteResponse = serde_json::from_value(
+                estimate_response.router_data,
+            )
+            .change_context(Error::SerdeDeserialize(
+                "Failed to deserialize Liquidswap quote response".to_string(),
+            ))?;
+            let amount_quote = estimate_response.amount_quote;
+            let amount_fixed = generic_swap_request.amount_fixed;
+            (amount_quote, amount_fixed, route_response, use_native_hype)
         }
-        TradeType::ExactOut => {
-            router_request.amount_out = Some(u128_to_f64(amount_fixed, token_out_decimals));
-        }
-    }
-    let use_native_hype =
-        router_request.use_native_hype.is_some() && router_request.use_native_hype.clone().unwrap();
-    let route_response = get_price_route_with_fallback(router_request).await?;
+        None => {
+            let mut router_request =
+                create_route_request_from_generic_swap(generic_swap_request.clone());
 
-    let (amount_quote, amount_limit) = get_amount_quote_and_fixed(
-        &route_response,
-        token_in_decimals,
-        token_out_decimals,
-        generic_swap_request.trade_type,
-        generic_swap_request.slippage,
-    )
-    .change_context(Error::ResponseError)
-    .attach_printable("Error getting amount quote and limit from route response")?;
+            let amount_fixed = u128::try_from(generic_swap_request.amount_fixed)
+                .change_context(Error::ParseError)
+                .attach_printable("Error parsing fixed amount")?;
+            match generic_swap_request.trade_type {
+                TradeType::ExactIn => {
+                    router_request.amount_in = Some(u128_to_f64(amount_fixed, token_in_decimals));
+                }
+                TradeType::ExactOut => {
+                    router_request.amount_out = Some(u128_to_f64(amount_fixed, token_out_decimals));
+                }
+            }
+            let use_native_hype = router_request.use_native_hype.is_some()
+                && router_request.use_native_hype.clone().unwrap();
+            let route_response = get_price_route_with_fallback(router_request).await?;
+
+            let (amount_quote, amount_limit) = get_amount_quote_and_fixed(
+                &route_response,
+                token_in_decimals,
+                token_out_decimals,
+                generic_swap_request.trade_type,
+                generic_swap_request.slippage,
+            )
+            .change_context(Error::ResponseError)
+            .attach_printable("Error getting amount quote and limit from route response")?;
+            (amount_quote, amount_limit, route_response, use_native_hype)
+        }
+    };
 
     Ok(EvmSwapResponse {
         amount_quote: amount_quote,
@@ -366,7 +391,7 @@ mod tests {
             src_token: src_token.to_string(),
             dest_token: dest_token.to_string(),
             amount_fixed: amount,
-            slippage: 2.0,
+            slippage: Slippage::Percent(2.0),
         }
     }
 
@@ -384,7 +409,7 @@ mod tests {
             src_token: src_token.to_string(),
             dest_token: dest_token.to_string(),
             amount_fixed: amount,
-            slippage: 2.0,
+            slippage: Slippage::Percent(2.0),
         }
     }
 
@@ -498,7 +523,7 @@ mod tests {
             10_000_000_000_000_000_000,                   // 10 WHYPE (18 decimals)
         );
 
-        let result = prepare_swap_liquidswap_generic(request).await;
+        let result = prepare_swap_liquidswap_generic(request, None).await;
 
         // This will likely fail due to the smart contract integration issues
         assert!(
@@ -533,7 +558,7 @@ mod tests {
             10_000_000,                                   // 10 USDT0 (6 decimals)
         );
 
-        let result = prepare_swap_liquidswap_generic(request).await;
+        let result = prepare_swap_liquidswap_generic(request, None).await;
 
         // This will likely fail due to the smart contract integration issues
         assert!(
@@ -569,7 +594,7 @@ mod tests {
             4674186744772283,                             // 1 USDT0 (6 decimals)
         );
 
-        let result = prepare_swap_liquidswap_generic(request).await;
+        let result = prepare_swap_liquidswap_generic(request, None).await;
 
         // This will likely fail due to the smart contract integration issues
         assert!(
@@ -626,7 +651,7 @@ mod tests {
             4674186744772283,
         );
 
-        let result = prepare_swap_liquidswap_generic(request).await;
+        let result = prepare_swap_liquidswap_generic(request, None).await;
 
         // This will likely fail due to the smart contract integration issues
         println!("Result: {:?}", result);
@@ -635,5 +660,25 @@ mod tests {
         let response = result.unwrap();
         assert!(response.tx_value > 0,);
         println!("Swap Response: {:?}", response);
+    }
+
+    #[tokio::test]
+    async fn test_liquidswap_swap_test_with_quote() {
+        let request = create_test_swap_request(
+            TradeType::ExactIn,
+            "0x5555555555555555555555555555555555555555", // WHYPE
+            "0xb8ce59fc3717ada4c02eadf9682a9e934f625ebb", // USDT0
+            10_000_000_000_000_000_000,                   // 10 WHYPE (18 decimals)
+        );
+
+        let estimate_request = GenericEstimateRequest::from(request.clone());
+
+        let estimate_response = estimate_swap_liquidswap_generic(estimate_request).await;
+        println!("Estimate Response: {:?}", estimate_response);
+        assert!(estimate_response.is_ok());
+        let estimate_response = estimate_response.unwrap();
+        let result = prepare_swap_liquidswap_generic(request, Some(estimate_response)).await;
+        println!("Result: {:?}", result);
+        assert!(result.is_ok());
     }
 }

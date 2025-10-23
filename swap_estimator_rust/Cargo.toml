@@ -18,5 +18,6 @@ serde_with     = { workspace = true }
 async-trait    = { workspace = true }
 graphql_client = { workspace = true }
 dotenv         = { workspace = true }
+rust_decimal   = { workspace = true }
 intents_models = { path = "../intents_models" }
 # intents_models = { git = "https://github.com/shogun-network/intents_libs.git", tag = "v0.0.23" }

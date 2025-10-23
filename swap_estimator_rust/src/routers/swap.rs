@@ -1,4 +1,4 @@
-use crate::routers::estimate::TradeType;
+use crate::routers::{Slippage, estimate::TradeType};
 use intents_models::constants::chains::ChainId;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -18,7 +18,7 @@ pub struct GenericSwapRequest {
     /// Amount IN for exact IN trade or amount OUT for exact OUT trade
     pub amount_fixed: u128,
     /// Decimal slippage
-    pub slippage: f64,
+    pub slippage: Slippage,
 }
 
 #[derive(Debug, Clone)]

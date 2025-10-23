@@ -12,10 +12,23 @@ use crate::error::EstimatorResult;
 use intents_models::constants::chains::ChainId;
 use lazy_static::lazy_static;
 use reqwest::Client;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 lazy_static! {
     static ref HTTP_CLIENT: Arc<Client> = Arc::new(Client::new());
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum Slippage {
+    Percent(f64),
+    AmountLimit {
+        /// Min/max out/in amount accepted
+        amount_limit: u128,
+        /// Fallback slippage percentage in case aggregator doesn't support amount_limit (mostly on estimations)
+        fallback_slippage: f64,
+    },
+    MaxSlippage,
 }
 
 // TODO: We can add this calculated quotes and send it to swap functions in order to save another estimation inside swap function, like:
