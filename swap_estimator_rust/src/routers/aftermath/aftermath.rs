@@ -106,7 +106,7 @@ pub async fn quote_aftermath_swap(
 
 pub async fn prepare_swap_ptb_with_aftermath(
     generic_swap_request: GenericSwapRequest,
-    routes_value: Value,
+    mut routes_value: Value,
     serialized_tx_and_coin_id: Option<(Value, Value)>,
     amount_estimated: Option<u128>,
 ) -> EstimatorResult<Value> {
@@ -136,6 +136,7 @@ pub async fn prepare_swap_ptb_with_aftermath(
         Slippage::MaxSlippage => get_aftermath_max_slippage(),
     };
     let aftermath_slippage = get_aftermath_slippage(slippage);
+    routes_value["slippage"] = json!(aftermath_slippage);
 
     let (body, uri_path) = match serialized_tx_and_coin_id {
         Some((serialized_tx, coin_id)) => (
