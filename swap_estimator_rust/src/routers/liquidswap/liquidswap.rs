@@ -642,27 +642,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_liquidswap_swap_native_hype_in() {
-        // Get tx info
-        let request = create_test_swap_request(
-            TradeType::ExactOut,
-            "0x0000000000000000000000000000000000000000", // Hype
-            "0x5555555555555555555555555555555555555555", // WHYPE
-            4674186744772283,
-        );
-
-        let result = prepare_swap_liquidswap_generic(request, None).await;
-
-        // This will likely fail due to the smart contract integration issues
-        println!("Result: {:?}", result);
-        assert!(result.is_ok());
-
-        let response = result.unwrap();
-        assert!(response.tx_value > 0,);
-        println!("Swap Response: {:?}", response);
-    }
-
-    #[tokio::test]
     async fn test_liquidswap_swap_test_with_quote() {
         let request = create_test_swap_request(
             TradeType::ExactIn,

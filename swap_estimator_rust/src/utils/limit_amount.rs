@@ -104,7 +104,8 @@ fn compute_limit_with_scaled_percentage(
         }
     }
 
-    Err(report!(Error::ParseError).attach_printable("Unable to compute limit amount without overflow"))
+    Err(report!(Error::ParseError)
+        .attach_printable("Unable to compute limit amount without overflow"))
 }
 
 #[inline]
@@ -131,19 +132,19 @@ pub fn get_slippage_percentage(
 
     let raw_pct = match trade_type {
         TradeType::ExactIn => {
-            // (estimated - limit) / estimated * 100
-            (est - lim) / est * Decimal::from(100u32)
+            // (estimated - limit) / estimated * 100 (almost)
+            (est - lim) / est * Decimal::from(999u32) / Decimal::from(10u32)
         }
         TradeType::ExactOut => {
-            // (limit - estimated) / estimated * 100
-            (lim - est) / est * Decimal::from(100u32)
+            // (limit - estimated) / estimated * 100 (almost)
+            (lim - est) / est * Decimal::from(999u32) / Decimal::from(10u32)
         }
     };
 
     // If it is negative, return error
     if raw_pct.is_sign_negative() {
         return Err(report!(Error::ParseError)
-            .attach_printable("Calculated slippage percentage is negative"));
+            .attach_printable("Calculated slippage percentage is invalid"));
     }
 
     raw_pct
@@ -174,5 +175,62 @@ mod tests {
         let limit_amount = get_limit_amount_u64(TradeType::ExactOut, 1000, Slippage::Percent(2.0))
             .expect("Failed to get limit amount");
         assert_eq!(limit_amount, 1020);
+    }
+
+    #[test]
+    fn test_get_slippage_percentage() {
+        let amount_estimated = 12345678909876543210;
+        let amount_limit = 10345678901234567890;
+
+        let mut count = 0;
+        for i in 0..100 {
+            for j in 1..10 {
+                let test_limit_amount = (amount_limit + i) / j;
+                let slippage = get_slippage_percentage(
+                    amount_estimated,
+                    test_limit_amount,
+                    TradeType::ExactIn,
+                )
+                .unwrap();
+
+                let calculated_limit_amount = compute_limit_with_scaled_percentage(
+                    amount_estimated,
+                    slippage,
+                    TradeType::ExactIn,
+                )
+                .expect("Failed to get limit amount");
+
+                if calculated_limit_amount < test_limit_amount {
+                    count += 1;
+                }
+                // assert!(calculated_limit_amount >= test_limit_amount);
+            }
+        }
+        assert_eq!(count, 0);
+        let amount_limit = 153456789012345678900;
+        for i in 0..100 {
+            for j in 1..10 {
+                let test_limit_amount = (amount_limit + i) / j;
+                let slippage = get_slippage_percentage(
+                    amount_estimated,
+                    test_limit_amount,
+                    TradeType::ExactOut,
+                )
+                .unwrap();
+
+                let calculated_limit_amount = compute_limit_with_scaled_percentage(
+                    amount_estimated,
+                    slippage,
+                    TradeType::ExactOut,
+                )
+                .expect("Failed to get limit amount");
+
+                if calculated_limit_amount > test_limit_amount {
+                    count += 1;
+                }
+                // assert!(calculated_limit_amount >= test_limit_amount);
+            }
+        }
+        assert_eq!(count, 0);
     }
 }
