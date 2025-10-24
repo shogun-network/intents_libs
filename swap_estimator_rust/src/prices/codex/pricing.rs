@@ -10,6 +10,10 @@ use std::{
 use error_stack::{ResultExt as _, report};
 use futures_util::{SinkExt as _, StreamExt as _};
 use intents_models::constants::chains::ChainId;
+use reqwest::{
+    Client as HttpClient,
+    header::{HeaderMap, HeaderValue as ReqwestHeaderValue, AUTHORIZATION},
+};
 use serde::Deserialize;
 use tokio::{
     sync::{Mutex, Notify, OnceCell, RwLock, watch},
@@ -24,7 +28,7 @@ use crate::{
     error::{Error, EstimatorResult},
     prices::{
         PriceProvider, TokenId, TokenPrice,
-        codex::{CODEX_WS_URL, CodexChain},
+        codex::{CODEX_HTTP_URL, CODEX_WS_URL, CodexChain},
     },
 };
 
@@ -40,42 +44,250 @@ subscription OnPriceUpdated($address: String!, $networkId: Int!) {
 }
 "#;
 
+const MAX_SUBSCRIPTIONS_PER_CONNECTION: usize = 20;
+const MAX_CONNECTIONS: usize = 300;
+const INITIAL_PRICE_QUERY: &str = r#"
+query GetTokenPrice($inputs: [GetPriceInput!]!) {
+  prices: getTokenPrices(inputs: $inputs) {
+    address
+    networkId
+    priceUsd
+    timestamp
+    poolAddress
+    confidence
+  }
+}
+"#;
+
 #[derive(Debug, Clone)]
 pub struct CodexProvider {
     api_key: String,
-    client: Arc<OnceCell<Arc<CodexWsClient>>>,
+    pool: Arc<OnceCell<Arc<CodexConnectionPool>>>,
 }
 
 impl CodexProvider {
     pub fn new(api_key: String) -> Self {
         Self {
             api_key,
-            client: Arc::new(OnceCell::new()),
+            pool: Arc::new(OnceCell::new()),
         }
     }
 
-    async fn client(&self) -> EstimatorResult<Arc<CodexWsClient>> {
+    async fn pool(&self) -> EstimatorResult<Arc<CodexConnectionPool>> {
         let api_key = self.api_key.clone();
         let reference = self
-            .client
-            .get_or_try_init(|| async move { CodexWsClient::connect(api_key).await })
+            .pool
+            .get_or_try_init(|| async move {
+                CodexConnectionPool::new(api_key).map(Arc::new)
+            })
             .await?;
         Ok(reference.clone())
     }
 
     pub async fn subscribe(&self, token: TokenId) -> EstimatorResult<CodexSubscription> {
-        let client = self.client().await?;
-        client.subscribe(token).await
+        let pool = self.pool().await?;
+        pool.subscribe(token).await
     }
 
     pub async fn unsubscribe(&self, token: &TokenId) -> EstimatorResult<()> {
-        let client = self.client().await?;
-        client.unsubscribe(token).await
+        let pool = self.pool().await?;
+        pool.unsubscribe(token).await
     }
 
     pub async fn latest_price(&self, token: &TokenId) -> EstimatorResult<Option<TokenPrice>> {
-        let client = self.client().await?;
-        Ok(client.latest_price(token).await)
+        let pool = self.pool().await?;
+        Ok(pool.latest_price(token).await)
+    }
+}
+
+#[derive(Debug)]
+struct CodexConnectionPool {
+    api_key: String,
+    http_client: HttpClient,
+    clients: RwLock<Vec<Arc<CodexWsClient>>>,
+}
+
+impl CodexConnectionPool {
+    fn new(api_key: String) -> EstimatorResult<Self> {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            ReqwestHeaderValue::from_str(&api_key)
+                .change_context(Error::ResponseError)
+                .attach_printable("Invalid characters in CODEX_API_KEY")?,
+        );
+
+        let http_client = HttpClient::builder()
+            .default_headers(headers)
+            .build()
+            .change_context(Error::ResponseError)
+            .attach_printable("Failed to build Codex HTTP client")?;
+
+        Ok(Self {
+            api_key,
+            http_client,
+            clients: RwLock::new(Vec::new()),
+        })
+    }
+
+    async fn subscribe(&self, token: TokenId) -> EstimatorResult<CodexSubscription> {
+        let key = subscription_id(&token);
+
+        if let Some(client) = self.client_with_subscription(&key).await {
+            return client.subscribe(token).await;
+        }
+
+        let client = self.client_with_capacity().await?;
+        let subscribe_future = client.subscribe(token.clone());
+        let price_future = self.fetch_initial_price(&token);
+        let (subscription_result, price_result) = tokio::join!(subscribe_future, price_future);
+
+        let subscription = subscription_result?;
+
+        match price_result {
+            Ok(Some(price)) => {
+                client.apply_initial_price(&subscription.key, price).await;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(
+                    "Failed to fetch initial Codex price for {} on {:?}: {:?}",
+                    token.address,
+                    token.chain,
+                    error
+                );
+            }
+        }
+
+        Ok(subscription)
+    }
+
+    async fn unsubscribe(&self, token: &TokenId) -> EstimatorResult<()> {
+        let key = subscription_id(token);
+        if let Some(client) = self.client_with_subscription(&key).await {
+            client.unsubscribe(token).await?;
+        }
+        Ok(())
+    }
+
+    async fn latest_price(&self, token: &TokenId) -> Option<TokenPrice> {
+        let key = subscription_id(token);
+        if let Some(client) = self.client_with_subscription(&key).await {
+            return client.latest_price(token).await;
+        }
+        None
+    }
+
+    async fn fetch_initial_price(&self, token: &TokenId) -> EstimatorResult<Option<TokenPrice>> {
+        let response = self
+            .http_client
+            .post(CODEX_HTTP_URL)
+            .json(&serde_json::json!({
+                "query": INITIAL_PRICE_QUERY,
+                "variables": {
+                    "inputs": [{
+                        "address": token.address,
+                        "networkId": token.chain.to_codex_chain_number()
+                    }]
+                }
+            }))
+            .send()
+            .await
+            .change_context(Error::ResponseError)
+            .attach_printable("Failed to send Codex HTTP price request")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .change_context(Error::ResponseError)
+                .attach_printable("Failed to read Codex HTTP error response")?;
+            return Err(report!(Error::ResponseError).attach_printable(format!(
+                "Codex HTTP price request failed with status {}: {}",
+                status.as_u16(),
+                body
+            )));
+        }
+
+        let payload: CodexGraphqlResponse<CodexGetPricesData> = response
+            .json()
+            .await
+            .change_context(Error::ResponseError)
+            .attach_printable("Failed to deserialize Codex HTTP price response")?;
+
+        if let Some(errors) = payload.errors.as_ref() {
+            if !errors.is_empty() {
+                tracing::warn!(
+                    "Codex HTTP price response contained errors for {}: {:?}",
+                    token.address,
+                    errors
+                );
+            }
+        }
+
+        let Some(data) = payload.data else {
+            return Ok(None);
+        };
+
+        let mut prices_iter = data.prices.into_iter();
+        let price_entry = prices_iter
+            .find(|item| item.address.eq_ignore_ascii_case(&token.address));
+        let price_entry = price_entry.or_else(|| prices_iter.next());
+
+        let price = price_entry.map(|item| TokenPrice {
+            price: item.price_usd,
+            decimals: default_decimals(token),
+        });
+
+        Ok(price)
+    }
+
+    async fn client_with_subscription(&self, key: &str) -> Option<Arc<CodexWsClient>> {
+        for client in self.snapshot_clients().await {
+            if client.contains_subscription(key).await {
+                return Some(client);
+            }
+        }
+        None
+    }
+
+    async fn client_with_capacity(&self) -> EstimatorResult<Arc<CodexWsClient>> {
+        for client in self.snapshot_clients().await {
+            if client.has_capacity().await {
+                return Ok(client);
+            }
+        }
+
+        {
+            let clients = self.clients.read().await;
+            if clients.len() >= MAX_CONNECTIONS {
+                return Err(
+                    report!(Error::ResponseError).attach_printable(format!(
+                        "Codex websocket connection limit ({MAX_CONNECTIONS}) reached"
+                    )),
+                );
+            }
+        }
+
+        let client = CodexWsClient::connect(self.api_key.clone()).await?;
+
+        let mut clients = self.clients.write().await;
+        if clients.len() >= MAX_CONNECTIONS {
+            return Err(
+                report!(Error::ResponseError).attach_printable(format!(
+                    "Codex websocket connection limit ({MAX_CONNECTIONS}) reached"
+                )),
+            );
+        }
+        clients.push(client.clone());
+
+        Ok(client)
+    }
+
+    async fn snapshot_clients(&self) -> Vec<Arc<CodexWsClient>> {
+        let clients = self.clients.read().await;
+        clients.iter().cloned().collect()
     }
 }
 
@@ -89,11 +301,11 @@ impl PriceProvider for CodexProvider {
             return Ok(HashMap::new());
         }
 
-        let client = self.client().await?;
+        let pool = self.pool().await?;
         let mut result = HashMap::new();
 
         for token in tokens.into_iter() {
-            let mut subscription = client.subscribe(token.clone()).await?;
+            let mut subscription = pool.subscribe(token.clone()).await?;
             let price = subscription
                 .wait_for_price(Duration::from_secs(5))
                 .await
@@ -116,6 +328,24 @@ struct TokenSubscription {
     token: TokenId,
     updates_tx: watch::Sender<Option<TokenPrice>>,
     ref_count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexGraphqlResponse<T> {
+    data: Option<T>,
+    errors: Option<Vec<serde_json::Value>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexGetPricesData {
+    prices: Vec<CodexPricePayload>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexPricePayload {
+    address: String,
+    #[serde(rename = "priceUsd")]
+    price_usd: f64,
 }
 
 #[derive(Debug)]
@@ -325,6 +555,13 @@ impl CodexWsClient {
                 entry.ref_count += 1;
                 (entry.updates_tx.subscribe(), false)
             } else {
+                if subscriptions.len() >= MAX_SUBSCRIPTIONS_PER_CONNECTION {
+                    return Err(
+                        report!(Error::ResponseError).attach_printable(format!(
+                            "Codex websocket subscription limit per connection ({MAX_SUBSCRIPTIONS_PER_CONNECTION}) exceeded"
+                        )),
+                    );
+                }
                 let (tx, rx) = watch::channel(None);
                 subscriptions.insert(
                     key.clone(),
@@ -394,6 +631,29 @@ impl CodexWsClient {
         subscriptions
             .get(&key)
             .and_then(|entry| entry.updates_tx.borrow().clone())
+    }
+
+    async fn has_capacity(&self) -> bool {
+        let subscriptions = self.subscriptions.read().await;
+        subscriptions.len() < MAX_SUBSCRIPTIONS_PER_CONNECTION
+    }
+
+    async fn contains_subscription(&self, key: &str) -> bool {
+        let subscriptions = self.subscriptions.read().await;
+        subscriptions.contains_key(key)
+    }
+
+    async fn apply_initial_price(&self, key: &str, price: TokenPrice) {
+        let subscriptions = self.subscriptions.read().await;
+        if let Some(entry) = subscriptions.get(key) {
+            if let Err(error) = entry.updates_tx.send(Some(price)) {
+                tracing::warn!(
+                    "Failed to seed initial Codex price for {}: {:?}",
+                    entry.token.address,
+                    error
+                );
+            }
+        }
     }
 }
 

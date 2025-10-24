@@ -3,6 +3,7 @@ use intents_models::constants::chains::ChainId;
 pub mod pricing;
 // https://docs.codex.io/api-reference/introduction
 pub const CODEX_WS_URL: &str = "wss://graph.codex.io/graphql";
+pub const CODEX_HTTP_URL: &str = "https://graph.codex.io/graphql";
 
 pub trait CodexChain {
     fn to_codex_chain_number(&self) -> i64;
