@@ -146,7 +146,7 @@ pub async fn estimate_swap_paraswap_generic(
 
     let (amount_quote, router_data, _) = estimate_amount_paraswap(price_request).await?;
 
-    let amount_limit = get_limit_amount(request.trade_type, amount_quote, request.slippage);
+    let amount_limit = get_limit_amount(request.trade_type, amount_quote, request.slippage)?;
 
     Ok(GenericEstimateResponse {
         amount_quote,
@@ -249,7 +249,7 @@ pub async fn prepare_swap_paraswap_generic(
         generic_swap_request.trade_type,
         amount_quote,
         generic_swap_request.slippage,
-    );
+    )?;
 
     Ok(EvmSwapResponse {
         amount_quote,
