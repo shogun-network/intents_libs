@@ -104,11 +104,11 @@ pub fn slippage_to_bps(slippage_percent: f64) -> EstimatorResult<u64> {
         return Err(report!(Error::ParseError).attach_printable("Slippage percentage is too large"));
     }
 
-    // 5. Round/truncate as needed (here, rounding to the nearest integer)
-    let rounded = scaled.round();
+    // 5. truncate to remove any fractional bps
+    let truncated = scaled.trunc();
 
     // 6. Safe conversion to u64 type
-    let result = rounded as u64;
+    let result = truncated as u64;
 
     Ok(result)
 }
@@ -141,5 +141,31 @@ mod tests {
         assert!(f64_to_u128(-123.456, 6).is_err());
         assert!(f64_to_u128(f64::NAN, 6).is_err());
         assert!(f64_to_u128(f64::INFINITY, 6).is_err());
+    }
+
+    #[test]
+    fn test_slippage_to_bps_monotonic() {
+        let mut last = slippage_to_bps(0.0).unwrap();
+        for s in (1..=10_000).map(|x| x as f64 / 100.0) {
+            let cur = slippage_to_bps(s).unwrap();
+            assert!(cur >= last, "bps should be non-decreasing");
+            last = cur;
+        }
+    }
+
+    #[test]
+    fn test_u128_f64_roundtrip_with_tolerance() {
+        // u128 -> f64 -> u128 loses precision; check bounded error for small magnitudes
+        let decimals = 6u8;
+        for v in [0u128, 1, 123, 123_456, 123_456_789, 9_876_543_210] {
+            let f = u128_to_f64(v, decimals);
+            let v_rt = f64_to_u128(f, decimals).expect("back to u128");
+            // Allow at most 1 unit of the last decimal due to rounding
+            let delta = if v > v_rt { v - v_rt } else { v_rt - v };
+            assert!(
+                delta <= 1,
+                "round-trip too lossy: v={v}, v_rt={v_rt}, delta={delta}"
+            );
+        }
     }
 }

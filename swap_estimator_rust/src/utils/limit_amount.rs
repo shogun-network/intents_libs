@@ -137,14 +137,14 @@ pub fn get_slippage_percentage(
         }
         TradeType::ExactOut => {
             // (limit - estimated) / estimated * 100 (almost)
-            (lim - est) / est * Decimal::from(100u32)
+            (lim - est) / est * Decimal::from(999u32) / Decimal::from(10u32)
         }
     };
 
     // If it is negative, return error
     if raw_pct.is_sign_negative() {
         return Err(report!(Error::ParseError)
-            .attach_printable("Calculated slippage percentage is negative"));
+            .attach_printable("Calculated slippage percentage is invalid"));
     }
 
     raw_pct
@@ -201,6 +201,31 @@ mod tests {
                 .expect("Failed to get limit amount");
 
                 if calculated_limit_amount < test_limit_amount {
+                    count += 1;
+                }
+                // assert!(calculated_limit_amount >= test_limit_amount);
+            }
+        }
+        assert_eq!(count, 0);
+        let amount_limit = 153456789012345678900;
+        for i in 0..100 {
+            for j in 1..10 {
+                let test_limit_amount = (amount_limit + i) / j;
+                let slippage = get_slippage_percentage(
+                    amount_estimated,
+                    test_limit_amount,
+                    TradeType::ExactOut,
+                )
+                .unwrap();
+
+                let calculated_limit_amount = compute_limit_with_scaled_percentage(
+                    amount_estimated,
+                    slippage,
+                    TradeType::ExactOut,
+                )
+                .expect("Failed to get limit amount");
+
+                if calculated_limit_amount > test_limit_amount {
                     count += 1;
                 }
                 // assert!(calculated_limit_amount >= test_limit_amount);
