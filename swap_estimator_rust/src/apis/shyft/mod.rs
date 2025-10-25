@@ -95,7 +95,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_pump_fun_pools_by_liquidity_pair() {
-        let api_key = std::env::var("SHYFT_API_KEY").expect("SHYFT_API_KEY must be set");
+        let api_key = match std::env::var("SHYFT_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                println!("SHYFT_API_KEY not set, skipping test");
+                return;
+            }
+        };
         let base_mint = "Si8Y3nfRcHLGpjWdJw5bpgmBvzKGLRovjBijGGcpump";
         let quote_mint = WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS;
 

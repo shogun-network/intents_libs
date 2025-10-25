@@ -29,6 +29,10 @@ pub fn update_paraswap_native_token(token_address: String) -> String {
     }
 }
 
+pub fn get_paraswap_max_slippage() -> u32 {
+    10000 // 100%
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
