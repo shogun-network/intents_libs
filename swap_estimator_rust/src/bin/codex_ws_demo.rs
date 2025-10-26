@@ -21,7 +21,8 @@ async fn main() {
 async fn run() -> Result<(), String> {
     dotenv::dotenv().ok();
 
-    let api_key = "".to_string();
+    let api_key = std::env::var("CODEX_API_KEY")
+        .map_err(|_| "CODEX_API_KEY environment variable is not set".to_string())?;
 
     let provider = CodexProvider::new(api_key);
     let mut subscriptions: HashMap<String, (TokenId, CodexSubscription)> = HashMap::new();
@@ -45,6 +46,21 @@ async fn run() -> Result<(), String> {
 
     println!("Subscribing to live prices on Base:");
     for (name, token) in demo_tokens.into_iter() {
+        match provider
+            .fetch_price_http(&token)
+            .await
+            .map_err(|err| format!("Failed to fetch initial HTTP price for {name}: {}", err.format()))?
+        {
+            Some(price) => println!(
+                "[http] {name} [{}] {} => ${:.6}",
+                token.chain, token.address, price.price
+            ),
+            None => println!(
+                "[http] {name} [{}] {} => price unavailable",
+                token.chain, token.address
+            ),
+        }
+
         let mut subscription = provider
             .subscribe(token.clone())
             .await
@@ -97,7 +113,7 @@ async fn listen_for_updates(
                             .unsubscribe(&token)
                             .await
                             .map_err(|err| format!("Failed to unsubscribe WBTC: {}", err.format()))?;
-                        println!("\n[demo] Unsubscribed WBTC – continuing with WETH and USDC\n");
+                        println!("\n[demo] Unsubscribed WBTC – continuing with WETH\n");
                         wbtc_unsubscribed = true;
                     }
                 }
