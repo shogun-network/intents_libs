@@ -7,13 +7,12 @@ use crate::{
     error::{Error, EstimatorResult},
     prices::{
         TokenId, TokenPrice, TokensPriceData, codex::pricing::CodexProvider,
-        defillama::pricing::DefiLlamaProvider, gecko_terminal::pricing::GeckoTerminalProvider,
+        gecko_terminal::pricing::GeckoTerminalProvider,
     },
     utils::number_conversion::{f64_to_u128, u128_to_f64},
 };
 
 lazy_static::lazy_static! {
-    pub static ref DEFILLAMA_PROVIDER: DefiLlamaProvider = DefiLlamaProvider::new();
     pub static ref GECKO_TERMINAL_PROVIDER: GeckoTerminalProvider = GeckoTerminalProvider::new();
 
     pub static ref CODEX_PROVIDER: Option<CodexProvider> = {
