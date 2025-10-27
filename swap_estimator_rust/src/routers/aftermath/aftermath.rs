@@ -135,6 +135,7 @@ pub async fn prepare_swap_ptb_with_aftermath(
         }
         Slippage::MaxSlippage => get_aftermath_max_slippage(),
     };
+    tracing::info!("Using Aftermath slippage: {}", slippage);
     let aftermath_slippage = get_aftermath_slippage(slippage);
     routes_value["slippage"] = json!(aftermath_slippage);
 
@@ -182,7 +183,8 @@ pub async fn send_aftermath_request(uri_path: &str, body: &Value) -> EstimatorRe
 
 fn get_aftermath_slippage(slippage: f64) -> f64 {
     // subtracting 1.0 since Aftermath already adds 1% by default
-    (slippage - 1.0) / 100.0
+    let slippage = (slippage - 1.0) / 100.0;
+    if slippage < 0.0 { 0.0 } else { slippage }
 }
 
 #[cfg(test)]
