@@ -12,11 +12,11 @@ use futures_util::{SinkExt as _, StreamExt as _};
 use intents_models::constants::chains::ChainId;
 use reqwest::{
     Client as HttpClient,
-    header::{HeaderMap, HeaderValue as ReqwestHeaderValue, AUTHORIZATION},
+    header::{AUTHORIZATION, HeaderMap, HeaderValue as ReqwestHeaderValue},
 };
 use serde::Deserialize;
 use tokio::{
-    sync::{Mutex, Notify, OnceCell, RwLock, watch},
+    sync::{Mutex, Notify, OnceCell, RwLock, broadcast, watch},
     time,
 };
 use tokio_tungstenite::{
@@ -27,7 +27,7 @@ use tokio_tungstenite::{
 use crate::{
     error::{Error, EstimatorResult},
     prices::{
-        PriceProvider, TokenId, TokenPrice,
+        PriceEvent, PriceProvider, TokenId, TokenPrice,
         codex::{CODEX_HTTP_URL, CODEX_WS_URL, CodexChain},
     },
 };
@@ -77,9 +77,7 @@ impl CodexProvider {
         let api_key = self.api_key.clone();
         let reference = self
             .pool
-            .get_or_try_init(|| async move {
-                CodexConnectionPool::new(api_key).map(Arc::new)
-            })
+            .get_or_try_init(|| async move { CodexConnectionPool::new(api_key).map(Arc::new) })
             .await?;
         Ok(reference.clone())
     }
@@ -98,13 +96,31 @@ impl CodexProvider {
         let pool = self.pool().await?;
         Ok(pool.latest_price(token).await)
     }
+
+    pub async fn fetch_initial_prices(
+        &self,
+        tokens: &[TokenId],
+    ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
+        let pool = self.pool().await?;
+        pool.fetch_initial_prices(tokens).await
+    }
+
+    // Public method to subscribe to the global price event stream
+    pub async fn subscribe_events(&self) -> EstimatorResult<broadcast::Receiver<PriceEvent>> {
+        let pool = self.pool().await?;
+        Ok(pool.get_events_subscriber())
+    }
 }
+
+const PRICE_EVENTS_BUFFER: usize = 32768; // 2^15
 
 #[derive(Debug)]
 struct CodexConnectionPool {
     api_key: String,
     http_client: HttpClient,
     clients: RwLock<Vec<Arc<CodexWsClient>>>,
+    // Event bus for price updates
+    event_tx: broadcast::Sender<PriceEvent>,
 }
 
 impl CodexConnectionPool {
@@ -123,11 +139,19 @@ impl CodexConnectionPool {
             .change_context(Error::ResponseError)
             .attach_printable("Failed to build Codex HTTP client")?;
 
+        let (event_tx, _event_rx) = broadcast::channel(PRICE_EVENTS_BUFFER);
+
         Ok(Self {
             api_key,
             http_client,
             clients: RwLock::new(Vec::new()),
+            event_tx,
         })
+    }
+
+    // Allow external components to subscribe to the global stream of events
+    fn get_events_subscriber(&self) -> broadcast::Receiver<PriceEvent> {
+        self.event_tx.subscribe()
     }
 
     async fn subscribe(&self, token: TokenId) -> EstimatorResult<CodexSubscription> {
@@ -139,25 +163,26 @@ impl CodexConnectionPool {
 
         let client = self.client_with_capacity().await?;
         let subscribe_future = client.subscribe(token.clone());
-        let price_future = self.fetch_initial_price(&token);
-        let (subscription_result, price_result) = tokio::join!(subscribe_future, price_future);
+        let subscription = subscribe_future.await?;
+        // let price_future = self.fetch_initial_price(&token);
+        // let (subscription_result, price_result) = tokio::join!(subscribe_future, price_future);
 
-        let subscription = subscription_result?;
+        // let subscription = subscription_result?;
 
-        match price_result {
-            Ok(Some(price)) => {
-                client.apply_initial_price(&subscription.key, price).await;
-            }
-            Ok(None) => {}
-            Err(error) => {
-                tracing::warn!(
-                    "Failed to fetch initial Codex price for {} on {:?}: {:?}",
-                    token.address,
-                    token.chain,
-                    error
-                );
-            }
-        }
+        // match price_result {
+        //     Ok(Some(price)) => {
+        //         client.apply_initial_price(&subscription.key, price).await;
+        //     }
+        //     Ok(None) => {}
+        //     Err(error) => {
+        //         tracing::warn!(
+        //             "Failed to fetch initial Codex price for {} on {:?}: {:?}",
+        //             token.address,
+        //             token.chain,
+        //             error
+        //         );
+        //     }
+        // }
 
         Ok(subscription)
     }
@@ -178,18 +203,33 @@ impl CodexConnectionPool {
         None
     }
 
-    async fn fetch_initial_price(&self, token: &TokenId) -> EstimatorResult<Option<TokenPrice>> {
+    async fn fetch_initial_prices(
+        &self,
+        tokens: &[TokenId],
+    ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
+        if tokens.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Build lookup to map response (networkId,address) back to requested TokenId
+        let mut lookup: HashMap<(i64, String), TokenId> = HashMap::new();
+        let mut inputs = Vec::with_capacity(tokens.len());
+        for token_id in tokens.iter() {
+            let network = token_id.chain.to_codex_chain_number();
+            let address = token_id.address.to_lowercase();
+            lookup.insert((network, address.clone()), token_id.clone());
+            inputs.push(serde_json::json!({
+                "address": token_id.address,
+                "networkId": network
+            }));
+        }
+
         let response = self
             .http_client
             .post(CODEX_HTTP_URL)
             .json(&serde_json::json!({
                 "query": INITIAL_PRICE_QUERY,
-                "variables": {
-                    "inputs": [{
-                        "address": token.address,
-                        "networkId": token.chain.to_codex_chain_number()
-                    }]
-                }
+                "variables": { "inputs": inputs }
             }))
             .send()
             .await
@@ -219,28 +259,41 @@ impl CodexConnectionPool {
         if let Some(errors) = payload.errors.as_ref() {
             if !errors.is_empty() {
                 tracing::warn!(
-                    "Codex HTTP price response contained errors for {}: {:?}",
-                    token.address,
+                    "Codex HTTP price batch response contained errors: {:?}",
                     errors
                 );
             }
         }
 
         let Some(data) = payload.data else {
-            return Ok(None);
+            return Err(report!(Error::ResponseError)
+                .attach_printable(format!("No data found in Codex HTTP price response")));
         };
 
-        let mut prices_iter = data.prices.into_iter();
-        let price_entry = prices_iter
-            .find(|item| item.address.eq_ignore_ascii_case(&token.address));
-        let price_entry = price_entry.or_else(|| prices_iter.next());
+        let mut out = HashMap::new();
+        for item in data.prices.into_iter() {
+            let Some(item) = item else {
+                continue;
+            };
+            // Map back to the original requested TokenId using (networkId, lowercase address)
+            let key = (item.network_id, item.address.to_lowercase());
+            if let Some(token_id) = lookup.get(&key) {
+                let price = TokenPrice {
+                    price: item.price_usd,
+                    decimals: default_decimals(token_id),
+                };
+                out.insert(token_id.clone(), price);
+            } else {
+                // Defensive: response returned an entry we didn't request
+                tracing::debug!(
+                    "Ignoring Codex price for unrequested token: networkId={}, address={}",
+                    item.network_id,
+                    item.address
+                );
+            }
+        }
 
-        let price = price_entry.map(|item| TokenPrice {
-            price: item.price_usd,
-            decimals: default_decimals(token),
-        });
-
-        Ok(price)
+        Ok(out)
     }
 
     async fn client_with_subscription(&self, key: &str) -> Option<Arc<CodexWsClient>> {
@@ -262,23 +315,19 @@ impl CodexConnectionPool {
         {
             let clients = self.clients.read().await;
             if clients.len() >= MAX_CONNECTIONS {
-                return Err(
-                    report!(Error::ResponseError).attach_printable(format!(
-                        "Codex websocket connection limit ({MAX_CONNECTIONS}) reached"
-                    )),
-                );
+                return Err(report!(Error::ResponseError).attach_printable(format!(
+                    "Codex websocket connection limit ({MAX_CONNECTIONS}) reached"
+                )));
             }
         }
 
-        let client = CodexWsClient::connect(self.api_key.clone()).await?;
+        let client = CodexWsClient::connect(self.api_key.clone(), self.event_tx.clone()).await?;
 
         let mut clients = self.clients.write().await;
         if clients.len() >= MAX_CONNECTIONS {
-            return Err(
-                report!(Error::ResponseError).attach_printable(format!(
-                    "Codex websocket connection limit ({MAX_CONNECTIONS}) reached"
-                )),
-            );
+            return Err(report!(Error::ResponseError).attach_printable(format!(
+                "Codex websocket connection limit ({MAX_CONNECTIONS}) reached"
+            )));
         }
         clients.push(client.clone());
 
@@ -303,23 +352,50 @@ impl PriceProvider for CodexProvider {
 
         let pool = self.pool().await?;
         let mut result = HashMap::new();
+        let mut missing: Vec<TokenId> = Vec::new();
 
+        // Try to use the latest price already available from the watch channel
         for token in tokens.into_iter() {
-            let mut subscription = pool.subscribe(token.clone()).await?;
-            let price = subscription
-                .wait_for_price(Duration::from_secs(5))
-                .await
-                .change_context(Error::ResponseError)
-                .attach_printable(format!(
-                    "Timed out waiting for Codex price update for {}",
-                    token.address
-                ))?;
+            match pool.latest_price(&token).await {
+                Some(price) => {
+                    result.insert(token, price);
+                }
+                None => {
+                    missing.push(token);
+                }
+            }
+        }
 
-            result.insert(token, price);
-            // Drop subscription handle to allow automatic ref-count decrease.
+        // For missing tokens, fetch price via HTTP
+        match pool.fetch_initial_prices(&missing).await {
+            Ok(prices) => {
+                for (token, price) in prices.into_iter() {
+                    result.insert(token, price);
+                }
+            }
+            Err(err) => {
+                tracing::error!(
+                    "Failed to fetch initial Codex prices for missing tokens: {:?}",
+                    err
+                );
+            }
         }
 
         Ok(result)
+    }
+
+    async fn get_tokens_prices_events(
+        &self,
+    ) -> EstimatorResult<tokio::sync::broadcast::Receiver<PriceEvent>> {
+        self.subscribe_events().await
+    }
+
+    async fn subscribe_to_token(&self, token: TokenId) -> EstimatorResult<()> {
+        self.subscribe(token).await.map(|_| ())
+    }
+
+    async fn unsubscribe_from_token(&self, token: TokenId) -> EstimatorResult<()> {
+        self.unsubscribe(&token).await
     }
 }
 
@@ -338,7 +414,7 @@ struct CodexGraphqlResponse<T> {
 
 #[derive(Debug, Deserialize)]
 struct CodexGetPricesData {
-    prices: Vec<CodexPricePayload>,
+    prices: Vec<Option<CodexPricePayload>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -346,6 +422,8 @@ struct CodexPricePayload {
     address: String,
     #[serde(rename = "priceUsd")]
     price_usd: f64,
+    #[serde(rename = "networkId")]
+    network_id: i64,
 }
 
 #[derive(Debug)]
@@ -354,10 +432,15 @@ struct CodexWsClient {
     subscriptions: RwLock<HashMap<String, TokenSubscription>>,
     connected: AtomicBool,
     connected_notify: Notify,
+    // Event bus for price updates
+    event_tx: broadcast::Sender<PriceEvent>,
 }
 
 impl CodexWsClient {
-    async fn connect(api_key: String) -> EstimatorResult<Arc<Self>> {
+    async fn connect(
+        api_key: String,
+        event_tx: broadcast::Sender<PriceEvent>,
+    ) -> EstimatorResult<Arc<Self>> {
         let mut request = CODEX_WS_URL
             .into_client_request()
             .change_context(Error::ResponseError)
@@ -399,6 +482,7 @@ impl CodexWsClient {
             subscriptions: RwLock::new(HashMap::new()),
             connected: AtomicBool::new(false),
             connected_notify: Notify::new(),
+            event_tx,
         });
 
         client.send_message(Message::Text(
@@ -498,6 +582,11 @@ impl CodexWsClient {
         if let Some(data) = next_payload.data {
             if let Some(update) = data.on_price_updated {
                 let decimals = default_decimals(&subscription.token);
+                let new_price = TokenPrice {
+                    price: update.price_usd,
+                    decimals,
+                };
+
                 if let Err(error) = subscription.updates_tx.send(Some(TokenPrice {
                     price: update.price_usd,
                     decimals,
@@ -506,6 +595,18 @@ impl CodexWsClient {
                         "Failed to send Codex price update for {}: {:?}",
                         subscription.token.address,
                         error
+                    );
+                }
+
+                // Emit global event
+                if let Err(err) = self.event_tx.send(PriceEvent {
+                    token: subscription.token.clone(),
+                    price: new_price,
+                }) {
+                    // If there are no subscribers or receivers lagged, just log and continue
+                    tracing::trace!(
+                        "No listeners for price event or lagging receivers: {:?}",
+                        err
                     );
                 }
             }
@@ -767,5 +868,90 @@ fn default_decimals(token: &TokenId) -> u8 {
     match token.chain {
         ChainId::Solana | ChainId::Sui => 9,
         _ => 18,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use intents_models::log::init_tracing;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_codex_get_tokens_price() {
+        dotenv::dotenv().ok();
+
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
+        let codex_provider = CodexProvider::new(codex_api_key);
+
+        let tokens = HashSet::from([
+            TokenId {
+                chain: ChainId::Solana,
+                address: "So11111111111111111111111111111111111111112".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Base,
+                address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
+            },
+        ]);
+
+        let tokens_price = codex_provider
+            .get_tokens_price(tokens.clone())
+            .await
+            .expect("Failed to get Codex tokens price");
+        println!("Codex tokens price: {:#?}", tokens_price);
+        for token in tokens.into_iter() {
+            assert!(tokens_price.contains_key(&token));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_codex_get_tokens_price_unexisting_token() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
+        let codex_provider = CodexProvider::new(codex_api_key);
+
+        let tokens = HashSet::from([
+            TokenId {
+                chain: ChainId::Solana,
+                address: "So11111111111111111111111111111111111111112".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Base,
+                address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
+            },
+            // Non-existing token
+            TokenId {
+                chain: ChainId::Base,
+                address: "0x103589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
+            },
+        ]);
+
+        let tokens_price = codex_provider
+            .get_tokens_price(tokens.clone())
+            .await
+            .expect("Failed to get Codex tokens price");
+        println!("Codex tokens price: {:#?}", tokens_price);
+        let mut count = 0;
+        for token in tokens.into_iter() {
+            if tokens_price.contains_key(&token) {
+                count += 1;
+            }
+        }
+        assert_eq!(count, 2);
     }
 }

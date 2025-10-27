@@ -1,3 +1,4 @@
+use crate::prices::PriceEvent;
 use crate::prices::gecko_terminal::GeckoTerminalChain;
 use crate::{
     error::{Error, EstimatorResult},
@@ -15,17 +16,30 @@ use error_stack::{ResultExt as _, report};
 use intents_models::{constants::chains::ChainId, network::http::handle_reqwest_response};
 use reqwest::Client;
 use std::collections::{HashMap, HashSet};
+use tokio::sync::broadcast;
+
+const PRICE_EVENTS_BUFFER: usize = 32768; // 2^15
 
 #[derive(Debug, Clone)]
 pub struct GeckoTerminalProvider {
     client: Client,
+    // Event bus for price updates
+    event_tx: broadcast::Sender<PriceEvent>,
 }
 
 impl GeckoTerminalProvider {
     pub fn new() -> Self {
+        let (event_tx, _event_rx) = broadcast::channel(PRICE_EVENTS_BUFFER);
+
         Self {
             client: Client::new(),
+            event_tx,
         }
+    }
+
+    // Public method to subscribe to the global price event stream
+    pub fn subscribe_events(&self) -> broadcast::Receiver<PriceEvent> {
+        self.event_tx.subscribe()
     }
 }
 
@@ -76,6 +90,20 @@ impl PriceProvider for GeckoTerminalProvider {
         }
 
         Ok(tokens_info)
+    }
+
+    async fn get_tokens_prices_events(
+        &self,
+    ) -> EstimatorResult<tokio::sync::broadcast::Receiver<PriceEvent>> {
+        Ok(self.subscribe_events())
+    }
+
+    async fn subscribe_to_token(&self, token: TokenId) -> EstimatorResult<()> {
+        todo!();
+    }
+
+    async fn unsubscribe_from_token(&self, token: TokenId) -> EstimatorResult<()> {
+        todo!();
     }
 }
 

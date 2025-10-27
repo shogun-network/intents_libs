@@ -34,7 +34,7 @@ impl CodexChain for ChainId {
             42161 => Some(ChainId::ArbitrumOne),
             10 => Some(ChainId::Optimism),
             1399811149 => Some(ChainId::Solana),
-            784 => Some(ChainId::Sui),
+            101 => Some(ChainId::Sui),
             123 => Some(ChainId::HyperEVM),
             _ => None,
         }

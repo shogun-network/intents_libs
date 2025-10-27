@@ -16,6 +16,13 @@ pub struct TokenId {
     pub address: String,
 }
 
+// Event that is emitted for every price update observed on WS
+#[derive(Debug, Clone)]
+pub struct PriceEvent {
+    pub token: TokenId,
+    pub price: TokenPrice,
+}
+
 #[derive(Debug, Clone)]
 pub struct TokenPrice {
     pub price: f64,
@@ -37,4 +44,12 @@ pub trait PriceProvider {
         &self,
         tokens: HashSet<TokenId>,
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>>;
+
+    async fn get_tokens_prices_events(
+        &self,
+    ) -> EstimatorResult<tokio::sync::broadcast::Receiver<PriceEvent>>;
+
+    async fn subscribe_to_token(&self, token: TokenId) -> EstimatorResult<()>;
+
+    async fn unsubscribe_from_token(&self, token: TokenId) -> EstimatorResult<()>;
 }

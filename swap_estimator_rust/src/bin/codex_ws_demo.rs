@@ -41,15 +41,21 @@ async fn run() -> Result<(), String> {
                 chain: ChainId::Base,
                 address: "0x4200000000000000000000000000000000000006".to_string(),
             },
-        )
+        ),
     ];
 
     println!("Subscribing to live prices on Base:");
     for (name, token) in demo_tokens.into_iter() {
         match provider
-            .fetch_price_http(&token)
+            .fetch_initial_prices(&[token.clone()])
             .await
-            .map_err(|err| format!("Failed to fetch initial HTTP price for {name}: {}", err.format()))?
+            .map_err(|err| {
+                format!(
+                    "Failed to fetch initial HTTP price for {name}: {}",
+                    err.format()
+                )
+            })?
+            .get(&token)
         {
             Some(price) => println!(
                 "[http] {name} [{}] {} => ${:.6}",
