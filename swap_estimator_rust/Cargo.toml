@@ -19,5 +19,6 @@ async-trait       = { workspace = true }
 dotenv            = { workspace = true }
 tokio-tungstenite = { workspace = true }
 rust_decimal      = { workspace = true }
+dashmap           = { workspace = true }
 intents_models    = { path = "../intents_models" }
 # intents_models = { git = "https://github.com/shogun-network/intents_libs.git", tag = "v0.0.23" }
