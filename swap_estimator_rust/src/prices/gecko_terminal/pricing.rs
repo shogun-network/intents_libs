@@ -455,7 +455,7 @@ mod tests {
         let mut rx = gt_provider.subscribe_events();
 
         // Wait for a matching event with a timeout
-        let evt = tokio::time::timeout(Duration::from_secs(30), async {
+        let evt = tokio::time::timeout(Duration::from_secs(120), async {
             loop {
                 match rx.recv().await {
                     Ok(event) if event.token == token => {

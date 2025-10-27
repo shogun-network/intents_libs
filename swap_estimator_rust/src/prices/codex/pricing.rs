@@ -83,13 +83,43 @@ impl CodexProvider {
     }
 
     pub async fn subscribe(&self, token: TokenId) -> EstimatorResult<CodexSubscription> {
+        tracing::debug!(
+            "Subscribing to Codex price for token {} on chain {:?}",
+            token.address,
+            token.chain
+        );
         let pool = self.pool().await?;
         pool.subscribe(token).await
     }
 
+    pub async fn subscribe_internal(&self, token: TokenId) -> EstimatorResult<()> {
+        tracing::debug!(
+            "Subscribing to Codex price for token {} on chain {:?}",
+            token.address,
+            token.chain
+        );
+        let pool = self.pool().await?;
+        pool.subscribe_internal(token).await
+    }
+
     pub async fn unsubscribe(&self, token: &TokenId) -> EstimatorResult<()> {
+        tracing::debug!(
+            "Unsubscribing from Codex price for token {} on chain {:?}",
+            token.address,
+            token.chain
+        );
         let pool = self.pool().await?;
         pool.unsubscribe(token).await
+    }
+
+    pub async fn unsubscribe_internal(&self, token: &TokenId) -> EstimatorResult<()> {
+        tracing::debug!(
+            "Unsubscribing from Codex price for token {} on chain {:?}",
+            token.address,
+            token.chain
+        );
+        let pool = self.pool().await?;
+        pool.unsubscribe_internal(token).await
     }
 
     pub async fn latest_price(&self, token: &TokenId) -> EstimatorResult<Option<TokenPrice>> {
@@ -121,6 +151,8 @@ struct CodexConnectionPool {
     clients: RwLock<Vec<Arc<CodexWsClient>>>,
     // Event bus for price updates
     event_tx: broadcast::Sender<PriceEvent>,
+    // Anchor subscriptions to keep WS alive until explicit unsubscribe
+    held_subscriptions: RwLock<HashMap<TokenId, (usize, CodexSubscription)>>,
 }
 
 impl CodexConnectionPool {
@@ -146,6 +178,7 @@ impl CodexConnectionPool {
             http_client,
             clients: RwLock::new(Vec::new()),
             event_tx,
+            held_subscriptions: RwLock::new(HashMap::new()),
         })
     }
 
@@ -155,6 +188,10 @@ impl CodexConnectionPool {
     }
 
     async fn subscribe(&self, token: TokenId) -> EstimatorResult<CodexSubscription> {
+        tracing::debug!(
+            "Subscribing in CodexConnectionPool to Codex token: {:?}",
+            token
+        );
         let key = subscription_id(&token);
 
         if let Some(client) = self.client_with_subscription(&key).await {
@@ -163,28 +200,63 @@ impl CodexConnectionPool {
 
         let client = self.client_with_capacity().await?;
         let subscribe_future = client.subscribe(token.clone());
-        let subscription = subscribe_future.await?;
-        // let price_future = self.fetch_initial_price(&token);
-        // let (subscription_result, price_result) = tokio::join!(subscribe_future, price_future);
+        let tokens_to_search = vec![token.clone()];
+        let price_future = self.fetch_initial_prices(&tokens_to_search);
+        let (subscription_result, price_result) = tokio::join!(subscribe_future, price_future);
 
-        // let subscription = subscription_result?;
+        let subscription = subscription_result?;
 
-        // match price_result {
-        //     Ok(Some(price)) => {
-        //         client.apply_initial_price(&subscription.key, price).await;
-        //     }
-        //     Ok(None) => {}
-        //     Err(error) => {
-        //         tracing::warn!(
-        //             "Failed to fetch initial Codex price for {} on {:?}: {:?}",
-        //             token.address,
-        //             token.chain,
-        //             error
-        //         );
-        //     }
-        // }
+        match price_result {
+            Ok(result) => match result.get(&token) {
+                Some(price) => {
+                    client
+                        .apply_initial_price(&subscription.key, price.clone())
+                        .await;
+                }
+                None => {}
+            },
+            Err(error) => {
+                tracing::warn!(
+                    "Failed to fetch initial Codex price for {} on {:?}: {:?}",
+                    token.address,
+                    token.chain,
+                    error
+                );
+            }
+        }
 
         Ok(subscription)
+    }
+
+    async fn subscribe_internal(&self, token: TokenId) -> EstimatorResult<()> {
+        tracing::debug!(
+            "Subscribing internally in CodexConnectionPool to Codex token: {:?}",
+            token
+        );
+        // Fast path: already anchored
+        {
+            let mut held = self.held_subscriptions.write().await;
+            if let Some((rc, _anchor)) = held.get_mut(&token) {
+                *rc = rc.saturating_add(1);
+                return Ok(());
+            }
+        }
+
+        // Slow path: create anchor without holding the lock
+        let client = self.client_with_capacity().await?;
+        let anchor = client.subscribe(token.clone()).await?;
+
+        // Insert anchor; if a race inserted first, bump and drop our extra handle
+        let mut held = self.held_subscriptions.write().await;
+        if let std::collections::hash_map::Entry::Occupied(mut occ) = held.entry(token.clone()) {
+            // Another task anchored meanwhile; drop our extra anchor to decrement WS refcount
+            drop(anchor);
+            let (rc, _existing) = occ.get_mut();
+            *rc = rc.saturating_add(1);
+        } else {
+            held.insert(token, (1, anchor));
+        }
+        Ok(())
     }
 
     async fn unsubscribe(&self, token: &TokenId) -> EstimatorResult<()> {
@@ -192,6 +264,23 @@ impl CodexConnectionPool {
         if let Some(client) = self.client_with_subscription(&key).await {
             client.unsubscribe(token).await?;
         }
+        Ok(())
+    }
+
+    async fn unsubscribe_internal(&self, token: &TokenId) -> EstimatorResult<()> {
+        let mut to_drop: Option<CodexSubscription> = None;
+        {
+            let mut held = self.held_subscriptions.write().await;
+            if let Some((rc, _)) = held.get_mut(token) {
+                if *rc > 1 {
+                    *rc -= 1;
+                } else {
+                    let (_rc, anchor_owned) = held.remove(token).expect("entry must exist");
+                    to_drop = Some(anchor_owned);
+                }
+            }
+        }
+        drop(to_drop); // Dropping sends "complete" through CodexSubscription::Drop
         Ok(())
     }
 
@@ -391,11 +480,11 @@ impl PriceProvider for CodexProvider {
     }
 
     async fn subscribe_to_token(&self, token: TokenId) -> EstimatorResult<()> {
-        self.subscribe(token).await.map(|_| ())
+        self.subscribe_internal(token).await.map(|_| ())
     }
 
     async fn unsubscribe_from_token(&self, token: TokenId) -> EstimatorResult<()> {
-        self.unsubscribe(&token).await
+        self.unsubscribe_internal(&token).await
     }
 }
 
@@ -648,6 +737,7 @@ impl CodexWsClient {
     }
 
     async fn subscribe(self: &Arc<Self>, token: TokenId) -> EstimatorResult<CodexSubscription> {
+        tracing::debug!("Subscribing in CodexWsClient to Codex token: {:?}", token);
         let key = subscription_id(&token);
 
         let (receiver, needs_subscribe) = {
@@ -820,6 +910,7 @@ impl CodexSubscription {
 
 impl Drop for CodexSubscription {
     fn drop(&mut self) {
+        tracing::debug!("Unsubscribing from Codex token: {:?}", self.key);
         let client = self.client.clone();
         let key = self.key.clone();
         tokio::spawn(async move {
@@ -953,5 +1044,71 @@ mod tests {
             }
         }
         assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_codex_subscription_broadcast_event() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
+
+        // Use a short refresh interval to speed up the test
+        let codex_provider: CodexProvider = CodexProvider::new(codex_api_key);
+
+        // Popular token (Solana Bonk)
+        let token = TokenId {
+            chain: ChainId::Solana,
+            address: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
+        };
+
+        // Subscribe to token so the background refresher includes it in the snapshot
+        codex_provider
+            .subscribe_to_token(token.clone())
+            .await
+            .expect("subscribe_to_token failed");
+
+        // Subscribe to the broadcast of price events
+        let mut rx = codex_provider
+            .subscribe_events()
+            .await
+            .expect("subscribe_events failed");
+
+        // Wait for a matching event with a timeout
+        let evt = tokio::time::timeout(Duration::from_secs(120), async {
+            loop {
+                match rx.recv().await {
+                    Ok(event) if event.token == token => {
+                        tracing::info!("Received price event for {:?}", token);
+                        break event;
+                    }
+                    Ok(_) => {
+                        tracing::info!("Received price event for different token");
+                        continue;
+                    } // Different token update; keep waiting
+                    Err(e) => panic!("broadcast receiver error: {:?}", e),
+                }
+            }
+        })
+        .await
+        .expect("Timed out waiting for GeckoTerminal price event");
+
+        println!("Received Codex price event: {:?}", evt);
+        assert!(
+            evt.price.price > 0.0,
+            "Expected positive price from GeckoTerminal"
+        );
+
+        // Unsubscribe and ensure the entry is removed when ref_count reaches zero
+        codex_provider
+            .unsubscribe_from_token(token.clone())
+            .await
+            .expect("unsubscribe_from_token failed");
     }
 }
