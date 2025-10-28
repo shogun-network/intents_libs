@@ -5,6 +5,7 @@ use intents_models::constants::chains::{ChainId, ChainType};
 use crate::error::EstimatorResult;
 
 pub mod codex;
+pub mod defillama;
 pub mod estimating;
 pub mod gecko_terminal;
 

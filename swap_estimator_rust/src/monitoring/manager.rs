@@ -606,9 +606,9 @@ fn check_swap_feasibility(
             return Err(Error::ZeroPriceError);
         }
 
-        // Validate margin is finite, non-negative and not absurdly large (to avoid threshold explosions)
+        // Validate margin is finite, non-negative and not absurdly large
         let margin = pending_swap.feasibility_margin;
-        if !margin.is_finite() || margin < 0.0 || margin > 10_000.0 {
+        if !margin.is_finite() || margin < 0.0 || margin > 100.0 {
             return Err(Error::ParseError);
         }
         let margin_dec = Decimal::from_f64(margin).ok_or(Error::ParseError)?;
