@@ -1,5 +1,9 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    hash::Hash,
+};
 
+use error_stack::report;
 use intents_models::constants::chains::ChainId;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -7,8 +11,8 @@ use crate::{
     error::{Error, EstimatorResult},
     monitoring::messages::{MonitorAlert, MonitorRequest},
     prices::{
-        PriceEvent, PriceProvider, TokenId, TokenPrice,
-        estimating::{CODEX_PROVIDER, GECKO_TERMINAL_PROVIDER, OrderEstimationData},
+        PriceEvent, PriceProvider, TokenId, TokenMetadata, TokenPrice,
+        codex::pricing::CodexProvider, estimating::OrderEstimationData,
     },
 };
 use rust_decimal::Decimal;
@@ -37,57 +41,55 @@ pub struct MonitorManager {
     pub coin_cache: HashMap<TokenId, TokenPrice>,
     pub pending_swaps: HashMap<String, PendingSwap>, // OrderId to tokens, and price limit
     pub swaps_by_token: HashMap<TokenId, HashSet<String>>, // TokenId to OrderIds
+    pub token_metadata: HashMap<TokenId, TokenMetadata>,
+    pub codex_provider: CodexProvider,
 }
 
 impl MonitorManager {
-    pub fn new(receiver: Receiver<MonitorRequest>, sender: Sender<MonitorAlert>) -> Self {
+    pub fn new(
+        receiver: Receiver<MonitorRequest>,
+        sender: Sender<MonitorAlert>,
+        codex_api_key: String,
+    ) -> Self {
+        let codex_provider = CodexProvider::new(codex_api_key);
+
         Self {
             receiver,
             alert_sender: sender,
             coin_cache: HashMap::new(),
             pending_swaps: HashMap::new(),
             swaps_by_token: HashMap::new(),
+            token_metadata: HashMap::new(),
+            codex_provider,
         }
     }
 
-    pub async fn run(mut self) {
-        let mut gt_rx = GECKO_TERMINAL_PROVIDER.subscribe_events();
-        let mut codex_rx_opt = if let Some(provider) = CODEX_PROVIDER.as_ref() {
-            match provider.subscribe_events().await {
-                Ok(rx) => Some(rx),
-                Err(err) => {
-                    tracing::error!("Failed to subscribe Codex price events: {:?}", err);
-                    None
-                }
+    pub async fn run(mut self) -> EstimatorResult<()> {
+        let mut codex_rx_opt = match self.codex_provider.subscribe_events().await {
+            Ok(rx) => rx,
+            Err(err) => {
+                tracing::error!("Failed to subscribe Codex price events: {:?}", err);
+                return Err(err);
             }
-        } else {
-            None
         };
 
         loop {
             tokio::select! {
-                evt = gt_rx.recv() => {
-                    match evt {
-                        Ok(event) => {
-                            self.on_price_event(event).await;
-                        }
-                        Err(e) => {
-                            tracing::warn!("GeckoTerminal price events receiver closed: {:?}", e);
-                        }
-                    }
-                }
-                // Evento de precio desde Codex (si hay proveedor)
-                evt = codex_rx_opt.as_mut().unwrap().recv(), if codex_rx_opt.is_some() => {
+                // Codex update price event
+                evt = codex_rx_opt.recv() => {
+                    tracing::debug!("Received Codex price event: {:?}", evt);
                     match evt {
                         Ok(event) => {
                             self.on_price_event(event).await;
                         }
                         Err(e) => {
                             tracing::warn!("Codex price events receiver closed: {:?}", e);
+                            return Err(report!(Error::Unknown).attach_printable("Codex price events receiver closed"));
                         }
                     }
                 }
                 request = self.receiver.recv() => {
+                    tracing::debug!("Received monitor request: {:?}", request);
                     match request {
                         Some(request) => {
                             tracing::debug!("Received monitor request: {:?}", request);
@@ -95,7 +97,7 @@ impl MonitorManager {
                                 MonitorRequest::RemoveCheckSwapFeasibility { order_id } => {
                                     tracing::debug!("Removing check swap feasibility for order_id: {}", order_id);
                                     // Remove the swap from pending swaps
-                                    self.pending_swaps.remove(&order_id);
+                                    self.remove_order(&order_id).await;
                                 }
                                 MonitorRequest::CheckSwapFeasibility {
                                     order_id,
@@ -107,7 +109,9 @@ impl MonitorManager {
                                     amount_out,
                                     feasibility_margin,
                                 } => {
-                                    self.check_swap_feasibility(order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out, feasibility_margin);
+                                    if let Err(error) = self.check_swap_feasibility(order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out, feasibility_margin).await {
+                                        tracing::error!("Error processing CheckSwapFeasibility request: {:?}", error);
+                                    }
                                 }
                                 MonitorRequest::GetCoinsData { token_ids, resp } => {
                                     let response = self.get_coins_data(token_ids).await;
@@ -129,7 +133,7 @@ impl MonitorManager {
                         }
                         None => {
                             tracing::warn!("Monitor request channel closed, exiting...");
-                            break;
+                            return Err(report!(Error::Unknown).attach_printable("Monitor request channel closed"));
                         }
                     }
                 }
@@ -163,7 +167,7 @@ impl MonitorManager {
         }
     }
 
-    fn check_swap_feasibility(
+    async fn check_swap_feasibility(
         &mut self,
         order_id: String,
         src_chain: ChainId,
@@ -173,7 +177,7 @@ impl MonitorManager {
         amount_in: u128,
         amount_out: u128,
         feasibility_margin: f64,
-    ) {
+    ) -> EstimatorResult<()> {
         tracing::debug!(
             "Checking swap feasibility for order_id: {}, token_in: {}, token_out: {}, amount_in: {}, amount_out: {}",
             order_id,
@@ -187,15 +191,133 @@ impl MonitorManager {
 
         let token_out_id = TokenId::new(dst_chain, token_out.clone());
 
+        // Subscribe to price updates for both tokens
+        let tokens = vec![token_in_id.clone(), token_out_id.clone()]
+            .into_iter()
+            .collect::<HashSet<_>>();
+        let mut tokens_data = self.get_coins_data(tokens).await?;
+
+        if tokens_data.len() < 2 {
+            tracing::warn!(
+                "Not all token data available for order_id: {}, token_in: {}, token_out: {}",
+                order_id,
+                token_in,
+                token_out
+            );
+            return Err(report!(Error::TokenNotFound(format!(
+                "Missing token data for order_id: {}, cannot monitor swap feasibility",
+                order_id
+            ))));
+        }
+
+        // Check if we have token metadata info for both tokens, to update decimals, if not fetch and store
+        let mut missing_metadata_tokens: HashSet<TokenId> = HashSet::new();
+        for token_data in tokens_data.iter_mut() {
+            match self.token_metadata.get(token_data.0) {
+                Some(metadata) => {
+                    token_data.1.decimals = metadata.decimals;
+                }
+                None => {
+                    missing_metadata_tokens.insert(token_data.0.clone());
+                }
+            }
+        }
+
+        if !missing_metadata_tokens.is_empty() {
+            match self
+                .codex_provider
+                .fetch_token_metadata(&missing_metadata_tokens)
+                .await
+            {
+                Ok(metadatas) => {
+                    for (token_id, metadata) in metadatas.into_iter() {
+                        missing_metadata_tokens.remove(&token_id);
+                        self.token_metadata
+                            .insert(token_id.clone(), metadata.clone());
+                        // Update decimals in tokens_data
+                        if let Some(token_price) = tokens_data.get_mut(&token_id) {
+                            token_price.decimals = metadata.decimals;
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to fetch token metadata for tokens {:?}: {:?}",
+                        missing_metadata_tokens,
+                        e
+                    );
+                }
+            }
+            if !missing_metadata_tokens.is_empty() {
+                tracing::warn!(
+                    "Missing token metadata for tokens {:?} after fetch attempt",
+                    missing_metadata_tokens
+                );
+                return Err(report!(Error::TokenNotFound(format!(
+                    "Missing token metadata for order_id: {}, cannot monitor swap feasibility",
+                    order_id
+                ))));
+            }
+        }
+
+        let pending_swap = PendingSwap {
+            order_id: order_id.clone(),
+            src_chain,
+            dst_chain,
+            token_in: token_in.clone(),
+            token_out: token_out.clone(),
+            amount_in,
+            amount_out,
+            feasibility_margin,
+        };
+
+        // Check immediate feasibility
+        match check_swap_feasibility(&pending_swap, &tokens_data) {
+            Ok(is_feasible) => {
+                if is_feasible {
+                    // Send alert immediately
+                    tracing::debug!(
+                        "Swap is immediately feasible for order_id: {}, sending alert",
+                        order_id
+                    );
+                    if let Err(e) = self
+                        .alert_sender
+                        .send(MonitorAlert::SwapIsFeasible {
+                            order_id: pending_swap.order_id.clone(),
+                        })
+                        .await
+                    {
+                        tracing::error!(
+                            "Failed to send alert for order_id {}: {:?}",
+                            pending_swap.order_id,
+                            e
+                        );
+                    } else {
+                        // No need to monitor further
+                        return Ok(());
+                    }
+                }
+            }
+            Err(error) => {
+                tracing::error!(
+                    "Error checking swap feasibility for order_id {}: {:?}",
+                    pending_swap.order_id,
+                    error
+                );
+            }
+        }
+
+        // Swap not feasible yet, add to monitoring
+        // Subscribe to tokens for price updates and update coin cache
+        self.codex_provider
+            .subscribe_to_token(token_in_id.clone())
+            .await?;
+        self.codex_provider
+            .subscribe_to_token(token_out_id.clone())
+            .await?;
+
         // Add tokens to coin cache
-        self.coin_cache.insert(
-            token_in_id.clone(),
-            TokenPrice::default(), // Placeholder for actual data
-        );
-        self.coin_cache.insert(
-            token_out_id.clone(),
-            TokenPrice::default(), // Placeholder for actual data
-        );
+        self.coin_cache.extend(tokens_data);
 
         // Add the swap to pending swaps
         tracing::debug!(
@@ -232,6 +354,7 @@ impl MonitorManager {
                 feasibility_margin,
             },
         );
+        Ok(())
     }
 
     async fn get_coins_data(
@@ -266,33 +389,52 @@ impl MonitorManager {
             return Ok(result);
         }
         // Fetch data from Codex and Gecko Terminal
-        let data = get_combined_tokens_data(tokens_not_in_cache).await?;
+        let data = self.get_tokens_data(tokens_not_in_cache).await?;
 
-        // Update cache with fetched data
-        for (token_id, token_price) in data.iter() {
-            self.coin_cache
-                .insert(token_id.clone(), token_price.clone());
-        }
         result.extend(data);
 
         Ok(result)
     }
 
-    pub async fn update_cache(&mut self) -> EstimatorResult<()> {
-        let request = self.coin_cache.keys().cloned().collect::<HashSet<_>>();
-        let data = get_combined_tokens_data(request).await?;
-
-        for (token_id, token_price) in data.into_iter() {
-            self.coin_cache.insert(token_id, token_price);
-        }
-        Ok(())
-    }
-
     // Gestionar un PriceEvent: actualizar cache, re-evaluar órdenes afectadas, limpiar y desuscribir tokens si ya no quedan swaps que dependan de ellos.
     async fn on_price_event(&mut self, event: PriceEvent) {
+        // Get metadata for the token if not present
+        let token_metadata = match self.token_metadata.get(&event.token) {
+            Some(metadata) => metadata,
+            None => {
+                let tokens = HashSet::from([event.token.clone()]);
+                let token_metadata = match self.codex_provider.fetch_token_metadata(&tokens).await {
+                    Ok(metadata) => metadata,
+                    Err(error) => {
+                        tracing::error!(
+                            "Failed to fetch token metadata for {:?}: {:?}",
+                            tokens,
+                            error
+                        );
+                        return;
+                    }
+                };
+                self.token_metadata.extend(token_metadata);
+                match self.token_metadata.get(&event.token) {
+                    Some(metadata) => metadata,
+                    None => {
+                        tracing::error!(
+                            "Token metadata still missing for token {:?} after fetch",
+                            event.token
+                        );
+                        return;
+                    }
+                }
+            }
+        };
         // Update in-memory cache
-        self.coin_cache
-            .insert(event.token.clone(), event.price.clone());
+        self.coin_cache.insert(
+            event.token.clone(),
+            TokenPrice {
+                price: event.price.price,
+                decimals: token_metadata.decimals,
+            },
+        );
 
         // Orders which have this token
         let impacted_orders: HashSet<String> = self
@@ -346,16 +488,7 @@ impl MonitorManager {
                             continue;
                         }
                         // Remove from pending swaps
-                        self.pending_swaps.remove(&pending_swap.order_id);
-                        // Detach from token->orders map and unsubscribe if needed
-                        let t_in =
-                            TokenId::new(pending_swap.src_chain, pending_swap.token_in.clone());
-                        let t_out =
-                            TokenId::new(pending_swap.dst_chain, pending_swap.token_out.clone());
-                        self.detach_order_from_token(&t_in, &pending_swap.order_id)
-                            .await;
-                        self.detach_order_from_token(&t_out, &pending_swap.order_id)
-                            .await;
+                        self.remove_order(&pending_swap.order_id).await;
                     }
                 }
                 Err(error) => {
@@ -369,6 +502,19 @@ impl MonitorManager {
         }
     }
 
+    async fn remove_order(&mut self, order_id: &str) {
+        // Remove from pending swaps
+        if let Some(pending_swap) = self.pending_swaps.remove(order_id) {
+            // Detach from token->orders map and unsubscribe if needed
+            let t_in = TokenId::new(pending_swap.src_chain, pending_swap.token_in.clone());
+            let t_out = TokenId::new(pending_swap.dst_chain, pending_swap.token_out.clone());
+            self.detach_order_from_token(&t_in, &pending_swap.order_id)
+                .await;
+            self.detach_order_from_token(&t_out, &pending_swap.order_id)
+                .await;
+        }
+    }
+
     // Quita un order_id del índice swaps_by_token y desuscribe si ya no quedan órdenes para ese token
     async fn detach_order_from_token(&mut self, token: &TokenId, order_id: &str) {
         if let Some(set) = self.swaps_by_token.get_mut(token) {
@@ -378,71 +524,48 @@ impl MonitorManager {
             }
         }
 
-        // TODO: As an improvement we can check which provider was used to subscribe and only unsubscribe from that one.
-        // Unsubscribe from both providers.
+        // Unsubscribe from codex.
         // We do this because subscriptions have a counter inside, so it won't unsubscribe unless all subscribers are removed.
-        if let Err(e) = GECKO_TERMINAL_PROVIDER
+        match self
+            .codex_provider
             .unsubscribe_from_token(token.clone())
             .await
         {
-            tracing::warn!("Gecko unsubscribe_from_token failed: {:?}", e);
-        }
-        if let Some(provider) = CODEX_PROVIDER.as_ref() {
-            if let Err(e) = provider.unsubscribe_from_token(token.clone()).await {
+            Ok(dropped) => {
+                if dropped {
+                    // If we actually dropped the subscription, remove from coin cache
+                    tracing::debug!(
+                        "Unsubscribed from token {:?}, removing from coin cache",
+                        token
+                    );
+                    self.coin_cache.remove(token);
+                }
+            }
+            Err(e) => {
                 tracing::warn!("Codex unsubscribe_from_token failed: {:?}", e);
+            }
+        }
+    }
+
+    async fn get_tokens_data(
+        &self,
+        token_ids: HashSet<TokenId>,
+    ) -> Result<HashMap<TokenId, TokenPrice>, Error> {
+        match self
+            .codex_provider
+            .get_tokens_price(token_ids.clone())
+            .await
+        {
+            Ok(data) => Ok(data),
+            Err(e) => {
+                tracing::error!("Codex get_tokens_price failed: {:?}", e);
+                Err(e.current_context().clone())
             }
         }
     }
 }
 
-async fn get_combined_tokens_data(
-    token_ids: HashSet<TokenId>,
-) -> Result<HashMap<TokenId, TokenPrice>, Error> {
-    // Call Gecko Terminal API to get token data
-    let gecko_terminal_tokens_price = GECKO_TERMINAL_PROVIDER
-        .get_tokens_price(token_ids.clone())
-        .await;
-
-    let codex_tokens_price = if CODEX_PROVIDER.is_some() {
-        CODEX_PROVIDER
-            .as_ref()
-            .unwrap()
-            .get_tokens_price(token_ids.clone())
-            .await
-    } else {
-        Ok(HashMap::new())
-    };
-
-    if let Err(_) = gecko_terminal_tokens_price
-        && (CODEX_PROVIDER.is_none() || codex_tokens_price.is_err())
-    {
-        tracing::error!("Failed to fetch data from both Gecko Terminal and Codex");
-        return Err(Error::ResponseError);
-    }
-
-    // Merge both results, prioritizing Codex data when available
-    let mut data = HashMap::new();
-    if let Ok(gecko_data) = gecko_terminal_tokens_price {
-        data.extend(gecko_data);
-    } else {
-        tracing::error!(
-            "Failed to fetch data from Gecko Terminal: {:?}",
-            gecko_terminal_tokens_price
-        );
-    }
-
-    if let Ok(codex_data) = codex_tokens_price {
-        for (token_id, codex_price) in codex_data {
-            data.entry(token_id)
-                .and_modify(|existing| existing.price = codex_price.price)
-                .or_insert(codex_price);
-        }
-    } else {
-        tracing::error!("Failed to fetch data from Codex: {:?}", codex_tokens_price);
-    }
-    Ok(data)
-}
-
+// TODO: Fix all possible math errors and overflows
 fn check_swap_feasibility(
     pending_swap: &PendingSwap,
     coin_cache: &HashMap<TokenId, TokenPrice>,
@@ -864,11 +987,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_coins_data_cache_hit() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
         // Setup
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
         let (sender, _receiver) = mpsc::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
-        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender);
+        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender, codex_api_key);
 
         // Prepare cache with some tokens
         let eth_token = TokenId {
@@ -924,11 +1057,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_coins_data_zero_price() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
         // Setup
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
         let (sender, _receiver) = mpsc::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
-        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender);
+        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender, codex_api_key);
 
         // Prepare cache with a token that has zero price (considered as not in cache)
         let eth_token = TokenId {
@@ -970,11 +1113,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_coins_data_empty_input() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
         // Setup
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
         let (sender, _receiver) = mpsc::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
-        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender);
+        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender, codex_api_key);
 
         // Prepare cache with a token
         let eth_token = TokenId {
@@ -1002,11 +1155,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_estimate_orders_amount_out_success_with_cached_tokens() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
         // Setup
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
         let (sender, _receiver) = mpsc::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
-        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender);
+        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender, codex_api_key);
 
         // Pre-populate cache with token data
         let eth_token = TokenId {
@@ -1059,11 +1222,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_estimate_orders_amount_out_multiple_orders_different_chains() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
         // Setup
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
         let (sender, _receiver) = mpsc::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
-        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender);
+        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender, codex_api_key);
 
         // Pre-populate cache with multiple tokens
         monitor_manager.coin_cache.insert(
@@ -1139,11 +1312,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_estimate_orders_amount_out_duplicate_tokens() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
         // Setup
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
         let (sender, _receiver) = mpsc::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
-        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender);
+        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender, codex_api_key);
 
         // Pre-populate cache
         monitor_manager.coin_cache.insert(
@@ -1192,11 +1375,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_estimate_orders_amount_out_missing_token_data() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
         // Setup
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
         let (sender, _receiver) = mpsc::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
-        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender);
+        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender, codex_api_key);
 
         // Only add source token, missing destination token
         monitor_manager.coin_cache.insert(
@@ -1236,65 +1429,6 @@ mod tests {
             Err(_) => {
                 // Expected if external API calls fail in test environment
                 println!("Failed to fetch missing token data - expected in test environment");
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_estimate_orders_amount_out_zero_price_token() {
-        // Setup
-        let (sender, _receiver) = mpsc::channel(10);
-        let (_, monitor_receiver) = mpsc::channel(10);
-
-        let mut monitor_manager = MonitorManager::new(monitor_receiver, sender);
-
-        // Add tokens with zero price (should trigger cache miss and external fetch)
-        monitor_manager.coin_cache.insert(
-            TokenId {
-                chain: ChainId::Ethereum,
-                address: "0xsrc_token".to_string(),
-            },
-            TokenPrice {
-                price: 100.0,
-                decimals: 18,
-            },
-        );
-        monitor_manager.coin_cache.insert(
-            TokenId {
-                chain: ChainId::Base,
-                address: "0xzero_price_token".to_string(),
-            },
-            TokenPrice {
-                price: 0.0,
-                decimals: 6,
-            }, // Zero price
-        );
-
-        let orders = vec![create_order_estimation_data(
-            "zero_price_order",
-            ChainId::Ethereum,
-            ChainId::Base,
-            "0xsrc_token",
-            "0xzero_price_token",
-            1_000_000_000_000_000_000,
-        )];
-
-        // Execute
-        let result = monitor_manager.estimate_orders_amount_out(orders).await;
-
-        // This should either succeed (if external API provides valid price) or fail
-        match result {
-            Ok(estimates) => {
-                println!("Zero price token was updated from external API");
-                if estimates.contains_key("zero_price_order") {
-                    assert!(
-                        estimates["zero_price_order"] > 0,
-                        "Should have valid estimate"
-                    );
-                }
-            }
-            Err(_) => {
-                println!("Failed to get valid price for zero price token");
             }
         }
     }

@@ -37,6 +37,13 @@ pub struct PriceEvent {
 }
 
 #[derive(Debug, Clone)]
+pub struct TokenMetadata {
+    pub name: String,
+    pub symbol: String,
+    pub decimals: u8,
+}
+
+#[derive(Debug, Clone)]
 pub struct TokenPrice {
     pub price: f64,
     pub decimals: u8,
@@ -64,5 +71,5 @@ pub trait PriceProvider {
 
     async fn subscribe_to_token(&self, token: TokenId) -> EstimatorResult<()>;
 
-    async fn unsubscribe_from_token(&self, token: TokenId) -> EstimatorResult<()>;
+    async fn unsubscribe_from_token(&self, token: TokenId) -> EstimatorResult<bool>;
 }

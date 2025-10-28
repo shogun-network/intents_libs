@@ -277,9 +277,10 @@ impl PriceProvider for GeckoTerminalProvider {
         Ok(())
     }
 
-    async fn unsubscribe_from_token(&self, token: TokenId) -> EstimatorResult<()> {
+    async fn unsubscribe_from_token(&self, token: TokenId) -> EstimatorResult<bool> {
         tracing::debug!("Unsubscribing from token: {:?}", token);
 
+        let mut dropped = false;
         match self.subscriptions.entry(token.clone()) {
             Entry::Occupied(mut occ) => {
                 let entry = occ.get_mut();
@@ -288,6 +289,7 @@ impl PriceProvider for GeckoTerminalProvider {
                     entry.ref_count -= 1;
                 } else {
                     // Safe remove
+                    dropped = true;
                     occ.remove();
                 }
             }
@@ -300,7 +302,7 @@ impl PriceProvider for GeckoTerminalProvider {
             }
         }
 
-        Ok(())
+        Ok(dropped)
     }
 }
 
