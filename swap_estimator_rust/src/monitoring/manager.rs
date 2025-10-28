@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    hash::Hash,
-};
+use std::collections::{HashMap, HashSet};
 
 use error_stack::report;
 use intents_models::constants::chains::ChainId;
@@ -565,7 +562,6 @@ impl MonitorManager {
     }
 }
 
-// TODO: Fix all possible math errors and overflows
 fn check_swap_feasibility(
     pending_swap: &PendingSwap,
     coin_cache: &HashMap<TokenId, TokenPrice>,
@@ -579,28 +575,45 @@ fn check_swap_feasibility(
         pending_swap.token_out.clone(),
     ));
     if let (Some(src_data), Some(dst_data)) = (src_chain_data, dst_chain_data) {
-        // Helper to convert amount (u128) with decimals -> Decimal
+        // Fail-fast validation for decimals scale supported by rust_decimal (max 28)
+        let validate_decimals = |d: u8| -> Result<(), Error> {
+            if d > 28 {
+                return Err(Error::ParseError);
+            }
+            Ok(())
+        };
+        validate_decimals(src_data.decimals)?;
+        validate_decimals(dst_data.decimals)?;
+
+        // Helper to convert amount (u128) with decimals -> Decimal safely
         let amount_to_decimal = |amount: u128, decimals: u8| -> Result<Decimal, Error> {
-            // TODO: Check as i128 overflow
-            Ok(Decimal::from_i128_with_scale(
-                amount as i128,
-                decimals as u32,
-            ))
+            // Avoid silent wrap: ensure value fits in i128
+            let amount_i128 = i128::try_from(amount).map_err(|_| Error::ParseError)?;
+            Ok(Decimal::from_i128_with_scale(amount_i128, decimals as u32))
         };
 
-        // Convert prices and margin to Decimal safely
-        let src_price = Decimal::from_f64(src_data.price).ok_or(Error::ParseError)?;
-        let dst_price = Decimal::from_f64(dst_data.price).ok_or(Error::ParseError)?;
-        if src_price.is_zero() || dst_price.is_zero() {
-            return Err(Error::ZeroPriceError);
-        }
-        let margin_dec =
-            Decimal::from_f64(pending_swap.feasibility_margin).ok_or(Error::ParseError)?;
-        if margin_dec.is_sign_negative() {
+        // Validate prices are finite and strictly positive
+        if !src_data.price.is_finite() || !dst_data.price.is_finite() {
             return Err(Error::ParseError);
         }
+        let src_price = Decimal::from_f64(src_data.price).ok_or(Error::ParseError)?;
+        let dst_price = Decimal::from_f64(dst_data.price).ok_or(Error::ParseError)?;
+        if src_price.is_sign_negative()
+            || src_price.is_zero()
+            || dst_price.is_sign_negative()
+            || dst_price.is_zero()
+        {
+            return Err(Error::ZeroPriceError);
+        }
 
-        // Compute price_limit as Decimal
+        // Validate margin is finite, non-negative and not absurdly large (to avoid threshold explosions)
+        let margin = pending_swap.feasibility_margin;
+        if !margin.is_finite() || margin < 0.0 || margin > 10_000.0 {
+            return Err(Error::ParseError);
+        }
+        let margin_dec = Decimal::from_f64(margin).ok_or(Error::ParseError)?;
+
+        // Compute price_limit as Decimal: expected token_out per token_in
         let price_limit_dec = {
             let amount_in_dec = amount_to_decimal(pending_swap.amount_in, src_data.decimals)?;
             let amount_out_dec = amount_to_decimal(pending_swap.amount_out, dst_data.decimals)?;
@@ -614,9 +627,8 @@ fn check_swap_feasibility(
         // Compute real price ratio as Decimal
         let real_price_limit = src_price / dst_price;
 
-        // threshold = price_limit * (100.0 + feasibility_margin) / 100.0
-        let threshold =
-            price_limit_dec * (Decimal::ONE + (margin_dec / Decimal::ONE_HUNDRED)) / Decimal::ONE;
+        // threshold = price_limit * (1 + margin/100)
+        let threshold = price_limit_dec * (Decimal::ONE + (margin_dec / Decimal::ONE_HUNDRED));
 
         tracing::debug!(
             "Swap feasibility calculation for order_id: {}: src_amount: {}, src_price: {}, dst_amount: {}, dst_price: {}, real_price_limit: {}, price_limit: {}, threshold (with margin): {}",
