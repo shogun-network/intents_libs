@@ -100,10 +100,7 @@ impl GeckoTerminalProvider {
                     match gecko_terminal_get_tokens_info(&client, chain, addresses).await {
                         Ok(infos) => {
                             for info in infos {
-                                let token_id = TokenId {
-                                    chain,
-                                    address: info.attributes.address,
-                                };
+                                let token_id = TokenId::new(chain, info.attributes.address);
 
                                 let price_f = match info.attributes.price_usd.parse::<f64>() {
                                     Ok(v) => v,
@@ -203,10 +200,7 @@ impl PriceProvider for GeckoTerminalProvider {
             let mut chain_result = HashMap::new();
             let mut were_fetched_on_api = false;
             for token_address in addresses.iter() {
-                let key = TokenId {
-                    chain,
-                    address: token_address.clone(),
-                };
+                let key = TokenId::new(chain, token_address.clone());
                 match self.subscriptions.get(&key) {
                     Some(entry) => {
                         if let Some(price) = &entry.price {
@@ -220,10 +214,7 @@ impl PriceProvider for GeckoTerminalProvider {
                         {
                             Ok(infos) => {
                                 for info in infos {
-                                    let token_id = TokenId {
-                                        chain,
-                                        address: info.attributes.address,
-                                    };
+                                    let token_id = TokenId::new(chain, info.attributes.address);
 
                                     let price_f = match info.attributes.price_usd.parse::<f64>() {
                                         Ok(v) => v,
@@ -293,15 +284,15 @@ impl PriceProvider for GeckoTerminalProvider {
             Entry::Occupied(mut occ) => {
                 let entry = occ.get_mut();
                 if entry.ref_count > 1 {
-                    // Just decrement; keep entry
+                    // Decrement ref count
                     entry.ref_count -= 1;
                 } else {
-                    // Safe remove without re-entering the map (no deadlock)
+                    // Safe remove
                     occ.remove();
                 }
             }
             Entry::Vacant(_) => {
-                // Nothing to do; attempting to unsubscribe a non-existing entry
+                // Nothing to do.
                 tracing::debug!(
                     "Unsubscribe called for non-existent subscription: {:?}",
                     token
@@ -488,5 +479,71 @@ mod tests {
             gt_provider.subscriptions.get(&token).is_none(),
             "Subscription entry should be removed on unsubscribe"
         );
+    }
+
+    #[tokio::test]
+    async fn test_gecko_terminal_subscription_and_unsuscription() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
+        // Use a short refresh interval to speed up the test
+        let gt_provider: GeckoTerminalProvider = GeckoTerminalProvider::new_with_subscriptions(3);
+
+        // Popular token (Solana Bonk)
+        let token = TokenId {
+            chain: ChainId::Solana,
+            address: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
+        };
+
+        // Subscribe to token so the background refresher includes it in the snapshot
+        gt_provider
+            .subscribe_to_token(token.clone())
+            .await
+            .expect("subscribe_to_token failed");
+
+        gt_provider
+            .subscribe_to_token(token.clone())
+            .await
+            .expect("subscribe_to_token failed");
+
+        // Subscribe to the broadcast of price events
+        let mut rx = gt_provider.subscribe_events();
+
+        // Unsubscribe once
+        gt_provider
+            .unsubscribe_from_token(token.clone())
+            .await
+            .expect("unsubscribe_from_token failed");
+
+        // Wait for a matching event with a timeout
+        let evt = tokio::time::timeout(Duration::from_secs(120), async {
+            loop {
+                match rx.recv().await {
+                    Ok(event) if event.token == token => {
+                        tracing::info!("Received price event for {:?}", token);
+                        break event;
+                    }
+                    Ok(_) => {
+                        tracing::info!("Received price event for different token");
+                        continue;
+                    } // Different token update; keep waiting
+                    Err(e) => panic!("broadcast receiver error: {:?}", e),
+                }
+            }
+        })
+        .await
+        .expect("Timed out waiting for GeckoTerminal price event");
+
+        println!("Received Codex price event: {:?}", evt);
+        assert!(
+            evt.price.price > 0.0,
+            "Expected positive price from GeckoTerminal"
+        );
+
+        // Unsubscribe and ensure the entry is removed when ref_count reaches zero
+        gt_provider
+            .unsubscribe_from_token(token.clone())
+            .await
+            .expect("unsubscribe_from_token failed");
     }
 }

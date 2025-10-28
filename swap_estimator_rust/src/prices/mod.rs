@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use intents_models::constants::chains::ChainId;
+use intents_models::constants::chains::{ChainId, ChainType};
 
 use crate::error::EstimatorResult;
 
@@ -10,10 +10,23 @@ pub mod gecko_terminal;
 
 pub type TokensPriceData = HashMap<TokenId, TokenPrice>;
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TokenId {
     pub chain: ChainId,
     pub address: String,
+}
+// TODO: Normalize addresses to match similar ones with different casing or with/without 0x prefix...
+
+impl TokenId {
+    pub fn new(chain: ChainId, address: String) -> Self {
+        match chain.to_chain_type() {
+            ChainType::EVM => Self {
+                chain,
+                address: address.to_lowercase(),
+            },
+            _ => Self { chain, address },
+        }
+    }
 }
 
 // Event that is emitted for every price update observed on WS

@@ -1111,4 +1111,110 @@ mod tests {
             .await
             .expect("unsubscribe_from_token failed");
     }
+
+    #[tokio::test]
+    async fn test_codex_subscription_and_unsuscription() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
+
+        // Use a short refresh interval to speed up the test
+        let codex_provider: CodexProvider = CodexProvider::new(codex_api_key);
+
+        // Popular token (Solana Bonk)
+        let token = TokenId {
+            chain: ChainId::Solana,
+            address: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
+        };
+
+        // Subscribe to token so the background refresher includes it in the snapshot
+        codex_provider
+            .subscribe_to_token(token.clone())
+            .await
+            .expect("subscribe_to_token failed");
+
+        codex_provider
+            .subscribe_to_token(token.clone())
+            .await
+            .expect("subscribe_to_token failed");
+
+        // Subscribe to the broadcast of price events
+        let mut rx = codex_provider
+            .subscribe_events()
+            .await
+            .expect("subscribe_events failed");
+
+        // Unsubscribe once
+        codex_provider
+            .unsubscribe_from_token(token.clone())
+            .await
+            .expect("unsubscribe_from_token failed");
+
+        // Wait for a matching event with a timeout
+        let evt = tokio::time::timeout(Duration::from_secs(120), async {
+            loop {
+                match rx.recv().await {
+                    Ok(event) if event.token == token => {
+                        tracing::info!("Received price event for {:?}", token);
+                        break event;
+                    }
+                    Ok(_) => {
+                        tracing::info!("Received price event for different token");
+                        continue;
+                    } // Different token update; keep waiting
+                    Err(e) => panic!("broadcast receiver error: {:?}", e),
+                }
+            }
+        })
+        .await
+        .expect("Timed out waiting for GeckoTerminal price event");
+
+        println!("Received Codex price event: {:?}", evt);
+        assert!(
+            evt.price.price > 0.0,
+            "Expected positive price from GeckoTerminal"
+        );
+
+        // Unsubscribe and ensure the entry is removed when ref_count reaches zero
+        codex_provider
+            .unsubscribe_from_token(token.clone())
+            .await
+            .expect("unsubscribe_from_token failed");
+    }
+
+    // #[tokio::test]
+    // async fn test_codex_fake_token_subscription() {
+    //     dotenv::dotenv().ok();
+    //     init_tracing(false);
+
+    //     let codex_api_key = match std::env::var("CODEX_API_KEY") {
+    //         Ok(key) => key,
+    //         Err(_) => {
+    //             eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+    //             return;
+    //         }
+    //     };
+
+    //     // Use a short refresh interval to speed up the test
+    //     let codex_provider: CodexProvider = CodexProvider::new(codex_api_key);
+
+    //     // Popular token (Solana Bonk)
+    //     let token = TokenId {
+    //         chain: ChainId::Solana,
+    //         address: "DezXAZ8z7PnrnRJjz3wXaoRgixCa6xjnB7YaB1pPB263".to_string(),
+    //     };
+
+    //     // Subscribe to token so the background refresher includes it in the snapshot
+    //     codex_provider
+    //         .subscribe_to_token(token.clone())
+    //         .await
+    //         .expect("subscribe_to_token failed");
+    // }
 }

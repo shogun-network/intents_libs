@@ -58,6 +58,7 @@ impl MonitorClient {
         token_out: String,
         amount_in: u128,
         amount_out: u128,
+        feasibility_margin: f64,
     ) -> EstimatorResult<()> {
         self.client
             .send(MonitorRequest::CheckSwapFeasibility {
@@ -68,6 +69,7 @@ impl MonitorClient {
                 token_out,
                 amount_in,
                 amount_out,
+                feasibility_margin,
             })
             .await
             .change_context(Error::ResponseError)
