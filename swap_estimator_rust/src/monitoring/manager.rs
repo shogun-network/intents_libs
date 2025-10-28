@@ -79,9 +79,14 @@ impl MonitorManager {
                         Ok(event) => {
                             self.on_price_event(event).await;
                         }
-                        Err(e) => {
-                            tracing::warn!("Codex price events receiver closed: {:?}", e);
-                            return Err(report!(Error::Unknown).attach_printable("Codex price events receiver closed"));
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            tracing::warn!("Lagged on Codex price events; skipping to latest");
+                            continue;
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            tracing::error!("Codex price events channel closed");
+                            return Err(report!(Error::Unknown)
+                                .attach_printable("Codex price events receiver closed"));
                         }
                     }
                 }
