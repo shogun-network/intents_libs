@@ -24,7 +24,9 @@ pub enum MonitorRequest {
         token_out: String,
         amount_in: u128,
         amount_out: u128,
-        feasibility_margin: f64,
+        feasibility_margin_in: f64,
+        feasibility_margin_out: f64,
+        extra_expenses: HashMap<TokenId, u128>,
     },
     RemoveCheckSwapFeasibility {
         order_id: String,

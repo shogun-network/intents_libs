@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::process;
 
 use intents_models::constants::chains::ChainId;
@@ -162,7 +162,9 @@ async fn run() -> Result<(), String> {
                         token_out,
                         amount_in,
                         amount_out,
-                        feasibility_margin,
+                        feasibility_margin_in: feasibility_margin,
+                        feasibility_margin_out: feasibility_margin,
+                        extra_expenses: HashMap::new(),
                     })
                     .await
                 {
