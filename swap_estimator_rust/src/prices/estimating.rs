@@ -13,7 +13,7 @@ use crate::{
 };
 
 lazy_static::lazy_static! {
-    pub static ref GECKO_TERMINAL_PROVIDER: GeckoTerminalProvider = GeckoTerminalProvider::new();
+    pub static ref GECKO_TERMINAL_PROVIDER: GeckoTerminalProvider = GeckoTerminalProvider::new_with_subscriptions(5);
 
     pub static ref CODEX_PROVIDER: Option<CodexProvider> = {
         // Load API key from environment variable
@@ -37,14 +37,14 @@ pub fn estimate_order_amount_out(
     order_data: &OrderEstimationData,
     tokens_price_data: &TokensPriceData,
 ) -> EstimatorResult<Option<u128>> {
-    let src_token_data = tokens_price_data.get(&TokenId {
-        chain: order_data.src_chain,
-        address: order_data.token_in.clone(),
-    });
-    let dst_token_data = tokens_price_data.get(&TokenId {
-        chain: order_data.dst_chain,
-        address: order_data.token_out.clone(),
-    });
+    let src_token_data = tokens_price_data.get(&TokenId::new(
+        order_data.src_chain,
+        order_data.token_in.clone(),
+    ));
+    let dst_token_data = tokens_price_data.get(&TokenId::new(
+        order_data.dst_chain,
+        order_data.token_out.clone(),
+    ));
 
     if let (Some(src_data), Some(dst_data)) = (src_token_data, dst_token_data) {
         let src_price = src_data.price;
