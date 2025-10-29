@@ -29,8 +29,7 @@ pub struct PendingSwap {
     pub amount_out: u128,
     pub feasibility_margin_in: f64,
     pub feasibility_margin_out: f64,
-    pub extra_expenses: HashMap<TokenId, u128>,
-    // pub price_limit: Option<f64>, // If set, use this price limit instead of calculating from amounts
+    pub extra_expenses: HashMap<TokenId, (u128, f64)>, // TokenId to (amount, feasibility_margin)
 }
 
 #[derive(Debug)]
@@ -184,7 +183,7 @@ impl MonitorManager {
         amount_out: u128,
         feasibility_margin_in: f64,
         feasibility_margin_out: f64,
-        extra_expenses: HashMap<TokenId, u128>,
+        extra_expenses: HashMap<TokenId, (u128, f64)>,
     ) -> EstimatorResult<()> {
         tracing::debug!(
             "Checking swap feasibility for order_id: {}, token_in: {}, token_out: {}, amount_in: {}, amount_out: {}",
@@ -639,7 +638,11 @@ fn check_swap_feasibility(
         // Sum of extra expenses valued at their current prices
         let mut extra_expenses_cost = Decimal::ZERO;
         if !pending_swap.extra_expenses.is_empty() {
-            for (tok_id, amount) in pending_swap.extra_expenses.iter() {
+            for (tok_id, (amount, margin)) in pending_swap.extra_expenses.iter() {
+                if !margin.is_finite() || *margin < 0.0 || *margin > 100.0 {
+                    return Err(report!(Error::ParseError));
+                }
+                let margin_dec = Decimal::from_f64(*margin).ok_or(Error::ParseError)?;
                 let tok_price = coin_cache.get(tok_id).ok_or_else(|| {
                     Error::TokenNotFound(format!(
                         "Missing token data on monitor for expense token: {:?}",
@@ -655,7 +658,8 @@ fn check_swap_feasibility(
                     return Err(report!(Error::ZeroPriceError));
                 }
                 let amt_dec = amount_to_decimal(*amount, tok_price.decimals)?;
-                extra_expenses_cost += amt_dec * price_dec;
+                extra_expenses_cost += (amt_dec * price_dec)
+                    * ((Decimal::ONE_HUNDRED - margin_dec) / Decimal::ONE_HUNDRED);
             }
         }
 
@@ -717,7 +721,7 @@ mod tests {
         amount_out: u128,
         feasibility_margin_in: f64,
         feasibility_margin_out: f64,
-        extra_expenses: HashMap<TokenId, u128>,
+        extra_expenses: HashMap<TokenId, (u128, f64)>,
     ) -> PendingSwap {
         PendingSwap {
             order_id,
@@ -847,7 +851,7 @@ mod tests {
                 chain: ChainId::Base,
                 address: "token_c".to_string(),
             },
-            1_000_000_000_000_000_000u128, // 1 token
+            (1_000_000_000_000_000_000u128, 0.0), // 1 token
         )]);
 
         let pending_swap = create_pending_swap(

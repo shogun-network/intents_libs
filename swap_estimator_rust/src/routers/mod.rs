@@ -33,7 +33,7 @@ pub enum Slippage {
 
 // TODO: We can add this calculated quotes and send it to swap functions in order to save another estimation inside swap function, like:
 // expanding the enum RouterType so each variant has its quotes added
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum RouterType {
     /// In case no swap is required
     SimpleTransfer,

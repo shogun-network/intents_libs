@@ -2,7 +2,7 @@ use crate::error::{Error, EstimatorResult};
 use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType};
 use crate::routers::jupiter::get_jupiter_max_slippage;
 use crate::routers::swap::{GenericSwapRequest, SolanaPriorityFeeType};
-use crate::routers::{HTTP_CLIENT, Slippage};
+use crate::routers::{HTTP_CLIENT, RouterType, Slippage};
 use crate::utils::number_conversion::slippage_to_bps;
 use error_stack::{ResultExt, report};
 use intents_models::constants::chains::{
@@ -172,6 +172,7 @@ pub async fn get_jupiter_quote(
         amount_limit: u128::from_str(&quote.otherAmountThreshold).change_context(
             Error::SerdeSerialize("Error serializing Jupiter quote response".to_string()),
         )?,
+        router: RouterType::Jupiter,
         router_data: serde_json::to_value(&quote).change_context(Error::SerdeSerialize(
             "Error serializing Jupiter quote response".to_string(),
         ))?,

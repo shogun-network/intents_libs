@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
-        HTTP_CLIENT, Slippage,
+        HTTP_CLIENT, RouterType, Slippage,
         constants::LIQUIDSWAP_BASE_API_URL,
         estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType},
         liquidswap::{
@@ -198,6 +198,7 @@ pub async fn estimate_swap_liquidswap_generic(
     Ok(GenericEstimateResponse {
         amount_quote,
         amount_limit,
+        router: RouterType::Liquidswap,
         router_data: serde_json::to_value(&route_response).change_context(
             Error::SerdeSerialize("Error serializing Liquidswap route response".to_string()),
         )?,

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use intents_models::constants::chains::{ChainId, ChainType};
+use serde::{Deserialize, Serialize};
 
 use crate::error::EstimatorResult;
 
@@ -11,7 +12,7 @@ pub mod gecko_terminal;
 
 pub type TokensPriceData = HashMap<TokenId, TokenPrice>;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub struct TokenId {
     pub chain: ChainId,
     pub address: String,

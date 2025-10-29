@@ -7,6 +7,7 @@ use super::{
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
+        RouterType,
         constants::ETH_TOKEN_DECIMALS,
         paraswap::responses::{GetPriceRouteResponse, TransactionsResponse},
     },
@@ -151,6 +152,7 @@ pub async fn estimate_swap_paraswap_generic(
     Ok(GenericEstimateResponse {
         amount_quote,
         amount_limit,
+        router: RouterType::Paraswap,
         router_data: serde_json::to_value(router_data).change_context(Error::AggregatorError(
             "Error serializing paraswap estimate response".to_string(),
         ))?,
