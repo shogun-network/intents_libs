@@ -428,7 +428,9 @@ impl MonitorManager {
     }
 
     // Gestionar un PriceEvent: actualizar cache, re-evaluar órdenes afectadas, limpiar y desuscribir tokens si ya no quedan swaps que dependan de ellos.
-    async fn on_price_event(&mut self, event: PriceEvent) {
+    async fn on_price_event(&mut self, mut event: PriceEvent) {
+        // Sanitizing token id:
+        event.token = TokenId::new_for_codex(event.token.chain.clone(), &event.token.address);
         // Get metadata for the token if not present
         let token_metadata = match self.token_metadata.get(&event.token) {
             Some(metadata) => metadata,
@@ -672,10 +674,12 @@ fn estimate_amount_out(
         // Value of expenses in dollars
         let mut expenses_usd_value = Decimal::ZERO;
         for expense in pending_swap.extra_expenses.iter() {
-            let Some(expense_data) = coin_cache.get(expense.0) else {
+            // sanitize expense token id
+            let token_id = TokenId::new_for_codex(expense.0.chain.clone(), &expense.0.address);
+            let Some(expense_data) = coin_cache.get(&token_id) else {
                 return Err(report!(Error::TokenNotFound(format!(
                     "Missing token data on monitor for expense token: {:?}",
-                    expense.0
+                    token_id
                 ))));
             };
             validate_decimals(expense_data.decimals)?;
