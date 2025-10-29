@@ -293,6 +293,11 @@ impl MonitorManager {
                             estimated_amount_out,
                             amount_out,
                         )?;
+                    tracing::debug!(
+                        "Required monitor estimation for order_id {}: {}",
+                        order_id,
+                        req_monitor_estimation
+                    );
                     Some(req_monitor_estimation)
                 } else {
                     // In this case we just check against amount_out
