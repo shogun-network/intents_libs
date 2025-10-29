@@ -51,7 +51,7 @@ async fn run() -> Result<(), String> {
     println!("Interactive monitor REPL ready.");
     println!("Commands:");
     println!(
-        "  check <order_id> <src_chain> <dst_chain> <token_in> <token_out> <amount_in:u128> <amount_out:u128> <margin:f64>"
+        "  check <order_id> <src_chain> <dst_chain> <token_in> <token_out> <amount_in:u128> <amount_out:u128> <solver_last_bid:Option<u128>>"
     );
     println!("  remove <order_id>");
     println!("  prices <chain:address> [chain:address...]");
@@ -92,6 +92,7 @@ async fn run() -> Result<(), String> {
                 }
             }
 
+            // check a 8453 7565164 0x833589fcd6edb6e08f4c7c32d4f71b54bda02913 orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE 1500000 1000000
             "check" => {
                 // check <order_id> <src_chain> <dst_chain> <token_in> <token_out> <amount_in:u128> <amount_out:u128> <margin:f64>
                 let order_id = match parts.next() {
@@ -145,13 +146,7 @@ async fn run() -> Result<(), String> {
                         continue;
                     }
                 };
-                let feasibility_margin: f64 = match parts.next().and_then(|s| s.parse().ok()) {
-                    Some(v) => v,
-                    None => {
-                        eprintln!("Invalid <margin>");
-                        continue;
-                    }
-                };
+                let solver_last_bid: Option<u128> = parts.next().and_then(|s| s.parse().ok());
 
                 if let Err(e) = monitor_tx
                     .send(MonitorRequest::CheckSwapFeasibility {
@@ -162,8 +157,7 @@ async fn run() -> Result<(), String> {
                         token_out,
                         amount_in,
                         amount_out,
-                        feasibility_margin_in: feasibility_margin,
-                        feasibility_margin_out: feasibility_margin,
+                        solver_last_bid,
                         extra_expenses: HashMap::new(),
                     })
                     .await

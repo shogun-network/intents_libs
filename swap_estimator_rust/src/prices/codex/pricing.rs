@@ -1128,11 +1128,27 @@ mod tests {
             },
             TokenId {
                 chain: ChainId::Solana,
+                address: "G6jmigL9nkgYrT9MFP5fvrgrztDhtdVZkrmQz5Q5bonk".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Solana,
+                address: "3sNToh4Z3WJyqzMMDP34Jjiw9PLcW8KabuewS1EB8ray".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Solana,
+                address: "GTEPYkUDfArmcijxE2Z4g54TuNHECzMnrntYkyPapump".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Solana,
                 address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
             },
             TokenId {
                 chain: ChainId::Base,
                 address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Ethereum,
+                address: "0x3fc29836e84e471a053d2d9e80494a867d670ead".to_string(),
             },
         ]);
 
