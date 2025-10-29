@@ -121,7 +121,7 @@ impl CodexProvider {
             token.chain
         );
         let pool = self.pool().await?;
-        pool.unsubscribe(token).await
+        pool.unsubscribe(&token).await
     }
 
     pub async fn unsubscribe_internal(&self, token: &TokenId) -> EstimatorResult<bool> {
@@ -131,12 +131,12 @@ impl CodexProvider {
             token.chain
         );
         let pool = self.pool().await?;
-        pool.unsubscribe_internal(token).await
+        pool.unsubscribe_internal(&token).await
     }
 
     pub async fn latest_price(&self, token: &TokenId) -> EstimatorResult<Option<TokenPrice>> {
         let pool = self.pool().await?;
-        Ok(pool.latest_price(token).await)
+        Ok(pool.latest_price(&token).await)
     }
 
     pub async fn fetch_initial_prices(
@@ -144,7 +144,7 @@ impl CodexProvider {
         tokens: &[TokenId],
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
         let pool = self.pool().await?;
-        pool.fetch_initial_prices(tokens).await
+        pool.fetch_initial_prices(&tokens).await
     }
 
     // Public method to subscribe to the global price event stream
@@ -158,7 +158,7 @@ impl CodexProvider {
         tokens: &HashSet<TokenId>,
     ) -> EstimatorResult<HashMap<TokenId, TokenMetadata>> {
         let pool = self.pool().await?;
-        pool.fetch_token_metadata(tokens).await
+        pool.fetch_token_metadata(&tokens).await
     }
 }
 
@@ -1104,12 +1104,12 @@ fn default_decimals(token: &TokenId) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use intents_models::log::init_tracing;
+    use intents_models::{constants::chains::NATIVE_TOKEN_SUI_ADDRESS, log::init_tracing};
 
     use super::*;
 
     #[tokio::test]
-    async fn test_codex_get_tokens_price() {
+    async fn test_codex_get_tokens_price_success() {
         dotenv::dotenv().ok();
 
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
@@ -1126,6 +1126,7 @@ mod tests {
                 chain: ChainId::Solana,
                 address: "So11111111111111111111111111111111111111112".to_string(),
             },
+            TokenId::new_for_codex(ChainId::Sui, NATIVE_TOKEN_SUI_ADDRESS),
             TokenId {
                 chain: ChainId::Solana,
                 address: "G6jmigL9nkgYrT9MFP5fvrgrztDhtdVZkrmQz5Q5bonk".to_string(),
@@ -1133,6 +1134,10 @@ mod tests {
             TokenId {
                 chain: ChainId::Solana,
                 address: "3sNToh4Z3WJyqzMMDP34Jjiw9PLcW8KabuewS1EB8ray".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Solana,
+                address: "55E5Bn6n3L44tjfUBc18turPsdSBvs8MVb22oeM9robo".to_string(),
             },
             TokenId {
                 chain: ChainId::Solana,

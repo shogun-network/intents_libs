@@ -126,6 +126,34 @@ impl TryFrom<&str> for ChainId {
     }
 }
 
+impl ChainId {
+    pub fn is_native_token(self, address: &str) -> bool {
+        match self {
+            ChainId::Ethereum
+            | ChainId::Bsc
+            | ChainId::ArbitrumOne
+            | ChainId::Base
+            | ChainId::Optimism
+            | ChainId::HyperEVM => is_native_token_evm_address(address),
+            ChainId::Solana => is_native_token_solana_address(address),
+            ChainId::Sui => address == NATIVE_TOKEN_SUI_ADDRESS,
+        }
+    }
+
+    pub fn wrapped_native_token_address(self) -> String {
+        match self {
+            ChainId::Solana => WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS.to_string(),
+            ChainId::HyperEVM => WRAPPED_NATIVE_TOKEN_HYPE_ADDRESS.to_string(),
+            ChainId::Sui => NATIVE_TOKEN_SUI_ADDRESS.to_string(),
+            ChainId::Bsc => "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c".to_string(),
+            ChainId::Ethereum => "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2".to_string(),
+            ChainId::ArbitrumOne => "0x82af49447d8a07e3bd95bd0d56f35241523fbab1".to_string(),
+            ChainId::Base => "0x4200000000000000000000000000000000000006".to_string(),
+            ChainId::Optimism => "0x4200000000000000000000000000000000000006".to_string(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

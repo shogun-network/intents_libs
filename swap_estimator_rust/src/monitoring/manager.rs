@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use error_stack::{ResultExt, report};
 use intents_models::constants::chains::ChainId;
+use strum::IntoEnumIterator;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::{
@@ -61,6 +62,16 @@ impl MonitorManager {
     }
 
     pub async fn run(mut self) -> EstimatorResult<()> {
+        // Subscribe to native token price updates, as they are used in fee calculations
+        for chain in ChainId::iter() {
+            let native_token = chain.wrapped_native_token_address();
+            let token_id = TokenId::new_for_codex(chain, &native_token);
+            self.codex_provider
+                .subscribe_to_token(token_id)
+                .await
+                .expect("Failed to subscribe to native token price");
+        }
+
         let mut codex_rx_opt = match self.codex_provider.subscribe_events().await {
             Ok(rx) => rx,
             Err(err) => {
@@ -73,7 +84,7 @@ impl MonitorManager {
             tokio::select! {
                 // Codex update price event
                 evt = codex_rx_opt.recv() => {
-                    tracing::debug!("Received Codex price event: {:?}", evt);
+                    tracing::trace!("Received Codex price event: {:?}", evt);
                     match evt {
                         Ok(event) => {
                             self.on_price_event(event).await;
@@ -150,13 +161,13 @@ impl MonitorManager {
         // Get Token Info for all tokens in orders
         let mut token_ids = HashSet::new();
         for order in orders.iter() {
-            token_ids.insert(TokenId::new(
+            token_ids.insert(TokenId::new_for_codex(
                 order.src_chain.clone(),
-                order.token_in.clone(),
+                &order.token_in,
             ));
-            token_ids.insert(TokenId::new(
+            token_ids.insert(TokenId::new_for_codex(
                 order.dst_chain.clone(),
-                order.token_out.clone(),
+                &order.token_out,
             ));
         }
         let tokens_info = self.get_coins_data(token_ids).await?;
@@ -190,9 +201,9 @@ impl MonitorManager {
             amount_out
         );
 
-        let token_in_id = TokenId::new(src_chain, token_in.clone());
+        let token_in_id = TokenId::new_for_codex(src_chain, &token_in);
 
-        let token_out_id = TokenId::new(dst_chain, token_out.clone());
+        let token_out_id = TokenId::new_for_codex(dst_chain, &token_out);
 
         // Subscribe to price updates for both tokens
         let mut tokens = vec![token_in_id.clone(), token_out_id.clone()]
@@ -401,7 +412,7 @@ impl MonitorManager {
                     chain,
                     address
                 );
-                tokens_not_in_cache.insert(TokenId::new(chain, address));
+                tokens_not_in_cache.insert(TokenId::new_for_codex(chain, &address));
             }
         }
         // If we have tokens not in cache, fetch them
@@ -543,8 +554,8 @@ impl MonitorManager {
         // Remove from pending swaps
         if let Some((pending_swap, _)) = self.pending_swaps.remove(order_id) {
             // Detach from token->orders map and unsubscribe if needed
-            let t_in = TokenId::new(pending_swap.src_chain, pending_swap.token_in.clone());
-            let t_out = TokenId::new(pending_swap.dst_chain, pending_swap.token_out.clone());
+            let t_in = TokenId::new_for_codex(pending_swap.src_chain, &pending_swap.token_in);
+            let t_out = TokenId::new_for_codex(pending_swap.dst_chain, &pending_swap.token_out);
             self.detach_order_from_token(&t_in, &pending_swap.order_id)
                 .await;
             self.detach_order_from_token(&t_out, &pending_swap.order_id)
@@ -610,13 +621,13 @@ fn estimate_amount_out(
     pending_swap: &PendingSwap,
     coin_cache: &HashMap<TokenId, TokenPrice>,
 ) -> EstimatorResult<u128> {
-    let src_chain_data = coin_cache.get(&TokenId::new(
+    let src_chain_data = coin_cache.get(&TokenId::new_for_codex(
         pending_swap.src_chain,
-        pending_swap.token_in.clone(),
+        &pending_swap.token_in,
     ));
-    let dst_chain_data = coin_cache.get(&TokenId::new(
+    let dst_chain_data = coin_cache.get(&TokenId::new_for_codex(
         pending_swap.dst_chain,
-        pending_swap.token_out.clone(),
+        &pending_swap.token_out,
     ));
 
     if let (Some(src_data), Some(dst_data)) = (src_chain_data, dst_chain_data) {
@@ -763,11 +774,11 @@ fn required_monitor_estimation_for_solver_fulfillment(
 //     pending_swap: &PendingSwap,
 //     coin_cache: &HashMap<TokenId, TokenPrice>,
 // ) -> EstimatorResult<bool> {
-//     let src_chain_data = coin_cache.get(&TokenId::new(
+//     let src_chain_data = coin_cache.get(&TokenId::new_for_codex(
 //         pending_swap.src_chain,
 //         pending_swap.token_in.clone(),
 //     ));
-//     let dst_chain_data = coin_cache.get(&TokenId::new(
+//     let dst_chain_data = coin_cache.get(&TokenId::new_for_codex(
 //         pending_swap.dst_chain,
 //         pending_swap.token_out.clone(),
 //     ));

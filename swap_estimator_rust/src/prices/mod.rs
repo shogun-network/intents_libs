@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use intents_models::constants::chains::{ChainId, ChainType};
 use serde::{Deserialize, Serialize};
 
-use crate::error::EstimatorResult;
+use crate::{error::EstimatorResult, prices::codex::CodexChain as _};
 
 pub mod codex;
 pub mod defillama;
@@ -28,6 +28,11 @@ impl TokenId {
             },
             _ => Self { chain, address },
         }
+    }
+
+    pub fn new_for_codex(chain: ChainId, address: &str) -> Self {
+        let codex_address = chain.to_codex_address(address);
+        Self::new(chain, codex_address)
     }
 }
 
