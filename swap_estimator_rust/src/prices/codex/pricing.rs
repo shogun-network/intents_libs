@@ -288,21 +288,14 @@ impl CodexConnectionPool {
     }
 
     async fn unsubscribe_internal(&self, token: &TokenId) -> EstimatorResult<bool> {
-        let mut to_drop: Option<CodexSubscription> = None;
-        {
+        let to_drop = {
             let mut held = self.held_subscriptions.write().await;
-            if let Some((rc, _)) = held.get_mut(token) {
-                if *rc > 1 {
-                    *rc -= 1;
-                } else {
-                    let (_rc, anchor_owned) = held.remove(token).expect("entry must exist");
-                    to_drop = Some(anchor_owned);
-                }
-            }
-        }
-        let is_dropped = to_drop.is_some();
-        drop(to_drop); // Dropping sends "complete" through CodexSubscription::Drop
-        Ok(is_dropped)
+
+            let (_rc, anchor_owned) = held.remove(token).expect("entry must exist");
+            anchor_owned
+        };
+        drop(to_drop);
+        Ok(true)
     }
 
     async fn latest_price(&self, token: &TokenId) -> Option<TokenPrice> {
