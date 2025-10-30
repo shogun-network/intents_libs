@@ -101,7 +101,6 @@ impl MonitorManager {
                     }
                 }
                 request = self.receiver.recv() => {
-                    tracing::debug!("Received monitor request: {:?}", request);
                     match request {
                         Some(request) => {
                             tracing::debug!("Received monitor request: {:?}", request);
@@ -746,10 +745,6 @@ fn required_monitor_estimation_for_solver_fulfillment(
     est_monitor: u128,
     min_user: u128,
 ) -> EstimatorResult<u128> {
-    // TODO: Revisit this parameter
-    // Apply a benevolent margin to increase the solvability likelihood (to avoid false negatives even if we get some false positives)
-    let gamma: Decimal = Decimal::from_str("0.95").change_context(Error::ParseError)?; // 5% benevolent margin
-
     let bid_solver = Decimal::from_u128(bid_solver).ok_or(Error::ParseError)?;
     let est_monitor = Decimal::from_u128(est_monitor).ok_or(Error::ParseError)?;
     let min_user = Decimal::from_u128(min_user).ok_or(Error::ParseError)?;
@@ -762,16 +757,26 @@ fn required_monitor_estimation_for_solver_fulfillment(
             .attach_printable("Observed solver/monitor ratio is non-positive"));
     }
 
-    // For the solver to reach min_user: a_obs * M_req >= min_user
-    // M_req <= min_user / a_obs
-    let m_req = if a_obs < gamma {
-        // Apply benevolent margin to increase the likelihood of success:
-        (min_user / a_obs) * gamma
+    let threshold_low = Decimal::from_str("0.8").change_context(Error::ParseError)?;
+    let candidate_dec = if a_obs < threshold_low {
+        // Simple average method
+        let solver_diff = min_user - bid_solver;
+        est_monitor + (solver_diff / Decimal::from(2u8))
     } else {
-        min_user / a_obs
+        // Porcentage method
+        // Half a_obs margin with 1.0 to get less false negatives
+        let half_a_obs_margin = {
+            let diff = (Decimal::ONE - a_obs) / Decimal::from(2u8);
+            Decimal::ONE - diff
+        };
+        let mut m_req = min_user / half_a_obs_margin;
+        if m_req < est_monitor {
+            m_req = est_monitor / half_a_obs_margin;
+        }
+        m_req
     };
 
-    Ok(m_req.to_u128().ok_or(Error::ParseError)?)
+    Ok(candidate_dec.to_u128().ok_or(Error::ParseError)?)
 }
 
 // fn check_swap_feasibility(
