@@ -634,8 +634,12 @@ impl MonitorManager {
 
     async fn evaluate_coins(
         &mut self,
-        tokens: Vec<(TokenId, u128)>,
+        mut tokens: Vec<(TokenId, u128)>,
     ) -> Result<(Vec<f64>, f64), Error> {
+        // Sanitize token ids
+        for token in tokens.iter_mut() {
+            token.0 = TokenId::new_for_codex(token.0.chain.clone(), &token.0.address);
+        }
         let tokens_to_search = tokens
             .iter()
             .map(|(token_id, _)| token_id.clone())
