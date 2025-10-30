@@ -2215,6 +2215,8 @@ dependencies = [
  "serde_json",
  "serde_repr",
  "serde_with",
+ "strum",
+ "strum_macros",
  "thiserror 2.0.17",
  "tokio",
  "tokio-tungstenite",

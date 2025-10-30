@@ -24,7 +24,8 @@ pub enum MonitorRequest {
         token_out: String,
         amount_in: u128,
         amount_out: u128,
-        feasibility_margin: f64,
+        solver_last_bid: Option<u128>,
+        extra_expenses: HashMap<TokenId, u128>,
     },
     RemoveCheckSwapFeasibility {
         order_id: String,
@@ -32,6 +33,10 @@ pub enum MonitorRequest {
     EstimateOrdersAmountOut {
         orders: Vec<OrderEstimationData>,
         resp: Responder<HashMap<String, u128>>,
+    },
+    EvaluateCoins {
+        tokens: Vec<(TokenId, u128)>,
+        resp: Responder<(Vec<f64>, f64)>,
     },
 }
 

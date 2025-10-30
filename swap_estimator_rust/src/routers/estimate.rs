@@ -1,7 +1,7 @@
 use intents_models::constants::chains::ChainId;
 use serde::{Deserialize, Serialize};
 
-use crate::routers::{Slippage, swap::GenericSwapRequest};
+use crate::routers::{RouterType, Slippage, swap::GenericSwapRequest};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TradeType {
@@ -44,6 +44,8 @@ pub struct GenericEstimateResponse {
     pub amount_quote: u128,
     /// Amount IN MAX for exact OUT trade or amount OUT MIN for exact IN trade
     pub amount_limit: u128,
+    /// Router type used for the swap
+    pub router: RouterType,
     /// Response data specific to router
     pub router_data: serde_json::Value,
 }

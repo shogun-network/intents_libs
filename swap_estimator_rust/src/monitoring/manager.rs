@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use error_stack::report;
+use error_stack::{ResultExt, report};
 use intents_models::constants::chains::ChainId;
+use strum::IntoEnumIterator;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::{
@@ -11,6 +12,7 @@ use crate::{
         PriceEvent, PriceProvider, TokenId, TokenMetadata, TokenPrice,
         codex::pricing::CodexProvider, estimating::OrderEstimationData,
     },
+    utils::number_conversion::u128_to_f64,
 };
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
@@ -27,8 +29,7 @@ pub struct PendingSwap {
     pub token_out: String,
     pub amount_in: u128,
     pub amount_out: u128,
-    pub feasibility_margin: f64,
-    // pub price_limit: Option<f64>, // If set, use this price limit instead of calculating from amounts
+    pub extra_expenses: HashMap<TokenId, u128>, // TokenId to amount
 }
 
 #[derive(Debug)]
@@ -36,8 +37,8 @@ pub struct MonitorManager {
     pub receiver: Receiver<MonitorRequest>,
     pub alert_sender: Sender<MonitorAlert>,
     pub coin_cache: HashMap<TokenId, TokenPrice>,
-    pub pending_swaps: HashMap<String, PendingSwap>, // OrderId to tokens, and price limit
-    pub swaps_by_token: HashMap<TokenId, HashSet<String>>, // TokenId to OrderIds
+    pub pending_swaps: HashMap<String, (PendingSwap, Option<u128>)>, // OrderId to pending swap and optionally, estimated amount out calculated
+    pub swaps_by_token: HashMap<TokenId, HashSet<String>>,           // TokenId to OrderIds
     pub token_metadata: HashMap<TokenId, TokenMetadata>,
     pub codex_provider: CodexProvider,
 }
@@ -62,6 +63,13 @@ impl MonitorManager {
     }
 
     pub async fn run(mut self) -> EstimatorResult<()> {
+        // Subscribe to native token price updates, as they are used in fee calculations
+        for chain in ChainId::iter() {
+            let native_token = chain.wrapped_native_token_address();
+            let token_id = TokenId::new_for_codex(chain, &native_token);
+            self.codex_provider.subscribe_to_token(token_id).await?;
+        }
+
         let mut codex_rx_opt = match self.codex_provider.subscribe_events().await {
             Ok(rx) => rx,
             Err(err) => {
@@ -74,7 +82,7 @@ impl MonitorManager {
             tokio::select! {
                 // Codex update price event
                 evt = codex_rx_opt.recv() => {
-                    tracing::debug!("Received Codex price event: {:?}", evt);
+                    tracing::trace!("Received Codex price event: {:?}", evt);
                     match evt {
                         Ok(event) => {
                             self.on_price_event(event).await;
@@ -91,7 +99,6 @@ impl MonitorManager {
                     }
                 }
                 request = self.receiver.recv() => {
-                    tracing::debug!("Received monitor request: {:?}", request);
                     match request {
                         Some(request) => {
                             tracing::debug!("Received monitor request: {:?}", request);
@@ -109,9 +116,10 @@ impl MonitorManager {
                                     token_out,
                                     amount_in,
                                     amount_out,
-                                    feasibility_margin,
+                                    solver_last_bid,
+                                    extra_expenses,
                                 } => {
-                                    if let Err(error) = self.check_swap_feasibility(order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out, feasibility_margin).await {
+                                    if let Err(error) = self.check_swap_feasibility(order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out, solver_last_bid, extra_expenses).await {
                                         tracing::error!("Error processing CheckSwapFeasibility request: {:?}", error);
                                     }
                                 }
@@ -129,6 +137,13 @@ impl MonitorManager {
                                     match resp.send(response) {
                                         Ok(_) => tracing::debug!("Error response sent successfully"),
                                         Err(_) => tracing::error!("Failed to send error response"),
+                                    }
+                                }
+                                MonitorRequest::EvaluateCoins { tokens, resp } => {
+                                    let response = self.evaluate_coins(tokens).await;
+                                    match resp.send(response) {
+                                        Ok(_) => tracing::debug!("EvaluateCoins response sent successfully"),
+                                        Err(_) => tracing::error!("Failed to send EvaluateCoins response"),
                                     }
                                 }
                             }
@@ -150,13 +165,13 @@ impl MonitorManager {
         // Get Token Info for all tokens in orders
         let mut token_ids = HashSet::new();
         for order in orders.iter() {
-            token_ids.insert(TokenId::new(
+            token_ids.insert(TokenId::new_for_codex(
                 order.src_chain.clone(),
-                order.token_in.clone(),
+                &order.token_in,
             ));
-            token_ids.insert(TokenId::new(
+            token_ids.insert(TokenId::new_for_codex(
                 order.dst_chain.clone(),
-                order.token_out.clone(),
+                &order.token_out,
             ));
         }
         let tokens_info = self.get_coins_data(token_ids).await?;
@@ -178,7 +193,8 @@ impl MonitorManager {
         token_out: String,
         amount_in: u128,
         amount_out: u128,
-        feasibility_margin: f64,
+        solver_last_bid: Option<u128>,
+        extra_expenses: HashMap<TokenId, u128>,
     ) -> EstimatorResult<()> {
         tracing::debug!(
             "Checking swap feasibility for order_id: {}, token_in: {}, token_out: {}, amount_in: {}, amount_out: {}",
@@ -189,15 +205,17 @@ impl MonitorManager {
             amount_out
         );
 
-        let token_in_id = TokenId::new(src_chain, token_in.clone());
+        let token_in_id = TokenId::new_for_codex(src_chain, &token_in);
 
-        let token_out_id = TokenId::new(dst_chain, token_out.clone());
+        let token_out_id = TokenId::new_for_codex(dst_chain, &token_out);
 
         // Subscribe to price updates for both tokens
-        let tokens = vec![token_in_id.clone(), token_out_id.clone()]
+        let mut tokens = vec![token_in_id.clone(), token_out_id.clone()]
             .into_iter()
             .collect::<HashSet<_>>();
-        let mut tokens_data = self.get_coins_data(tokens).await?;
+        tokens.extend(extra_expenses.clone().into_keys());
+
+        let tokens_data = self.get_coins_data(tokens).await?;
 
         if tokens_data.len() < 2 {
             tracing::warn!(
@@ -212,56 +230,6 @@ impl MonitorManager {
             ))));
         }
 
-        // Check if we have token metadata info for both tokens, to update decimals, if not fetch and store
-        let mut missing_metadata_tokens: HashSet<TokenId> = HashSet::new();
-        for token_data in tokens_data.iter_mut() {
-            match self.token_metadata.get(token_data.0) {
-                Some(metadata) => {
-                    token_data.1.decimals = metadata.decimals;
-                }
-                None => {
-                    missing_metadata_tokens.insert(token_data.0.clone());
-                }
-            }
-        }
-
-        if !missing_metadata_tokens.is_empty() {
-            match self
-                .codex_provider
-                .fetch_token_metadata(&missing_metadata_tokens)
-                .await
-            {
-                Ok(metadatas) => {
-                    for (token_id, metadata) in metadatas.into_iter() {
-                        missing_metadata_tokens.remove(&token_id);
-                        self.token_metadata
-                            .insert(token_id.clone(), metadata.clone());
-                        // Update decimals in tokens_data
-                        if let Some(token_price) = tokens_data.get_mut(&token_id) {
-                            token_price.decimals = metadata.decimals;
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to fetch token metadata for tokens {:?}: {:?}",
-                        missing_metadata_tokens,
-                        e
-                    );
-                }
-            }
-            if !missing_metadata_tokens.is_empty() {
-                tracing::warn!(
-                    "Missing token metadata for tokens {:?} after fetch attempt",
-                    missing_metadata_tokens
-                );
-                return Err(report!(Error::TokenNotFound(format!(
-                    "Missing token metadata for order_id: {}, cannot monitor swap feasibility",
-                    order_id
-                ))));
-            }
-        }
-
         let pending_swap = PendingSwap {
             order_id: order_id.clone(),
             src_chain,
@@ -270,33 +238,59 @@ impl MonitorManager {
             token_out: token_out.clone(),
             amount_in,
             amount_out,
-            feasibility_margin,
+            extra_expenses,
         };
 
         // Check immediate feasibility
-        match check_swap_feasibility(&pending_swap, &tokens_data) {
-            Ok(is_feasible) => {
-                if is_feasible {
-                    // Send alert immediately
+        let estimate_amount_out_calculated = match estimate_amount_out(&pending_swap, &tokens_data)
+        {
+            Ok(estimated_amount_out) => {
+                if let Some(solver_last_bid) = solver_last_bid {
+                    // In this case calculate estimated amount out with margin
+                    if solver_last_bid >= amount_out {
+                        return Err(report!(Error::ParseError)
+                            .attach_printable("Solver last bid should be less than amount_out"));
+                    }
+                    // Calculate required monitor estimation for solver to be able to reach amount_out
+                    let req_monitor_estimation =
+                        required_monitor_estimation_for_solver_fulfillment(
+                            solver_last_bid,
+                            estimated_amount_out,
+                            amount_out,
+                        )?;
                     tracing::debug!(
-                        "Swap is immediately feasible for order_id: {}, sending alert",
-                        order_id
+                        "Required monitor estimation for order_id {}: {}",
+                        order_id,
+                        req_monitor_estimation
                     );
-                    if let Err(e) = self
-                        .alert_sender
-                        .send(MonitorAlert::SwapIsFeasible {
-                            order_id: pending_swap.order_id.clone(),
-                        })
-                        .await
-                    {
-                        tracing::error!(
-                            "Failed to send alert for order_id {}: {:?}",
-                            pending_swap.order_id,
-                            e
+                    Some(req_monitor_estimation)
+                } else {
+                    // In this case we just check against amount_out
+                    if estimated_amount_out >= amount_out {
+                        // Send alert immediately
+                        tracing::debug!(
+                            "Swap is immediately feasible for order_id: {}, sending alert",
+                            order_id
                         );
+                        if let Err(e) = self
+                            .alert_sender
+                            .send(MonitorAlert::SwapIsFeasible {
+                                order_id: pending_swap.order_id.clone(),
+                            })
+                            .await
+                        {
+                            tracing::error!(
+                                "Failed to send alert for order_id {}: {:?}",
+                                pending_swap.order_id,
+                                e
+                            );
+                            None
+                        } else {
+                            // No need to monitor further
+                            return Ok(());
+                        }
                     } else {
-                        // No need to monitor further
-                        return Ok(());
+                        None
                     }
                 }
             }
@@ -306,17 +300,15 @@ impl MonitorManager {
                     pending_swap.order_id,
                     error
                 );
+                None
             }
-        }
+        };
 
         // Swap not feasible yet, add to monitoring
         // Subscribe to tokens for price updates and update coin cache
-        self.codex_provider
-            .subscribe_to_token(token_in_id.clone())
-            .await?;
-        self.codex_provider
-            .subscribe_to_token(token_out_id.clone())
-            .await?;
+        for token in tokens_data.clone().into_keys() {
+            self.codex_provider.subscribe_to_token(token).await?;
+        }
 
         // Add tokens to coin cache
         self.coin_cache.extend(tokens_data);
@@ -345,16 +337,7 @@ impl MonitorManager {
 
         self.pending_swaps.insert(
             order_id.clone(),
-            PendingSwap {
-                order_id,
-                src_chain,
-                dst_chain,
-                token_in,
-                token_out,
-                amount_in,
-                amount_out,
-                feasibility_margin,
-            },
+            (pending_swap, estimate_amount_out_calculated),
         );
         Ok(())
     }
@@ -367,6 +350,8 @@ impl MonitorManager {
         let mut tokens_not_in_cache = HashSet::new();
 
         for token_id in token_ids.into_iter() {
+            // Refine token id to codex format
+            let token_id = TokenId::new_for_codex(token_id.chain.clone(), &token_id.address);
             // Add token to cache if not already present
             let chain = token_id.chain.clone();
             let address = token_id.address.clone();
@@ -383,7 +368,7 @@ impl MonitorManager {
                     chain,
                     address
                 );
-                tokens_not_in_cache.insert(TokenId::new(chain, address));
+                tokens_not_in_cache.insert(token_id);
             }
         }
         // If we have tokens not in cache, fetch them
@@ -395,11 +380,63 @@ impl MonitorManager {
 
         result.extend(data);
 
+        // Check if we have token metadata info for both tokens, to update decimals, if not fetch and store
+        let mut missing_metadata_tokens: HashSet<TokenId> = HashSet::new();
+        for token_data in result.iter_mut() {
+            match self.token_metadata.get(token_data.0) {
+                Some(metadata) => {
+                    token_data.1.decimals = metadata.decimals;
+                }
+                None => {
+                    missing_metadata_tokens.insert(token_data.0.clone());
+                }
+            }
+        }
+
+        if !missing_metadata_tokens.is_empty() {
+            match self
+                .codex_provider
+                .fetch_token_metadata(&missing_metadata_tokens)
+                .await
+            {
+                Ok(metadatas) => {
+                    for (token_id, metadata) in metadatas.into_iter() {
+                        missing_metadata_tokens.remove(&token_id);
+                        self.token_metadata
+                            .insert(token_id.clone(), metadata.clone());
+                        // Update decimals in tokens_data
+                        if let Some(token_price) = result.get_mut(&token_id) {
+                            token_price.decimals = metadata.decimals;
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to fetch token metadata for tokens {:?}: {:?}",
+                        missing_metadata_tokens,
+                        e
+                    );
+                }
+            }
+
+            if !missing_metadata_tokens.is_empty() {
+                tracing::warn!(
+                    "Missing token metadata for tokens {:?} after fetch attempt",
+                    missing_metadata_tokens
+                );
+                return Err(Error::TokenNotFound(format!(
+                    "Missing token metadata for tokens, cannot monitor swap feasibility",
+                )));
+            }
+        }
+
         Ok(result)
     }
 
     // Gestionar un PriceEvent: actualizar cache, re-evaluar órdenes afectadas, limpiar y desuscribir tokens si ya no quedan swaps que dependan de ellos.
-    async fn on_price_event(&mut self, event: PriceEvent) {
+    async fn on_price_event(&mut self, mut event: PriceEvent) {
+        // Sanitizing token id:
+        event.token = TokenId::new_for_codex(event.token.chain.clone(), &event.token.address);
         // Get metadata for the token if not present
         let token_metadata = match self.token_metadata.get(&event.token) {
             Some(metadata) => metadata,
@@ -449,7 +486,7 @@ impl MonitorManager {
         }
 
         // Get the swap data of these orders
-        let mut subset: Vec<PendingSwap> = Vec::new();
+        let mut subset: Vec<(PendingSwap, Option<u128>)> = Vec::new();
         for order_id in impacted_orders.iter() {
             if let Some(ps) = self.pending_swaps.get(order_id).cloned() {
                 subset.push(ps);
@@ -460,16 +497,33 @@ impl MonitorManager {
         }
 
         // Re-evaluate these swaps
-        for pending_swap in subset.into_iter() {
+        for (pending_swap, estimated_minimum_monitor_amount) in subset.into_iter() {
             tracing::debug!(
                 "Re-evaluating swap feasibility for order_id: {}, token_in: {}, token_out: {}",
                 pending_swap.order_id,
                 pending_swap.token_in,
                 pending_swap.token_out
             );
-            match check_swap_feasibility(&pending_swap, &self.coin_cache) {
-                Ok(is_feasible) => {
-                    if is_feasible {
+            match estimate_amount_out(&pending_swap, &self.coin_cache) {
+                Ok(estimated_amount_out) => {
+                    tracing::debug!(
+                        "Estimated amount out for order_id {}: {}",
+                        pending_swap.order_id,
+                        estimated_amount_out
+                    );
+                    let needed_amount_out = if let Some(estimated_minimum_monitor_amount) =
+                        estimated_minimum_monitor_amount
+                    {
+                        estimated_minimum_monitor_amount
+                    } else {
+                        pending_swap.amount_out
+                    };
+                    tracing::debug!(
+                        "Needed amount out for order_id {}: {}",
+                        pending_swap.order_id,
+                        needed_amount_out
+                    );
+                    if estimated_amount_out >= needed_amount_out {
                         tracing::debug!(
                             "Swap is feasible for order_id: {}, sending alert",
                             pending_swap.order_id
@@ -506,14 +560,18 @@ impl MonitorManager {
 
     async fn remove_order(&mut self, order_id: &str) {
         // Remove from pending swaps
-        if let Some(pending_swap) = self.pending_swaps.remove(order_id) {
+        if let Some((pending_swap, _)) = self.pending_swaps.remove(order_id) {
             // Detach from token->orders map and unsubscribe if needed
-            let t_in = TokenId::new(pending_swap.src_chain, pending_swap.token_in.clone());
-            let t_out = TokenId::new(pending_swap.dst_chain, pending_swap.token_out.clone());
+            let t_in = TokenId::new_for_codex(pending_swap.src_chain, &pending_swap.token_in);
+            let t_out = TokenId::new_for_codex(pending_swap.dst_chain, &pending_swap.token_out);
             self.detach_order_from_token(&t_in, &pending_swap.order_id)
                 .await;
             self.detach_order_from_token(&t_out, &pending_swap.order_id)
                 .await;
+            for token in pending_swap.extra_expenses.keys() {
+                self.detach_order_from_token(token, &pending_swap.order_id)
+                    .await;
+            }
         }
     }
 
@@ -553,6 +611,11 @@ impl MonitorManager {
         &self,
         token_ids: HashSet<TokenId>,
     ) -> Result<HashMap<TokenId, TokenPrice>, Error> {
+        // Refine token ids to codex format
+        let token_ids: HashSet<TokenId> = token_ids
+            .into_iter()
+            .map(|t| TokenId::new_for_codex(t.chain.clone(), &t.address))
+            .collect();
         match self
             .codex_provider
             .get_tokens_price(token_ids.clone())
@@ -565,20 +628,51 @@ impl MonitorManager {
             }
         }
     }
+
+    async fn evaluate_coins(
+        &mut self,
+        mut tokens: Vec<(TokenId, u128)>,
+    ) -> Result<(Vec<f64>, f64), Error> {
+        // Sanitize token ids
+        for token in tokens.iter_mut() {
+            token.0 = TokenId::new_for_codex(token.0.chain.clone(), &token.0.address);
+        }
+        let tokens_to_search = tokens
+            .iter()
+            .map(|(token_id, _)| token_id.clone())
+            .collect::<HashSet<_>>();
+        let tokens_data = self.get_coins_data(tokens_to_search).await?;
+
+        let mut total_value = 0.0;
+        let mut values = vec![];
+        for (token, amount) in tokens.into_iter() {
+            let Some(token_data) = tokens_data.get(&token) else {
+                return Err(Error::TokenNotFound(format!(
+                    "Token {token:?} not found in Codex response"
+                )));
+            };
+            let token_dec_amount = u128_to_f64(amount, token_data.decimals);
+            let token_usd_value = token_dec_amount * token_data.price;
+            total_value += token_usd_value;
+            values.push(token_usd_value);
+        }
+        Ok((values, total_value))
+    }
 }
 
-fn check_swap_feasibility(
+fn estimate_amount_out(
     pending_swap: &PendingSwap,
     coin_cache: &HashMap<TokenId, TokenPrice>,
-) -> Result<bool, Error> {
-    let src_chain_data = coin_cache.get(&TokenId::new(
+) -> EstimatorResult<u128> {
+    let src_chain_data = coin_cache.get(&TokenId::new_for_codex(
         pending_swap.src_chain,
-        pending_swap.token_in.clone(),
+        &pending_swap.token_in,
     ));
-    let dst_chain_data = coin_cache.get(&TokenId::new(
+    let dst_chain_data = coin_cache.get(&TokenId::new_for_codex(
         pending_swap.dst_chain,
-        pending_swap.token_out.clone(),
+        &pending_swap.token_out,
     ));
+
     if let (Some(src_data), Some(dst_data)) = (src_chain_data, dst_chain_data) {
         // Fail-fast validation for decimals scale supported by rust_decimal (max 28)
         let validate_decimals = |d: u8| -> Result<(), Error> {
@@ -591,15 +685,18 @@ fn check_swap_feasibility(
         validate_decimals(dst_data.decimals)?;
 
         // Helper to convert amount (u128) with decimals -> Decimal safely
-        let amount_to_decimal = |amount: u128, decimals: u8| -> Result<Decimal, Error> {
-            // Avoid silent wrap: ensure value fits in i128
-            let amount_i128 = i128::try_from(amount).map_err(|_| Error::ParseError)?;
-            Ok(Decimal::from_i128_with_scale(amount_i128, decimals as u32))
+        let amount_to_decimal = |amount: u128, decimals: u8| -> EstimatorResult<Decimal> {
+            let Some(amount_dec) = Decimal::from_u128(amount) else {
+                return Err(report!(Error::ParseError)
+                    .attach_printable("Failed to convert u128 amount to Decimal"));
+            };
+            let factor = Decimal::from(10u128).powi(-(decimals as i64));
+            Ok(amount_dec * factor)
         };
 
         // Validate prices are finite and strictly positive
         if !src_data.price.is_finite() || !dst_data.price.is_finite() {
-            return Err(Error::ParseError);
+            return Err(report!(Error::ParseError));
         }
         let src_price = Decimal::from_f64(src_data.price).ok_or(Error::ParseError)?;
         let dst_price = Decimal::from_f64(dst_data.price).ok_or(Error::ParseError)?;
@@ -608,53 +705,244 @@ fn check_swap_feasibility(
             || dst_price.is_sign_negative()
             || dst_price.is_zero()
         {
-            return Err(Error::ZeroPriceError);
+            return Err(report!(Error::ZeroPriceError));
         }
 
-        // Validate margin is finite, non-negative and not absurdly large
-        let margin = pending_swap.feasibility_margin;
-        if !margin.is_finite() || margin < 0.0 || margin > 100.0 {
-            return Err(Error::ParseError);
-        }
-        let margin_dec = Decimal::from_f64(margin).ok_or(Error::ParseError)?;
+        // Value of input in dollars
+        let src_amount_dec = amount_to_decimal(pending_swap.amount_in, src_data.decimals)?;
+        let in_usd_value = src_amount_dec * src_price;
 
-        // Compute price_limit as Decimal: expected token_out per token_in
-        let price_limit_dec = {
-            let amount_in_dec = amount_to_decimal(pending_swap.amount_in, src_data.decimals)?;
-            let amount_out_dec = amount_to_decimal(pending_swap.amount_out, dst_data.decimals)?;
-            if amount_in_dec.is_zero() {
-                // Avoid division by zero
-                return Err(Error::ParseError);
+        // Value of expenses in dollars
+        let mut expenses_usd_value = Decimal::ZERO;
+        for expense in pending_swap.extra_expenses.iter() {
+            // sanitize expense token id
+            let token_id = TokenId::new_for_codex(expense.0.chain.clone(), &expense.0.address);
+            let Some(expense_data) = coin_cache.get(&token_id) else {
+                return Err(report!(Error::TokenNotFound(format!(
+                    "Missing token data on monitor for expense token: {:?}",
+                    token_id
+                ))));
+            };
+            validate_decimals(expense_data.decimals)?;
+            if !expense_data.price.is_finite() {
+                return Err(report!(Error::ParseError));
             }
-            amount_out_dec / amount_in_dec
-        };
+            let expense_price = Decimal::from_f64(expense_data.price).ok_or(Error::ParseError)?;
+            if expense_price.is_sign_negative() || expense_price.is_zero() {
+                return Err(report!(Error::ZeroPriceError));
+            }
+            let expense_amount_dec = amount_to_decimal(*expense.1, expense_data.decimals)?;
+            expenses_usd_value += expense_amount_dec * expense_price;
+        }
 
-        // Compute real price ratio as Decimal
-        let real_price_limit = src_price / dst_price;
+        // Calculate how many dst tokens can be bought with remaining value
+        let total_value = in_usd_value - expenses_usd_value;
+        let dst_token_amount_dec = total_value / dst_price;
 
-        // threshold = price_limit * (1 + margin/100)
-        let threshold = price_limit_dec * (Decimal::ONE + (margin_dec / Decimal::ONE_HUNDRED));
+        // Convert it back to u128 with proper decimals
+        let estimated_amount_out = decimal_to_raw(dst_token_amount_dec, dst_data.decimals as i64)?;
 
         tracing::debug!(
-            "Swap feasibility calculation for order_id: {}: src_amount: {}, src_price: {}, dst_amount: {}, dst_price: {}, real_price_limit: {}, price_limit: {}, threshold (with margin): {}",
-            pending_swap.order_id,
-            pending_swap.amount_in,
-            src_price,
-            pending_swap.amount_out,
-            dst_price,
-            real_price_limit,
-            price_limit_dec,
-            threshold
+            "Estimated amount out for pending swap {:?}: {}",
+            pending_swap,
+            estimated_amount_out
         );
-
-        Ok(real_price_limit >= threshold)
+        Ok(estimated_amount_out)
     } else {
-        Err(Error::TokenNotFound(format!(
+        Err(report!(Error::TokenNotFound(format!(
             "Missing token data on monitor for swap: {:?}",
             pending_swap
-        )))
+        ))))
     }
 }
+
+pub fn decimal_to_raw(amount: Decimal, decimals: i64) -> EstimatorResult<u128> {
+    if amount < Decimal::ZERO {
+        return Err(report!(Error::ParseError)
+            .attach_printable("Cannot convert negative decimal amount to raw u128"));
+    }
+    // 10^decimals
+    let factor = Decimal::from(10u128).powi(decimals);
+    // amount * 10^decimals
+    let scaled = amount * factor;
+
+    let scaled_int = scaled.trunc();
+
+    let raw = scaled_int.to_u128().ok_or(Error::ParseError)?;
+    Ok(raw)
+}
+
+/// Computes how much the monitor should estimate so the solver reaches `min_user`,
+/// given the solver's previous bid (`bid_solver`) and the monitor's estimate (`est_monitor`).
+/// Applies a benevolent multiplicative margin gamma (>= 1).
+///
+/// Parameters:
+/// - bid_solver: Estimated amount by the solver (token_out human units with scale applied).
+/// - est_monitor: Estimated amount by the monitor in the same format.
+/// - min_user: Minimum token_out required by the user.
+///
+/// Returns: req_monitor: The amount the monitor should estimate so the solver believes it will reach `min_user`.
+fn required_monitor_estimation_for_solver_fulfillment(
+    bid_solver: u128,
+    est_monitor: u128,
+    min_user: u128,
+) -> EstimatorResult<u128> {
+    let bid_solver = Decimal::from_u128(bid_solver).ok_or(Error::ParseError)?;
+    let est_monitor = Decimal::from_u128(est_monitor).ok_or(Error::ParseError)?;
+    let min_user = Decimal::from_u128(min_user).ok_or(Error::ParseError)?;
+
+    if est_monitor.is_zero() {
+        return Err(report!(Error::ParseError).attach_printable("Estimated monitor amount is zero"));
+    }
+
+    // Observed solver/monitor ratio from the failed bid:
+    let a_obs = bid_solver / est_monitor;
+
+    if a_obs <= Decimal::ZERO {
+        return Err(report!(Error::ParseError)
+            .attach_printable("Observed solver/monitor ratio is non-positive"));
+    }
+
+    let threshold_low = Decimal::from_str("0.8").change_context(Error::ParseError)?;
+    let candidate_dec = if a_obs < threshold_low {
+        // Simple average method
+        let solver_diff = min_user - bid_solver;
+        est_monitor + (solver_diff / Decimal::from(2u8))
+    } else {
+        // Porcentage method
+        // Half a_obs margin with 1.0 to get less false negatives
+        let half_a_obs_margin = {
+            let diff = (Decimal::ONE - a_obs) / Decimal::from(2u8);
+            Decimal::ONE - diff
+        };
+        let mut m_req = min_user / half_a_obs_margin;
+        if m_req < est_monitor {
+            m_req = est_monitor / half_a_obs_margin;
+        }
+        m_req
+    };
+
+    Ok(candidate_dec.to_u128().ok_or(Error::ParseError)?)
+}
+
+// fn check_swap_feasibility(
+//     pending_swap: &PendingSwap,
+//     coin_cache: &HashMap<TokenId, TokenPrice>,
+// ) -> EstimatorResult<bool> {
+//     let src_chain_data = coin_cache.get(&TokenId::new_for_codex(
+//         pending_swap.src_chain,
+//         pending_swap.token_in.clone(),
+//     ));
+//     let dst_chain_data = coin_cache.get(&TokenId::new_for_codex(
+//         pending_swap.dst_chain,
+//         pending_swap.token_out.clone(),
+//     ));
+
+//     if let (Some(src_data), Some(dst_data)) = (src_chain_data, dst_chain_data) {
+//         // Fail-fast validation for decimals scale supported by rust_decimal (max 28)
+//         let validate_decimals = |d: u8| -> Result<(), Error> {
+//             if d > 28 {
+//                 return Err(Error::ParseError);
+//             }
+//             Ok(())
+//         };
+//         validate_decimals(src_data.decimals)?;
+//         validate_decimals(dst_data.decimals)?;
+
+//         // Helper to convert amount (u128) with decimals -> Decimal safely
+//         let amount_to_decimal = |amount: u128, decimals: u8| -> EstimatorResult<Decimal> {
+//             // Avoid silent wrap: ensure value fits in i128
+//             let amount_i128 = i128::try_from(amount)
+//                 .change_context(Error::ParseError)
+//                 .attach_printable(format!(
+//                     "Token amount {} exceeds maximum supported value",
+//                     amount
+//                 ))?;
+//             Ok(Decimal::from_i128_with_scale(amount_i128, decimals as u32))
+//         };
+
+//         // Validate prices are finite and strictly positive
+//         if !src_data.price.is_finite() || !dst_data.price.is_finite() {
+//             return Err(report!(Error::ParseError));
+//         }
+//         let src_price = Decimal::from_f64(src_data.price).ok_or(Error::ParseError)?;
+//         let dst_price = Decimal::from_f64(dst_data.price).ok_or(Error::ParseError)?;
+//         if src_price.is_sign_negative()
+//             || src_price.is_zero()
+//             || dst_price.is_sign_negative()
+//             || dst_price.is_zero()
+//         {
+//             return Err(report!(Error::ZeroPriceError));
+//         }
+
+//         // // Validate margins are finite, non-negative and not absurdly large
+//         // let margin_in = pending_swap.feasibility_margin_in;
+//         // if !margin_in.is_finite() || margin_in < 0.0 || margin_in > 100.0 {
+//         //     return Err(report!(Error::ParseError));
+//         // }
+//         // let margin_in_dec = Decimal::from_f64(margin_in).ok_or(Error::ParseError)?;
+//         // let margin_out = pending_swap.feasibility_margin_out;
+//         // if !margin_out.is_finite() || margin_out < 0.0 || margin_out > 100.0 {
+//         //     return Err(report!(Error::ParseError));
+//         // }
+//         // let margin_out_dec = Decimal::from_f64(margin_out).ok_or(Error::ParseError)?;
+
+//         // Value of input and output legs.. Applying margins
+//         let src_amount_dec = amount_to_decimal(pending_swap.amount_in, src_data.decimals)?;
+//         let dst_amount_dec = amount_to_decimal(pending_swap.amount_out, dst_data.decimals)?;
+//         let src_value = src_amount_dec * src_price;
+//         // * ((Decimal::ONE_HUNDRED - margin_in_dec) / Decimal::ONE_HUNDRED);
+//         let dst_value = dst_amount_dec * dst_price;
+//         // * ((Decimal::ONE_HUNDRED - margin_out_dec) / Decimal::ONE_HUNDRED);
+
+//         // Sum of extra expenses valued at their current prices
+//         let mut extra_expenses_cost = Decimal::ZERO;
+//         if !pending_swap.extra_expenses.is_empty() {
+//             for (tok_id, amount) in pending_swap.extra_expenses.iter() {
+//                 // for (tok_id, (amount, margin)) in pending_swap.extra_expenses.iter() {
+//                 // if !margin.is_finite() || *margin < 0.0 || *margin > 100.0 {
+//                 //     return Err(report!(Error::ParseError));
+//                 // }
+//                 // let margin_dec = Decimal::from_f64(*margin).ok_or(Error::ParseError)?;
+//                 let tok_price = coin_cache.get(tok_id).ok_or_else(|| {
+//                     Error::TokenNotFound(format!(
+//                         "Missing token data on monitor for expense token: {:?}",
+//                         tok_id
+//                     ))
+//                 })?;
+//                 validate_decimals(tok_price.decimals)?;
+//                 if !tok_price.price.is_finite() {
+//                     return Err(report!(Error::ParseError));
+//                 }
+//                 let price_dec = Decimal::from_f64(tok_price.price).ok_or(Error::ParseError)?;
+//                 if price_dec.is_sign_negative() || price_dec.is_zero() {
+//                     return Err(report!(Error::ZeroPriceError));
+//                 }
+//                 let amt_dec = amount_to_decimal(*amount, tok_price.decimals)?;
+//                 extra_expenses_cost += (amt_dec * price_dec);
+//                 // * ((Decimal::ONE_HUNDRED - margin_dec) / Decimal::ONE_HUNDRED);
+//             }
+//         }
+
+//         let profit = src_value - dst_value - extra_expenses_cost;
+
+//         tracing::debug!(
+//             "Swap feasibility PnL for order_id: {} => src_value: {}, dst_value: {}, total_cost: {}, profit: {}",
+//             pending_swap.order_id,
+//             src_value,
+//             dst_value,
+//             extra_expenses_cost,
+//             profit
+//         );
+
+//         Ok(profit.is_sign_positive())
+//     } else {
+//         Err(report!(Error::TokenNotFound(format!(
+//             "Missing token data on monitor for swap: {:?}",
+//             pending_swap
+//         ))))
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
@@ -692,7 +980,7 @@ mod tests {
         token_out: String,
         amount_in: u128,
         amount_out: u128,
-        feasibility_margin: f64,
+        extra_expenses: HashMap<TokenId, u128>,
     ) -> PendingSwap {
         PendingSwap {
             order_id,
@@ -702,12 +990,12 @@ mod tests {
             token_out,
             amount_in,
             amount_out,
-            feasibility_margin,
+            extra_expenses,
         }
     }
 
     #[tokio::test]
-    async fn test_check_swaps_feasibility_successful_swap() {
+    async fn test_check_swaps_feasibility_unsuccessful_swap() {
         dotenv::dotenv().ok();
         init_tracing(false);
 
@@ -735,18 +1023,55 @@ mod tests {
             "token_b".to_string(),
             1_000_000_000_000_000_000, // 1 token (18 decimals)
             1_900_000,                 // 1.9 tokens (6 decimals), expecting ~2 tokens
-            10.0,
+            HashMap::new(),
         );
 
-        let result = check_swap_feasibility(&pending_swap, &coin_cache);
+        let result = estimate_amount_out(&pending_swap, &coin_cache);
 
         // The swap should be feasible: real_price = 100/50 = 2, expected = 1.9/1 = 1.9
-        // but with 10% margin, threshold = 1.9 * 1.1 = 2.09, so not feasible
-        assert_eq!(result.unwrap(), false);
+        assert!(result.unwrap() > 1_900_000);
     }
 
     #[tokio::test]
-    async fn test_check_swaps_feasibility_with_preset_price_limit() {
+    async fn test_check_swaps_feasibility_successful_swap() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
+        let mut coin_cache = HashMap::new();
+        coin_cache.insert(
+            TokenId {
+                chain: ChainId::Ethereum,
+                address: "token_a".to_string(),
+            },
+            create_coin_data(100.0, 18),
+        );
+        coin_cache.insert(
+            TokenId {
+                chain: ChainId::Base,
+                address: "token_b".to_string(),
+            },
+            create_coin_data(49.9, 18),
+        );
+
+        let pending_swap = create_pending_swap(
+            "order_1".to_string(),
+            ChainId::Ethereum,
+            ChainId::Base,
+            "token_a".to_string(),
+            "token_b".to_string(),
+            1_000_000_000_000_000_000,
+            2_000_000_000_000_000_000,
+            HashMap::new(),
+        );
+
+        let result = estimate_amount_out(&pending_swap, &coin_cache);
+
+        // real_price_limit = 50/100 = 0.5
+        assert!(result.unwrap() > 2_000_000_000_000_000_000);
+    }
+
+    #[tokio::test]
+    async fn test_check_swaps_feasibility_unsuccessful_swap_extra_expenses() {
         dotenv::dotenv().ok();
         init_tracing(false);
 
@@ -765,6 +1090,21 @@ mod tests {
             },
             create_coin_data(50.0, 18),
         );
+        coin_cache.insert(
+            TokenId {
+                chain: ChainId::Base,
+                address: "token_c".to_string(),
+            },
+            create_coin_data(10.0, 18),
+        );
+
+        let extra_expenses = HashMap::from([(
+            TokenId {
+                chain: ChainId::Base,
+                address: "token_c".to_string(),
+            },
+            1_000_000_000_000_000_000u128, // 1 token
+        )]);
 
         let pending_swap = create_pending_swap(
             "order_1".to_string(),
@@ -774,13 +1114,13 @@ mod tests {
             "token_b".to_string(),
             1_000_000_000_000_000_000,
             2_000_000_000_000_000_000,
-            0.0,
+            extra_expenses,
         );
 
-        let result = check_swap_feasibility(&pending_swap, &coin_cache);
+        let result = estimate_amount_out(&pending_swap, &coin_cache);
 
         // real_price_limit = 50/100 = 0.5
-        assert_eq!(result.unwrap(), true);
+        assert!(result.unwrap() < 2_000_000_000_000_000_000);
     }
 
     #[tokio::test]
@@ -803,10 +1143,10 @@ mod tests {
             "token_b".to_string(), // This token is missing from cache
             1_000_000_000_000_000_000,
             2_000_000_000_000_000_000,
-            0.0,
+            HashMap::new(),
         );
 
-        let result = check_swap_feasibility(&pending_swap, &coin_cache);
+        let result = estimate_amount_out(&pending_swap, &coin_cache);
 
         // Should not process the swap due to missing data
         assert!(result.is_err());

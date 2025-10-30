@@ -1,3 +1,4 @@
+use crate::routers::RouterType;
 use crate::routers::aftermath::{AFTERMATH_BASE_API_URL, get_aftermath_max_slippage};
 use crate::utils::limit_amount::get_slippage_percentage;
 use crate::{
@@ -91,12 +92,14 @@ pub async fn quote_aftermath_swap(
         TradeType::ExactIn => GenericEstimateResponse {
             amount_quote: amount_out as u128,
             amount_limit: get_limit_amount_u64(trade_type, amount_out, slippage)? as u128,
+            router: RouterType::Aftermath,
             router_data: response,
         },
         TradeType::ExactOut => GenericEstimateResponse {
             amount_quote: amount_in as u128,
             // Aftermath exact OUT is in fact exact IN,
             amount_limit: amount_in as u128,
+            router: RouterType::Aftermath,
             router_data: response,
         },
     };
