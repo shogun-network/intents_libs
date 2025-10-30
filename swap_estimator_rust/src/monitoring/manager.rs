@@ -1,4 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    time::Duration,
+};
 
 use error_stack::{ResultExt, report};
 use intents_models::constants::chains::ChainId;
@@ -78,8 +81,41 @@ impl MonitorManager {
             }
         };
 
+        let mut unsubscriptions_interval = tokio::time::interval(Duration::from_secs(60));
+
         loop {
             tokio::select! {
+                _ = unsubscriptions_interval.tick() => {
+                    // Collect tokens that no longer have pending orders
+                    let tokens_to_unsubscribe: Vec<TokenId> = self
+                        .swaps_by_token
+                        .iter()
+                        .filter_map(|(token, order_ids)| {
+                            if order_ids.is_empty() {
+                                Some(token.clone())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    for token in tokens_to_unsubscribe.into_iter() {
+                        match self.codex_provider.unsubscribe_from_token(token.clone()).await {
+                            Ok(_) => {
+                                tracing::debug!(
+                                    "Unsubscribed from token {:?} due to no pending orders",
+                                    token
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!("Codex unsubscribe_from_token failed: {:?}", e);
+                            }
+                        }
+                        // Remove from coin cache and map
+                        self.coin_cache.remove(&token);
+                        self.swaps_by_token.remove(&token);
+                    }
+                }
                 // Codex update price event
                 evt = codex_rx_opt.recv() => {
                     tracing::trace!("Received Codex price event: {:?}", evt);
@@ -125,7 +161,11 @@ impl MonitorManager {
                                 }
                                 MonitorRequest::GetCoinsData { token_ids, resp } => {
                                     let response = self.get_coins_data(token_ids).await;
-                                    match resp.send(response) {
+                                    let to_send = match response {
+                                        Ok(result) => Ok(result),
+                                        Err(e) => Err(e.current_context().clone()),
+                                    };
+                                    match resp.send(to_send) {
                                         Ok(_) => tracing::debug!("Error response sent successfully"),
                                         Err(_) => tracing::error!("Failed to send error response"),
                                     }
@@ -134,14 +174,22 @@ impl MonitorManager {
                                     orders, resp,
                                 } => {
                                     let response = self.estimate_orders_amount_out(orders).await;
-                                    match resp.send(response) {
+                                    let to_send = match response {
+                                        Ok(result) => Ok(result),
+                                        Err(e) => Err(e.current_context().clone()),
+                                    };
+                                    match resp.send(to_send) {
                                         Ok(_) => tracing::debug!("Error response sent successfully"),
                                         Err(_) => tracing::error!("Failed to send error response"),
                                     }
                                 }
                                 MonitorRequest::EvaluateCoins { tokens, resp } => {
                                     let response = self.evaluate_coins(tokens).await;
-                                    match resp.send(response) {
+                                    let to_send = match response {
+                                        Ok(result) => Ok(result),
+                                        Err(e) => Err(e.current_context().clone()),
+                                    };
+                                    match resp.send(to_send) {
                                         Ok(_) => tracing::debug!("EvaluateCoins response sent successfully"),
                                         Err(_) => tracing::error!("Failed to send EvaluateCoins response"),
                                     }
@@ -161,7 +209,7 @@ impl MonitorManager {
     async fn estimate_orders_amount_out(
         &mut self,
         orders: Vec<OrderEstimationData>,
-    ) -> Result<HashMap<String, u128>, Error> {
+    ) -> EstimatorResult<HashMap<String, u128>> {
         // Get Token Info for all tokens in orders
         let mut token_ids = HashSet::new();
         for order in orders.iter() {
@@ -179,7 +227,7 @@ impl MonitorManager {
             Ok(result) => Ok(result),
             Err(e) => {
                 tracing::error!("Failed to estimate orders amount out: {:?}", e);
-                Err(e.current_context().clone())
+                Err(e)
             }
         }
     }
@@ -209,27 +257,6 @@ impl MonitorManager {
 
         let token_out_id = TokenId::new_for_codex(dst_chain, &token_out);
 
-        // Subscribe to price updates for both tokens
-        let mut tokens = vec![token_in_id.clone(), token_out_id.clone()]
-            .into_iter()
-            .collect::<HashSet<_>>();
-        tokens.extend(extra_expenses.clone().into_keys());
-
-        let tokens_data = self.get_coins_data(tokens).await?;
-
-        if tokens_data.len() < 2 {
-            tracing::warn!(
-                "Not all token data available for order_id: {}, token_in: {}, token_out: {}",
-                order_id,
-                token_in,
-                token_out
-            );
-            return Err(report!(Error::TokenNotFound(format!(
-                "Missing token data for order_id: {}, cannot monitor swap feasibility",
-                order_id
-            ))));
-        }
-
         let pending_swap = PendingSwap {
             order_id: order_id.clone(),
             src_chain,
@@ -240,6 +267,9 @@ impl MonitorManager {
             amount_out,
             extra_expenses,
         };
+
+        // Subscribe to price updates for both tokens
+        let tokens_data = self.get_all_coins_data_from_swap(&pending_swap).await?;
 
         // Check immediate feasibility
         let estimate_amount_out_calculated = match estimate_amount_out(&pending_swap, &tokens_data)
@@ -345,7 +375,7 @@ impl MonitorManager {
     async fn get_coins_data(
         &mut self,
         token_ids: HashSet<TokenId>,
-    ) -> Result<HashMap<TokenId, TokenPrice>, Error> {
+    ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
         let mut result = HashMap::new();
         let mut tokens_not_in_cache = HashSet::new();
 
@@ -375,8 +405,13 @@ impl MonitorManager {
         if tokens_not_in_cache.is_empty() {
             return Ok(result);
         }
-        // Fetch data from Codex and Gecko Terminal
-        let data = self.get_tokens_data(tokens_not_in_cache).await?;
+        // Fetch data from Codex
+        let data = self.get_tokens_data(tokens_not_in_cache.clone()).await?;
+
+        // Subscribe to price updates for these tokens
+        for token in tokens_not_in_cache {
+            self.codex_provider.subscribe_to_token(token).await?;
+        }
 
         result.extend(data);
 
@@ -424,9 +459,9 @@ impl MonitorManager {
                     "Missing token metadata for tokens {:?} after fetch attempt",
                     missing_metadata_tokens
                 );
-                return Err(Error::TokenNotFound(format!(
+                return Err(report!(Error::TokenNotFound(format!(
                     "Missing token metadata for tokens, cannot monitor swap feasibility",
-                )));
+                ))));
             }
         }
 
@@ -504,7 +539,18 @@ impl MonitorManager {
                 pending_swap.token_in,
                 pending_swap.token_out
             );
-            match estimate_amount_out(&pending_swap, &self.coin_cache) {
+            let tokens_data = match self.get_all_coins_data_from_swap(&pending_swap).await {
+                Ok(data) => data,
+                Err(error) => {
+                    tracing::error!(
+                        "Error fetching tokens data for order_id {}: {:?}",
+                        pending_swap.order_id,
+                        error
+                    );
+                    continue;
+                }
+            };
+            match estimate_amount_out(&pending_swap, &tokens_data) {
                 Ok(estimated_amount_out) => {
                     tracing::debug!(
                         "Estimated amount out for order_id {}: {}",
@@ -564,46 +610,17 @@ impl MonitorManager {
             // Detach from token->orders map and unsubscribe if needed
             let t_in = TokenId::new_for_codex(pending_swap.src_chain, &pending_swap.token_in);
             let t_out = TokenId::new_for_codex(pending_swap.dst_chain, &pending_swap.token_out);
-            self.detach_order_from_token(&t_in, &pending_swap.order_id)
-                .await;
-            self.detach_order_from_token(&t_out, &pending_swap.order_id)
-                .await;
+            self.detach_order_from_token(&t_in, &pending_swap.order_id);
+            self.detach_order_from_token(&t_out, &pending_swap.order_id);
             for token in pending_swap.extra_expenses.keys() {
-                self.detach_order_from_token(token, &pending_swap.order_id)
-                    .await;
+                self.detach_order_from_token(token, &pending_swap.order_id);
             }
         }
     }
 
-    // Quita un order_id del índice swaps_by_token y desuscribe si ya no quedan órdenes para ese token
-    async fn detach_order_from_token(&mut self, token: &TokenId, order_id: &str) {
+    fn detach_order_from_token(&mut self, token: &TokenId, order_id: &str) {
         if let Some(set) = self.swaps_by_token.get_mut(token) {
             set.remove(order_id);
-            if set.is_empty() {
-                self.swaps_by_token.remove(token);
-            }
-        }
-
-        // Unsubscribe from codex.
-        // We do this because subscriptions have a counter inside, so it won't unsubscribe unless all subscribers are removed.
-        match self
-            .codex_provider
-            .unsubscribe_from_token(token.clone())
-            .await
-        {
-            Ok(dropped) => {
-                if dropped {
-                    // If we actually dropped the subscription, remove from coin cache
-                    tracing::debug!(
-                        "Unsubscribed from token {:?}, removing from coin cache",
-                        token
-                    );
-                    self.coin_cache.remove(token);
-                }
-            }
-            Err(e) => {
-                tracing::warn!("Codex unsubscribe_from_token failed: {:?}", e);
-            }
         }
     }
 
@@ -632,7 +649,7 @@ impl MonitorManager {
     async fn evaluate_coins(
         &mut self,
         mut tokens: Vec<(TokenId, u128)>,
-    ) -> Result<(Vec<f64>, f64), Error> {
+    ) -> EstimatorResult<(Vec<f64>, f64)> {
         // Sanitize token ids
         for token in tokens.iter_mut() {
             token.0 = TokenId::new_for_codex(token.0.chain.clone(), &token.0.address);
@@ -647,9 +664,9 @@ impl MonitorManager {
         let mut values = vec![];
         for (token, amount) in tokens.into_iter() {
             let Some(token_data) = tokens_data.get(&token) else {
-                return Err(Error::TokenNotFound(format!(
+                return Err(report!(Error::TokenNotFound(format!(
                     "Token {token:?} not found in Codex response"
-                )));
+                ))));
             };
             let token_dec_amount = u128_to_f64(amount, token_data.decimals);
             let token_usd_value = token_dec_amount * token_data.price;
@@ -657,6 +674,23 @@ impl MonitorManager {
             values.push(token_usd_value);
         }
         Ok((values, total_value))
+    }
+
+    async fn get_all_coins_data_from_swap(
+        &mut self,
+        swap: &PendingSwap,
+    ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
+        let mut token_ids = HashSet::new();
+        token_ids.insert(TokenId::new_for_codex(swap.src_chain, &swap.token_in));
+        token_ids.insert(TokenId::new_for_codex(swap.dst_chain, &swap.token_out));
+        for expense in swap.extra_expenses.iter() {
+            token_ids.insert(TokenId::new_for_codex(
+                expense.0.chain.clone(),
+                &expense.0.address,
+            ));
+        }
+        let tokens_data = self.get_coins_data(token_ids).await?;
+        Ok(tokens_data)
     }
 }
 
@@ -803,11 +837,11 @@ fn required_monitor_estimation_for_solver_fulfillment(
             .attach_printable("Observed solver/monitor ratio is non-positive"));
     }
 
-    let threshold_low = Decimal::from_str("0.8").change_context(Error::ParseError)?;
+    let threshold_low = Decimal::from_str("0.9").change_context(Error::ParseError)?;
     let candidate_dec = if a_obs < threshold_low {
         // Simple average method
         let solver_diff = min_user - bid_solver;
-        est_monitor + (solver_diff / Decimal::from(2u8))
+        est_monitor + (solver_diff / Decimal::from(3u8))
     } else {
         // Porcentage method
         // Half a_obs margin with 1.0 to get less false negatives
@@ -824,125 +858,6 @@ fn required_monitor_estimation_for_solver_fulfillment(
 
     Ok(candidate_dec.to_u128().ok_or(Error::ParseError)?)
 }
-
-// fn check_swap_feasibility(
-//     pending_swap: &PendingSwap,
-//     coin_cache: &HashMap<TokenId, TokenPrice>,
-// ) -> EstimatorResult<bool> {
-//     let src_chain_data = coin_cache.get(&TokenId::new_for_codex(
-//         pending_swap.src_chain,
-//         pending_swap.token_in.clone(),
-//     ));
-//     let dst_chain_data = coin_cache.get(&TokenId::new_for_codex(
-//         pending_swap.dst_chain,
-//         pending_swap.token_out.clone(),
-//     ));
-
-//     if let (Some(src_data), Some(dst_data)) = (src_chain_data, dst_chain_data) {
-//         // Fail-fast validation for decimals scale supported by rust_decimal (max 28)
-//         let validate_decimals = |d: u8| -> Result<(), Error> {
-//             if d > 28 {
-//                 return Err(Error::ParseError);
-//             }
-//             Ok(())
-//         };
-//         validate_decimals(src_data.decimals)?;
-//         validate_decimals(dst_data.decimals)?;
-
-//         // Helper to convert amount (u128) with decimals -> Decimal safely
-//         let amount_to_decimal = |amount: u128, decimals: u8| -> EstimatorResult<Decimal> {
-//             // Avoid silent wrap: ensure value fits in i128
-//             let amount_i128 = i128::try_from(amount)
-//                 .change_context(Error::ParseError)
-//                 .attach_printable(format!(
-//                     "Token amount {} exceeds maximum supported value",
-//                     amount
-//                 ))?;
-//             Ok(Decimal::from_i128_with_scale(amount_i128, decimals as u32))
-//         };
-
-//         // Validate prices are finite and strictly positive
-//         if !src_data.price.is_finite() || !dst_data.price.is_finite() {
-//             return Err(report!(Error::ParseError));
-//         }
-//         let src_price = Decimal::from_f64(src_data.price).ok_or(Error::ParseError)?;
-//         let dst_price = Decimal::from_f64(dst_data.price).ok_or(Error::ParseError)?;
-//         if src_price.is_sign_negative()
-//             || src_price.is_zero()
-//             || dst_price.is_sign_negative()
-//             || dst_price.is_zero()
-//         {
-//             return Err(report!(Error::ZeroPriceError));
-//         }
-
-//         // // Validate margins are finite, non-negative and not absurdly large
-//         // let margin_in = pending_swap.feasibility_margin_in;
-//         // if !margin_in.is_finite() || margin_in < 0.0 || margin_in > 100.0 {
-//         //     return Err(report!(Error::ParseError));
-//         // }
-//         // let margin_in_dec = Decimal::from_f64(margin_in).ok_or(Error::ParseError)?;
-//         // let margin_out = pending_swap.feasibility_margin_out;
-//         // if !margin_out.is_finite() || margin_out < 0.0 || margin_out > 100.0 {
-//         //     return Err(report!(Error::ParseError));
-//         // }
-//         // let margin_out_dec = Decimal::from_f64(margin_out).ok_or(Error::ParseError)?;
-
-//         // Value of input and output legs.. Applying margins
-//         let src_amount_dec = amount_to_decimal(pending_swap.amount_in, src_data.decimals)?;
-//         let dst_amount_dec = amount_to_decimal(pending_swap.amount_out, dst_data.decimals)?;
-//         let src_value = src_amount_dec * src_price;
-//         // * ((Decimal::ONE_HUNDRED - margin_in_dec) / Decimal::ONE_HUNDRED);
-//         let dst_value = dst_amount_dec * dst_price;
-//         // * ((Decimal::ONE_HUNDRED - margin_out_dec) / Decimal::ONE_HUNDRED);
-
-//         // Sum of extra expenses valued at their current prices
-//         let mut extra_expenses_cost = Decimal::ZERO;
-//         if !pending_swap.extra_expenses.is_empty() {
-//             for (tok_id, amount) in pending_swap.extra_expenses.iter() {
-//                 // for (tok_id, (amount, margin)) in pending_swap.extra_expenses.iter() {
-//                 // if !margin.is_finite() || *margin < 0.0 || *margin > 100.0 {
-//                 //     return Err(report!(Error::ParseError));
-//                 // }
-//                 // let margin_dec = Decimal::from_f64(*margin).ok_or(Error::ParseError)?;
-//                 let tok_price = coin_cache.get(tok_id).ok_or_else(|| {
-//                     Error::TokenNotFound(format!(
-//                         "Missing token data on monitor for expense token: {:?}",
-//                         tok_id
-//                     ))
-//                 })?;
-//                 validate_decimals(tok_price.decimals)?;
-//                 if !tok_price.price.is_finite() {
-//                     return Err(report!(Error::ParseError));
-//                 }
-//                 let price_dec = Decimal::from_f64(tok_price.price).ok_or(Error::ParseError)?;
-//                 if price_dec.is_sign_negative() || price_dec.is_zero() {
-//                     return Err(report!(Error::ZeroPriceError));
-//                 }
-//                 let amt_dec = amount_to_decimal(*amount, tok_price.decimals)?;
-//                 extra_expenses_cost += (amt_dec * price_dec);
-//                 // * ((Decimal::ONE_HUNDRED - margin_dec) / Decimal::ONE_HUNDRED);
-//             }
-//         }
-
-//         let profit = src_value - dst_value - extra_expenses_cost;
-
-//         tracing::debug!(
-//             "Swap feasibility PnL for order_id: {} => src_value: {}, dst_value: {}, total_cost: {}, profit: {}",
-//             pending_swap.order_id,
-//             src_value,
-//             dst_value,
-//             extra_expenses_cost,
-//             profit
-//         );
-
-//         Ok(profit.is_sign_positive())
-//     } else {
-//         Err(report!(Error::TokenNotFound(format!(
-//             "Missing token data on monitor for swap: {:?}",
-//             pending_swap
-//         ))))
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
