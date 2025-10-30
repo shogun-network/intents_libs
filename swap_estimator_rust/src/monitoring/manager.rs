@@ -12,6 +12,7 @@ use crate::{
         PriceEvent, PriceProvider, TokenId, TokenMetadata, TokenPrice,
         codex::pricing::CodexProvider, estimating::OrderEstimationData,
     },
+    utils::number_conversion::u128_to_f64,
 };
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
@@ -141,6 +142,13 @@ impl MonitorManager {
                                         Err(_) => tracing::error!("Failed to send error response"),
                                     }
                                 }
+                                MonitorRequest::EvaluateCoins { tokens, resp } => {
+                                    let response = self.evaluate_coins(tokens).await;
+                                    match resp.send(response) {
+                                        Ok(_) => tracing::debug!("EvaluateCoins response sent successfully"),
+                                        Err(_) => tracing::error!("Failed to send EvaluateCoins response"),
+                                    }
+                                }
                             }
                         }
                         None => {
@@ -210,7 +218,7 @@ impl MonitorManager {
             .collect::<HashSet<_>>();
         tokens.extend(extra_expenses.clone().into_keys());
 
-        let mut tokens_data = self.get_coins_data(tokens).await?;
+        let tokens_data = self.get_coins_data(tokens).await?;
 
         if tokens_data.len() < 2 {
             tracing::warn!(
@@ -223,56 +231,6 @@ impl MonitorManager {
                 "Missing token data for order_id: {}, cannot monitor swap feasibility",
                 order_id
             ))));
-        }
-
-        // Check if we have token metadata info for both tokens, to update decimals, if not fetch and store
-        let mut missing_metadata_tokens: HashSet<TokenId> = HashSet::new();
-        for token_data in tokens_data.iter_mut() {
-            match self.token_metadata.get(token_data.0) {
-                Some(metadata) => {
-                    token_data.1.decimals = metadata.decimals;
-                }
-                None => {
-                    missing_metadata_tokens.insert(token_data.0.clone());
-                }
-            }
-        }
-
-        if !missing_metadata_tokens.is_empty() {
-            match self
-                .codex_provider
-                .fetch_token_metadata(&missing_metadata_tokens)
-                .await
-            {
-                Ok(metadatas) => {
-                    for (token_id, metadata) in metadatas.into_iter() {
-                        missing_metadata_tokens.remove(&token_id);
-                        self.token_metadata
-                            .insert(token_id.clone(), metadata.clone());
-                        // Update decimals in tokens_data
-                        if let Some(token_price) = tokens_data.get_mut(&token_id) {
-                            token_price.decimals = metadata.decimals;
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to fetch token metadata for tokens {:?}: {:?}",
-                        missing_metadata_tokens,
-                        e
-                    );
-                }
-            }
-            if !missing_metadata_tokens.is_empty() {
-                tracing::warn!(
-                    "Missing token metadata for tokens {:?} after fetch attempt",
-                    missing_metadata_tokens
-                );
-                return Err(report!(Error::TokenNotFound(format!(
-                    "Missing token metadata for order_id: {}, cannot monitor swap feasibility",
-                    order_id
-                ))));
-            }
         }
 
         let pending_swap = PendingSwap {
@@ -424,6 +382,56 @@ impl MonitorManager {
         let data = self.get_tokens_data(tokens_not_in_cache).await?;
 
         result.extend(data);
+
+        // Check if we have token metadata info for both tokens, to update decimals, if not fetch and store
+        let mut missing_metadata_tokens: HashSet<TokenId> = HashSet::new();
+        for token_data in result.iter_mut() {
+            match self.token_metadata.get(token_data.0) {
+                Some(metadata) => {
+                    token_data.1.decimals = metadata.decimals;
+                }
+                None => {
+                    missing_metadata_tokens.insert(token_data.0.clone());
+                }
+            }
+        }
+
+        if !missing_metadata_tokens.is_empty() {
+            match self
+                .codex_provider
+                .fetch_token_metadata(&missing_metadata_tokens)
+                .await
+            {
+                Ok(metadatas) => {
+                    for (token_id, metadata) in metadatas.into_iter() {
+                        missing_metadata_tokens.remove(&token_id);
+                        self.token_metadata
+                            .insert(token_id.clone(), metadata.clone());
+                        // Update decimals in tokens_data
+                        if let Some(token_price) = result.get_mut(&token_id) {
+                            token_price.decimals = metadata.decimals;
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to fetch token metadata for tokens {:?}: {:?}",
+                        missing_metadata_tokens,
+                        e
+                    );
+                }
+            }
+
+            if !missing_metadata_tokens.is_empty() {
+                tracing::warn!(
+                    "Missing token metadata for tokens {:?} after fetch attempt",
+                    missing_metadata_tokens
+                );
+                return Err(Error::TokenNotFound(format!(
+                    "Missing token metadata for tokens, cannot monitor swap feasibility",
+                )));
+            }
+        }
 
         Ok(result)
     }
@@ -622,6 +630,32 @@ impl MonitorManager {
                 Err(e.current_context().clone())
             }
         }
+    }
+
+    async fn evaluate_coins(
+        &mut self,
+        tokens: Vec<(TokenId, u128)>,
+    ) -> Result<(Vec<f64>, f64), Error> {
+        let tokens_to_search = tokens
+            .iter()
+            .map(|(token_id, _)| token_id.clone())
+            .collect::<HashSet<_>>();
+        let tokens_data = self.get_coins_data(tokens_to_search).await?;
+
+        let mut total_value = 0.0;
+        let mut values = vec![];
+        for (token, amount) in tokens.into_iter() {
+            let Some(token_data) = tokens_data.get(&token) else {
+                return Err(Error::TokenNotFound(format!(
+                    "Token {token:?} not found in Codex response"
+                )));
+            };
+            let token_dec_amount = u128_to_f64(amount, token_data.decimals);
+            let token_usd_value = token_dec_amount * token_data.price;
+            total_value += token_usd_value;
+            values.push(token_usd_value);
+        }
+        Ok((values, total_value))
     }
 }
 

@@ -49,6 +49,35 @@ impl MonitorClient {
         }
     }
 
+    pub async fn evaluate_coins(
+        &self,
+        tokens: Vec<(TokenId, u128)>,
+    ) -> EstimatorResult<(Vec<f64>, f64)> {
+        let (resp_sender, resp_receiver) = oneshot::channel();
+        self.client
+            .send(MonitorRequest::EvaluateCoins {
+                tokens,
+                resp: resp_sender,
+            })
+            .await
+            .change_context(Error::ResponseError)
+            .attach_printable("Failed to send result of evaluate coins")?;
+        match resp_receiver.await {
+            Ok(Ok(data)) => Ok(data),
+            Ok(Err(e)) => {
+                tracing::error!("Error in monitoring service response: {e}");
+                Err(e.clone())
+                    .change_context(Error::ResponseError)
+                    .attach_printable_lazy(|| format!("Failed to evaluate coins: {e}"))
+            }
+            Err(_) => {
+                tracing::error!("Failed to receive response from monitoring service");
+                Err(report!(Error::ResponseError)
+                    .attach_printable("Failed to receive response from monitoring service"))
+            }
+        }
+    }
+
     pub async fn check_swap_feasibility(
         &self,
         order_id: String,

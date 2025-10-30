@@ -34,6 +34,10 @@ pub enum MonitorRequest {
         orders: Vec<OrderEstimationData>,
         resp: Responder<HashMap<String, u128>>,
     },
+    EvaluateCoins {
+        tokens: Vec<(TokenId, u128)>,
+        resp: Responder<(Vec<f64>, f64)>,
+    },
 }
 
 #[derive(Debug, Clone)]
