@@ -67,10 +67,7 @@ impl MonitorManager {
         for chain in ChainId::iter() {
             let native_token = chain.wrapped_native_token_address();
             let token_id = TokenId::new_for_codex(chain, &native_token);
-            self.codex_provider
-                .subscribe_to_token(token_id)
-                .await
-                .expect("Failed to subscribe to native token price");
+            self.codex_provider.subscribe_to_token(token_id).await?;
         }
 
         let mut codex_rx_opt = match self.codex_provider.subscribe_events().await {
@@ -793,6 +790,10 @@ fn required_monitor_estimation_for_solver_fulfillment(
     let bid_solver = Decimal::from_u128(bid_solver).ok_or(Error::ParseError)?;
     let est_monitor = Decimal::from_u128(est_monitor).ok_or(Error::ParseError)?;
     let min_user = Decimal::from_u128(min_user).ok_or(Error::ParseError)?;
+
+    if est_monitor.is_zero() {
+        return Err(report!(Error::ParseError).attach_printable("Estimated monitor amount is zero"));
+    }
 
     // Observed solver/monitor ratio from the failed bid:
     let a_obs = bid_solver / est_monitor;
