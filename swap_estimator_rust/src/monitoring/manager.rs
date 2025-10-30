@@ -395,6 +395,8 @@ impl MonitorManager {
         let mut tokens_not_in_cache = HashSet::new();
 
         for token_id in token_ids.into_iter() {
+            // Refine token id to codex format
+            let token_id = TokenId::new_for_codex(token_id.chain.clone(), &token_id.address);
             // Add token to cache if not already present
             let chain = token_id.chain.clone();
             let address = token_id.address.clone();
@@ -411,7 +413,7 @@ impl MonitorManager {
                     chain,
                     address
                 );
-                tokens_not_in_cache.insert(TokenId::new_for_codex(chain, &address));
+                tokens_not_in_cache.insert(token_id);
             }
         }
         // If we have tokens not in cache, fetch them
@@ -604,6 +606,11 @@ impl MonitorManager {
         &self,
         token_ids: HashSet<TokenId>,
     ) -> Result<HashMap<TokenId, TokenPrice>, Error> {
+        // Refine token ids to codex format
+        let token_ids: HashSet<TokenId> = token_ids
+            .into_iter()
+            .map(|t| TokenId::new_for_codex(t.chain.clone(), &t.address))
+            .collect();
         match self
             .codex_provider
             .get_tokens_price(token_ids.clone())
