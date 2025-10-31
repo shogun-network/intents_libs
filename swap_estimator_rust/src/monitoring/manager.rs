@@ -711,7 +711,13 @@ impl MonitorManager {
             .iter()
             .map(|(token_id, _)| token_id.clone())
             .collect::<HashSet<_>>();
-        let tokens_data = self.get_coins_data(tokens_to_search).await?;
+        let tokens_data = if self.polling_mode.0 {
+            // Fetch fresh data from the API as cache might not be updated
+            self.get_coins_data(tokens_to_search).await?
+        } else {
+            // Cache should be updated via subscriptions
+            self.get_coins_data(tokens_to_search).await?
+        };
 
         let mut total_value = 0.0;
         let mut values = vec![];
