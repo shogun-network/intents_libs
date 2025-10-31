@@ -173,6 +173,7 @@ impl PriceProvider for GeckoTerminalProvider {
     async fn get_tokens_price(
         &self,
         tokens: HashSet<TokenId>,
+        with_subscriptions: bool,
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
         if tokens.is_empty() {
             return Ok(HashMap::new());
@@ -393,7 +394,7 @@ mod tests {
         ]);
 
         let tokens_info = gt_provider
-            .get_tokens_price(tokens)
+            .get_tokens_price(tokens, false)
             .await
             .expect("Failed to get tokens price");
         println!("Tokens Info: {:?}", tokens_info);
