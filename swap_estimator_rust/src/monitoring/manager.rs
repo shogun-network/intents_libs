@@ -70,14 +70,14 @@ impl MonitorManager {
     pub async fn run(mut self) -> EstimatorResult<()> {
         // Subscribe to native token price updates, as they are used in fee calculations
         let mut native_tokens = HashSet::new();
-        // for chain in ChainId::iter() {
-        //     let native_token = chain.wrapped_native_token_address();
-        //     let token_id = TokenId::new_for_codex(chain, &native_token);
-        //     native_tokens.insert(token_id.clone());
-        //     if !self.polling_mode.0 {
-        //         self.codex_provider.subscribe_to_token(token_id).await?;
-        //     }
-        // }
+        for chain in ChainId::iter() {
+            let native_token = chain.wrapped_native_token_address();
+            let token_id = TokenId::new_for_codex(chain, &native_token);
+            native_tokens.insert(token_id.clone());
+            if !self.polling_mode.0 {
+                self.codex_provider.subscribe_to_token(token_id).await?;
+            }
+        }
 
         let mut codex_rx_opt = match self.codex_provider.subscribe_events().await {
             Ok(rx) => rx,
