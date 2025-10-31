@@ -44,7 +44,26 @@ subscription OnPriceUpdated($address: String!, $networkId: Int!) {
 }
 "#;
 
-const MAX_SUBSCRIPTIONS_PER_CONNECTION: usize = 20;
+// Single-operation subscriptions per WS connection. We'll also count batched ops.
+const MAX_SUBSCRIPTIONS_PER_CONNECTION: usize = 24;
+
+// Batched subscription (multiple tokens in a single WS operation)
+const GRAPHQL_BATCH_SUBSCRIPTION: &str = r#"
+subscription OnPricesUpdated($input: [OnPricesUpdatedInput!]!) {
+    onPricesUpdated(input: $input) {
+        address
+        networkId
+        priceUsd
+        timestamp
+        poolAddress
+        confidence
+    }
+}
+"#;
+
+// Target group size when batching tokens; Codex currently supports up to 24
+const TARGET_BATCH_SIZE: usize = 10;
+const MAX_BATCH_SIZE: usize = 24;
 const MAX_CONNECTIONS: usize = 300;
 const INITIAL_PRICE_QUERY: &str = r#"
 query GetTokenPrice($inputs: [GetPriceInput!]!) {
@@ -75,14 +94,17 @@ query GetTokenMetadata($inputs: [TokenInput!]!) {
 pub struct CodexProvider {
     api_key: String,
     pool: Arc<OnceCell<Arc<CodexConnectionPool>>>,
+    // If true, use HTTP to seed/fetch initial prices for missing tokens
+    http_fallback: bool,
 }
 
 impl CodexProvider {
     pub fn new(api_key: String) -> Self {
-        Self {
-            api_key,
-            pool: Arc::new(OnceCell::new()),
-        }
+        // Default to reducing HTTP load unless explicitly enabled
+        let http_fallback = std::env::var("CODEX_HTTP_FALLBACK")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE"))
+            .unwrap_or(false);
+        Self { api_key, pool: Arc::new(OnceCell::new()), http_fallback }
     }
 
     async fn pool(&self) -> EstimatorResult<Arc<CodexConnectionPool>> {
@@ -101,7 +123,7 @@ impl CodexProvider {
             token.chain
         );
         let pool = self.pool().await?;
-        pool.subscribe(token).await
+        pool.subscribe_with_seed(token, self.http_fallback).await
     }
 
     pub async fn subscribe_internal(&self, token: TokenId) -> EstimatorResult<()> {
@@ -145,6 +167,15 @@ impl CodexProvider {
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
         let pool = self.pool().await?;
         pool.fetch_initial_prices(&tokens).await
+    }
+
+    // Batch subscribe tokens and, if fallback is enabled, seed their prices via one HTTP call.
+    pub async fn subscribe_tokens_with_seed(
+        &self,
+        tokens: &[TokenId],
+    ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
+        let pool = self.pool().await?;
+        pool.subscribe_tokens_with_seed(tokens, self.http_fallback).await
     }
 
     // Public method to subscribe to the global price event stream
@@ -219,33 +250,53 @@ impl CodexConnectionPool {
         }
 
         let client = self.client_with_capacity().await?;
+        // Default path retains seeding behavior
+        self.subscribe_with_seed_impl(client, token, true).await
+    }
+
+    async fn subscribe_with_seed(&self, token: TokenId, seed: bool) -> EstimatorResult<CodexSubscription> {
+        let client = self.client_with_capacity().await?;
+        self.subscribe_with_seed_impl(client, token, seed).await
+    }
+
+    async fn subscribe_with_seed_impl(
+        &self,
+        client: Arc<CodexWsClient>,
+        token: TokenId,
+        seed: bool,
+    ) -> EstimatorResult<CodexSubscription> {
         let subscribe_future = client.subscribe(token.clone());
-        let tokens_to_search = vec![token.clone()];
-        let price_future = self.fetch_initial_prices(&tokens_to_search);
-        let (subscription_result, price_result) = tokio::join!(subscribe_future, price_future);
+        if seed {
+            let tokens_to_search = vec![token.clone()];
+            let price_future = self.fetch_initial_prices(&tokens_to_search);
+            let (subscription_result, price_result) = tokio::join!(subscribe_future, price_future);
 
-        let subscription = subscription_result?;
+            let subscription = subscription_result?;
 
-        match price_result {
-            Ok(result) => match result.get(&token) {
-                Some(price) => {
-                    client
-                        .apply_initial_price(&subscription.key, price.clone())
-                        .await;
+            match price_result {
+                Ok(result) => match result.get(&token) {
+                    Some(price) => {
+                        client
+                            .apply_initial_price(&subscription.key, price.clone())
+                            .await;
+                    }
+                    None => {}
+                },
+                Err(error) => {
+                    tracing::warn!(
+                        "Failed to fetch initial Codex price for {} on {:?}: {:?}",
+                        token.address,
+                        token.chain,
+                        error
+                    );
                 }
-                None => {}
-            },
-            Err(error) => {
-                tracing::warn!(
-                    "Failed to fetch initial Codex price for {} on {:?}: {:?}",
-                    token.address,
-                    token.chain,
-                    error
-                );
             }
-        }
 
-        Ok(subscription)
+            Ok(subscription)
+        } else {
+            // No HTTP seeding
+            subscribe_future.await
+        }
     }
 
     async fn subscribe_internal(&self, token: TokenId) -> EstimatorResult<()> {
@@ -262,9 +313,9 @@ impl CodexConnectionPool {
             }
         }
 
-        // Slow path: create anchor without holding the lock
+        // Slow path: create anchor without holding the lock. Use batched subscription to reduce WS ops.
         let client = self.client_with_capacity().await?;
-        let anchor = client.subscribe(token.clone()).await?;
+        let anchor = client.subscribe_batched(token.clone()).await?;
 
         // Insert anchor; if a race inserted first, bump and drop our extra handle
         let mut held = self.held_subscriptions.write().await;
@@ -277,6 +328,45 @@ impl CodexConnectionPool {
             held.insert(token, (1, anchor));
         }
         Ok(())
+    }
+
+    async fn subscribe_tokens_with_seed(
+        &self,
+        tokens: &[TokenId],
+        seed: bool,
+    ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
+        if tokens.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Optionally fetch initial prices in a single HTTP batch
+        let prices = if seed {
+            match self.fetch_initial_prices(tokens).await {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::warn!("Failed to fetch initial Codex prices for batch: {:?}", e);
+                    HashMap::new()
+                }
+            }
+        } else {
+            HashMap::new()
+        };
+
+        // Subscribe each token via batched WS (anchors) and seed the initial price if available
+        for token in tokens.iter().cloned() {
+            // Anchor subscription (batched)
+            self.subscribe_internal(token.clone()).await?;
+
+            // Seed if we have a fetched price
+            if let Some(price) = prices.get(&token) {
+                let key = subscription_id(&token);
+                if let Some(client) = self.client_with_subscription(&key).await {
+                    client.apply_initial_price(&key, price.clone()).await;
+                }
+            }
+        }
+
+        Ok(prices)
     }
 
     async fn unsubscribe(&self, token: &TokenId) -> EstimatorResult<()> {
@@ -573,18 +663,20 @@ impl PriceProvider for CodexProvider {
             }
         }
 
-        // For missing tokens, fetch price via HTTP
-        match pool.fetch_initial_prices(&missing).await {
-            Ok(prices) => {
-                for (token, price) in prices.into_iter() {
-                    result.insert(token, price);
+        // For missing tokens, optionally fetch price via HTTP if fallback is enabled
+        if self.http_fallback {
+            match pool.fetch_initial_prices(&missing).await {
+                Ok(prices) => {
+                    for (token, price) in prices.into_iter() {
+                        result.insert(token, price);
+                    }
                 }
-            }
-            Err(err) => {
-                tracing::error!(
-                    "Failed to fetch initial Codex prices for missing tokens: {:?}",
-                    err
-                );
+                Err(err) => {
+                    tracing::error!(
+                        "Failed to fetch initial Codex prices for missing tokens: {:?}",
+                        err
+                    );
+                }
             }
         }
 
@@ -651,11 +743,27 @@ struct CodexMetadataPayload {
 #[derive(Debug)]
 struct CodexWsClient {
     sender: tokio::sync::mpsc::UnboundedSender<Message>,
+    // Single-token subscriptions (onPriceUpdated)
     subscriptions: RwLock<HashMap<String, TokenSubscription>>,
+    // Batched subscriptions (onPricesUpdated), keyed by batch operation id
+    batch_ops: RwLock<HashMap<String, BatchState>>, // id -> state
+    // Per-token index for both single and batched subscriptions: key -> updates sender
+    token_index: RwLock<HashMap<String, watch::Sender<Option<TokenPrice>>>>,
+    // Per-token reference count (across single and batched)
+    token_refcount: RwLock<HashMap<String, usize>>,
+    // Map token key -> batch op id (only for batched tokens)
+    token_to_batch: RwLock<HashMap<String, String>>,
     connected: AtomicBool,
     connected_notify: Notify,
     // Event bus for price updates
     event_tx: broadcast::Sender<PriceEvent>,
+}
+
+#[derive(Debug, Clone)]
+struct BatchState {
+    id: String,
+    // Stored as (networkId, address-lowercase) for efficient JSON building and lookups
+    tokens: HashSet<(i64, String)>,
 }
 
 impl CodexWsClient {
@@ -702,6 +810,10 @@ impl CodexWsClient {
         let client = Arc::new(Self {
             sender: send_tx,
             subscriptions: RwLock::new(HashMap::new()),
+            batch_ops: RwLock::new(HashMap::new()),
+            token_index: RwLock::new(HashMap::new()),
+            token_refcount: RwLock::new(HashMap::new()),
+            token_to_batch: RwLock::new(HashMap::new()),
             connected: AtomicBool::new(false),
             connected_notify: Notify::new(),
             event_tx,
@@ -788,66 +900,75 @@ impl CodexWsClient {
         id: &str,
         payload: serde_json::Value,
     ) -> EstimatorResult<()> {
-        let subscription = {
+        // Try single-subscription path first
+        if let Some(subscription) = {
             let subscriptions = self.subscriptions.read().await;
             subscriptions.get(id).cloned()
-        };
+        } {
+            let next_payload: NextPayload = serde_json::from_value(payload).change_context(
+                Error::SerdeDeserialize("Failed to deserialize Codex websocket payload".to_string()),
+            )?;
 
-        let Some(subscription) = subscription else {
+            if let Some(data) = next_payload.data {
+                if let Some(update) = data.on_price_updated {
+                    let decimals = default_decimals(&subscription.token);
+                    let new_price = TokenPrice { price: update.price_usd, decimals };
+                    if let Err(error) = subscription.updates_tx.send(Some(new_price.clone())) {
+                        tracing::error!(
+                            "Failed to send Codex price update for {}: {:?}",
+                            subscription.token.address,
+                            error
+                        );
+                    }
+                    let _ = self.event_tx.send(PriceEvent { token: subscription.token.clone(), price: new_price });
+                }
+            }
             return Ok(());
-        };
-
-        let next_payload: NextPayload = serde_json::from_value(payload).change_context(
-            Error::SerdeDeserialize("Failed to deserialize Codex websocket payload".to_string()),
-        )?;
-
-        if let Some(data) = next_payload.data {
-            if let Some(update) = data.on_price_updated {
-                let decimals = default_decimals(&subscription.token);
-                let new_price = TokenPrice {
-                    price: update.price_usd,
-                    decimals,
-                };
-
-                if let Err(error) = subscription.updates_tx.send(Some(TokenPrice {
-                    price: update.price_usd,
-                    decimals,
-                })) {
-                    tracing::error!(
-                        "Failed to send Codex price update for {}: {:?}",
-                        subscription.token.address,
-                        error
-                    );
-                }
-
-                // Emit global event
-                if let Err(err) = self.event_tx.send(PriceEvent {
-                    token: subscription.token.clone(),
-                    price: new_price,
-                }) {
-                    // If there are no subscribers or receivers lagged, just log and continue
-                    tracing::trace!(
-                        "No listeners for price event or lagging receivers: {:?}",
-                        err
-                    );
-                }
-            }
-
-            if let Some(errors) = next_payload.errors {
-                tracing::error!(
-                    "Errors in Codex websocket payload for {}: {:?}",
-                    subscription.token.address,
-                    errors
-                );
-            }
         }
 
+        // Otherwise, handle batched subscription
+        let is_batched = {
+            let batches = self.batch_ops.read().await;
+            batches.contains_key(id)
+        };
+        if is_batched {
+            let next_payload: NextPayload = serde_json::from_value(payload).change_context(
+                Error::SerdeDeserialize("Failed to deserialize Codex websocket payload".to_string()),
+            )?;
+            if let Some(data) = next_payload.data {
+                if let Some(update) = data.on_prices_updated {
+                    if let Some(chain) = ChainId::from_codex_chain_number(update.network_id) {
+                        let token = TokenId::new(chain, update.address.clone());
+                        let key = subscription_id(&token);
+                        let sender_opt = {
+                            let idx = self.token_index.read().await;
+                            idx.get(&key).cloned()
+                        };
+                        if let Some(sender) = sender_opt {
+                            let price = TokenPrice { price: update.price_usd, decimals: default_decimals(&token) };
+                            let _ = sender.send(Some(price.clone()));
+                            let _ = self.event_tx.send(PriceEvent { token, price });
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
     }
 
     async fn handle_complete(&self, id: &str) {
-        let mut subscriptions = self.subscriptions.write().await;
-        subscriptions.remove(id);
+        {
+            let mut subscriptions = self.subscriptions.write().await;
+            subscriptions.remove(id);
+        }
+        {
+            let mut batches = self.batch_ops.write().await;
+            if batches.remove(id).is_some() {
+                // Clean up any token_to_batch mappings for this batch id
+                let mut map = self.token_to_batch.write().await;
+                map.retain(|_, v| v != id);
+            }
+        }
     }
 
     fn send_message(&self, message: Message) -> EstimatorResult<()> {
@@ -914,7 +1035,17 @@ impl CodexWsClient {
             self.send_message(Message::Text(message.to_string()))?;
         }
 
-        Ok(CodexSubscription::new(self.clone(), key, receiver))
+        // Index per-token channel for latest_price and generic lookups
+        {
+            let mut idx = self.token_index.write().await;
+            // Get the sender cloned from the subscription entry
+            if let Some(entry) = self.subscriptions.read().await.get(&key) {
+                idx.insert(key.clone(), entry.updates_tx.clone());
+            }
+        }
+
+        // Single-mode subscription handle
+        Ok(CodexSubscription::new_single(self.clone(), key, receiver))
     }
 
     async fn unsubscribe(&self, token: &TokenId) -> EstimatorResult<()> {
@@ -944,6 +1075,9 @@ impl CodexWsClient {
                 "type": "complete"
             });
             self.send_message(Message::Text(message.to_string()))?;
+            // Also clear token index for singles
+            let mut idx = self.token_index.write().await;
+            idx.remove(&key);
         }
 
         Ok(())
@@ -951,20 +1085,34 @@ impl CodexWsClient {
 
     async fn latest_price(&self, token: &TokenId) -> Option<TokenPrice> {
         let key = subscription_id(token);
+        // Prefer token_index which includes both single and batched
+        if let Some(sender) = {
+            let idx = self.token_index.read().await;
+            idx.get(&key).cloned()
+        } {
+            return sender.borrow().clone();
+        }
+        // Fallback to single map
         let subscriptions = self.subscriptions.read().await;
-        subscriptions
-            .get(&key)
-            .and_then(|entry| entry.updates_tx.borrow().clone())
+        subscriptions.get(&key).and_then(|e| e.updates_tx.borrow().clone())
     }
 
     async fn has_capacity(&self) -> bool {
         let subscriptions = self.subscriptions.read().await;
-        subscriptions.len() < MAX_SUBSCRIPTIONS_PER_CONNECTION
+        let batches = self.batch_ops.read().await;
+        (subscriptions.len() + batches.len()) < MAX_SUBSCRIPTIONS_PER_CONNECTION
     }
 
     async fn contains_subscription(&self, key: &str) -> bool {
-        let subscriptions = self.subscriptions.read().await;
-        subscriptions.contains_key(key)
+        // Present if either single-sub entry or token index has the key
+        {
+            let subscriptions = self.subscriptions.read().await;
+            if subscriptions.contains_key(key) {
+                return true;
+            }
+        }
+        let idx = self.token_index.read().await;
+        idx.contains_key(key)
     }
 
     async fn apply_initial_price(&self, key: &str, price: TokenPrice) {
@@ -979,6 +1127,157 @@ impl CodexWsClient {
             }
         }
     }
+
+    // Subscribe using the batched onPricesUpdated operation and attach a per-token watch receiver
+    async fn subscribe_batched(self: &Arc<Self>, token: TokenId) -> EstimatorResult<CodexSubscription> {
+        tracing::debug!("Batched subscribe to Codex token: {:?}", token);
+        self.wait_for_connection(Duration::from_secs(10)).await?;
+
+        let token_key = subscription_id(&token);
+
+        // Already present -> bump refcount and return receiver
+        if let Some(sender) = {
+            let idx = self.token_index.read().await;
+            idx.get(&token_key).cloned()
+        } {
+            {
+                let mut refc = self.token_refcount.write().await;
+                *refc.entry(token_key.clone()).or_insert(0) += 1;
+            }
+            return Ok(CodexSubscription::new_batched(self.clone(), token_key, token, sender.subscribe()));
+        }
+
+        // Create watch channel for this token
+        let (tx, rx) = watch::channel(None);
+
+        // Choose target batch op to add this token
+        let target_batch_id = {
+            let mut batches = self.batch_ops.write().await;
+            // Try find a batch below target size, else first below max size, else create
+            if let Some((id, _state)) = batches.iter().find(|(_id, st)| st.tokens.len() < TARGET_BATCH_SIZE) {
+                id.clone()
+            } else if let Some((id, _state)) = batches.iter().find(|(_id, st)| st.tokens.len() < MAX_BATCH_SIZE) {
+                id.clone()
+            } else {
+                let id = format!("batch:{}", batches.len() + 1);
+                batches.insert(id.clone(), BatchState { id: id.clone(), tokens: HashSet::new() });
+                id
+            }
+        };
+
+        // Update state and indices
+        {
+            let mut batches = self.batch_ops.write().await;
+            let state = batches.get_mut(&target_batch_id).expect("batch exists");
+            state.tokens.insert((token.chain.to_codex_chain_number(), token.address.to_lowercase()));
+        }
+        {
+            let mut idx = self.token_index.write().await;
+            idx.insert(token_key.clone(), tx);
+        }
+        {
+            let mut rc = self.token_refcount.write().await;
+            rc.insert(token_key.clone(), 1);
+        }
+        {
+            let mut map = self.token_to_batch.write().await;
+            map.insert(token_key.clone(), target_batch_id.clone());
+        }
+
+        // Resubscribe the batch with the updated token list
+        self.resubscribe_batch(&target_batch_id).await?;
+
+        Ok(CodexSubscription::new_batched(self.clone(), token_key, token, rx))
+    }
+
+    async fn resubscribe_batch(&self, batch_id: &str) -> EstimatorResult<()> {
+        // Build variables input array from current state
+        let inputs = {
+            let batches = self.batch_ops.read().await;
+            let Some(state) = batches.get(batch_id) else { return Ok(()); };
+            let arr: Vec<_> = state
+                .tokens
+                .iter()
+                .map(|(network_id, addr)| serde_json::json!({
+                    "address": addr,
+                    "networkId": network_id,
+                }))
+                .collect();
+            serde_json::Value::Array(arr)
+        };
+
+        // Complete existing op for this id (best-effort)
+        let complete_msg = serde_json::json!({
+            "id": batch_id,
+            "type": "complete"
+        });
+        let _ = self.send_message(Message::Text(complete_msg.to_string()));
+
+        // Start new op for the same id with new inputs
+        let subscribe_msg = serde_json::json!({
+            "id": batch_id,
+            "type": "subscribe",
+            "payload": {
+                "query": GRAPHQL_BATCH_SUBSCRIPTION,
+                "variables": { "input": inputs }
+            }
+        });
+        self.send_message(Message::Text(subscribe_msg.to_string()))
+    }
+
+    async fn release_token_from_batch(&self, token_key: String) -> EstimatorResult<()> {
+        // Decrement token refcount and return early if still referenced
+        let mut should_drop = false;
+        {
+            let mut rc = self.token_refcount.write().await;
+            if let Some(r) = rc.get_mut(&token_key) {
+                *r = r.saturating_sub(1);
+                if *r == 0 { should_drop = true; }
+            }
+        }
+        if !should_drop { return Ok(()); }
+
+        // Remove from indexes
+        {
+            let mut idx = self.token_index.write().await;
+            idx.remove(&token_key);
+        }
+
+        let batch_id_opt = {
+            let mut map = self.token_to_batch.write().await;
+            map.remove(&token_key)
+        };
+        let Some(batch_id) = batch_id_opt else { return Ok(()); };
+
+        // Remove token from batch state
+        let mut should_complete = false;
+        {
+            let mut batches = self.batch_ops.write().await;
+            if let Some(state) = batches.get_mut(&batch_id) {
+                if let Some((network, address)) = token_key.split_once(":") {
+                    if let Ok(network_id) = network.parse::<i64>() {
+                        state.tokens.remove(&(network_id, address.to_string()));
+                    }
+                }
+                if state.tokens.is_empty() {
+                    should_complete = true;
+                }
+            }
+        }
+
+        if should_complete {
+            let msg = serde_json::json!({
+                "id": batch_id,
+                "type": "complete"
+            });
+            let _ = self.send_message(Message::Text(msg.to_string()));
+            let mut batches = self.batch_ops.write().await;
+            batches.remove(&batch_id);
+        } else {
+            self.resubscribe_batch(&batch_id).await?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug)]
@@ -986,19 +1285,31 @@ pub struct CodexSubscription {
     client: Arc<CodexWsClient>,
     key: String,
     updates_rx: watch::Receiver<Option<TokenPrice>>,
+    mode: SubscriptionMode,
+}
+
+#[derive(Debug)]
+enum SubscriptionMode {
+    Single,
+    Batched { token: TokenId },
 }
 
 impl CodexSubscription {
-    fn new(
+    fn new_single(
         client: Arc<CodexWsClient>,
         key: String,
         updates_rx: watch::Receiver<Option<TokenPrice>>,
     ) -> Self {
-        Self {
-            client,
-            key,
-            updates_rx,
-        }
+        Self { client, key, updates_rx, mode: SubscriptionMode::Single }
+    }
+
+    fn new_batched(
+        client: Arc<CodexWsClient>,
+        key: String,
+        token: TokenId,
+        updates_rx: watch::Receiver<Option<TokenPrice>>,
+    ) -> Self {
+        Self { client, key, updates_rx, mode: SubscriptionMode::Batched { token } }
     }
 
     pub fn latest(&self) -> Option<TokenPrice> {
@@ -1046,8 +1357,14 @@ impl Drop for CodexSubscription {
         tracing::debug!("Unsubscribing from Codex token: {:?}", self.key);
         let client = self.client.clone();
         let key = self.key.clone();
+        let is_batched = matches!(self.mode, SubscriptionMode::Batched { .. });
         tokio::spawn(async move {
-            if let Err(error) = client.release_subscription(key).await {
+            let res = if is_batched {
+                client.release_token_from_batch(key).await
+            } else {
+                client.release_subscription(key).await
+            };
+            if let Err(error) = res {
                 tracing::error!("Failed to release Codex subscription: {:?}", error);
             }
         });
@@ -1072,10 +1389,21 @@ struct NextPayload {
 struct NextData {
     #[serde(rename = "onPriceUpdated")]
     on_price_updated: Option<OnPriceUpdated>,
+    #[serde(rename = "onPricesUpdated")]
+    on_prices_updated: Option<OnPricesUpdated>,
 }
 
 #[derive(Debug, Deserialize)]
 struct OnPriceUpdated {
+    #[serde(rename = "priceUsd")]
+    price_usd: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct OnPricesUpdated {
+    address: String,
+    #[serde(rename = "networkId")]
+    network_id: i64,
     #[serde(rename = "priceUsd")]
     price_usd: f64,
 }

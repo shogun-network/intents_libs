@@ -21,8 +21,7 @@ async fn main() {
 async fn run() -> Result<(), String> {
     dotenv::dotenv().ok();
 
-    let api_key = std::env::var("CODEX_API_KEY")
-        .map_err(|_| "CODEX_API_KEY environment variable is not set".to_string())?;
+    let api_key = "".to_string();
 
     let provider = CodexProvider::new(api_key);
     let mut subscriptions: HashMap<String, (TokenId, CodexSubscription)> = HashMap::new();

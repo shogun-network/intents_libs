@@ -401,16 +401,25 @@ impl MonitorManager {
                 tokens_not_in_cache.insert(token_id);
             }
         }
-        // If we have tokens not in cache, fetch them
+        // If we have tokens not in cache, subscribe first, then fetch from provider cache
         if tokens_not_in_cache.is_empty() {
             return Ok(result);
         }
-        // Fetch data from Codex
-        let data = self.get_tokens_data(tokens_not_in_cache.clone()).await?;
-
-        // Subscribe to price updates for these tokens
-        for token in tokens_not_in_cache {
-            self.codex_provider.subscribe_to_token(token).await?;
+        // Subscribe to price updates for these tokens and seed initial prices in one HTTP batch
+        let missing_vec: Vec<TokenId> = tokens_not_in_cache.iter().cloned().collect();
+        let data_seeded = self
+            .codex_provider
+            .subscribe_tokens_with_seed(&missing_vec)
+            .await
+            .map_err(|e| {
+                tracing::error!("subscribe_tokens_with_seed failed: {:?}", e);
+                e.current_context().clone()
+            })?;
+        let mut data = data_seeded;
+        // Merge any remaining values from provider cache (no-HTTP if fallback is off or seed raced)
+        if data.len() < tokens_not_in_cache.len() {
+            let fetched = self.get_tokens_data(tokens_not_in_cache.clone()).await?;
+            data.extend(fetched);
         }
 
         result.extend(data);
