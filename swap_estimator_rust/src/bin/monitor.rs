@@ -30,7 +30,7 @@ async fn run() -> Result<(), String> {
     let (monitor_tx, monitor_rx) = mpsc::channel::<MonitorRequest>(100);
 
     // Spawn manager
-    let manager = MonitorManager::new(monitor_rx, alert_tx, codex_api_key);
+    let manager = MonitorManager::new(monitor_rx, alert_tx, codex_api_key, (true, 5));
     tokio::spawn(async move {
         if let Err(e) = manager.run().await {
             eprintln!("MonitorManager stopped with error: {e:?}");
@@ -92,7 +92,7 @@ async fn run() -> Result<(), String> {
                 }
             }
 
-            // check a 8453 7565164 0x833589fcd6edb6e08f4c7c32d4f71b54bda02913 orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE 1500000 1000000
+            // check a 8453 7565164 0x833589fcd6edb6e08f4c7c32d4f71b54bda02913 orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE 1500000 1030000
             "check" => {
                 // check <order_id> <src_chain> <dst_chain> <token_in> <token_out> <amount_in:u128> <amount_out:u128> <margin:f64>
                 let order_id = match parts.next() {
