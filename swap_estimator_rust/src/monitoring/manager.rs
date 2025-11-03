@@ -1012,23 +1012,30 @@ fn required_monitor_estimation_for_solver_fulfillment(
             .attach_printable("Observed solver/monitor ratio is non-positive"));
     }
 
-    let threshold_low = Decimal::from_str("0.9").change_context(Error::ParseError)?;
-    let candidate_dec = if a_obs < threshold_low {
+    // let threshold_low = Decimal::from_str("0.95").change_context(Error::ParseError)?;
+    // let candidate_dec = if a_obs < threshold_low {
+    //     // Simple average method
+    //     let solver_diff = min_user - bid_solver;
+    //     est_monitor + (solver_diff / Decimal::from(5u8))
+    // } else {
+    //     // Porcentage method
+    //     // Lower a_obs margin with 1.0 to get less false negatives
+    //     let lower_a_obs_margin = {
+    //         let diff = (Decimal::ONE - a_obs) / Decimal::from(3u8);
+    //         Decimal::ONE - diff
+    //     };
+    //     let mut m_req = min_user / lower_a_obs_margin;
+    //     if m_req < est_monitor {
+    //         m_req = est_monitor / lower_a_obs_margin;
+    //     }
+    //     m_req
+    // };
+
+    // Doing simpler method for now:
+    let candidate_dec = {
         // Simple average method
         let solver_diff = min_user - bid_solver;
-        est_monitor + (solver_diff / Decimal::from(3u8))
-    } else {
-        // Porcentage method
-        // Half a_obs margin with 1.0 to get less false negatives
-        let half_a_obs_margin = {
-            let diff = (Decimal::ONE - a_obs) / Decimal::from(2u8);
-            Decimal::ONE - diff
-        };
-        let mut m_req = min_user / half_a_obs_margin;
-        if m_req < est_monitor {
-            m_req = est_monitor / half_a_obs_margin;
-        }
-        m_req
+        est_monitor + (solver_diff / Decimal::from(5u8))
     };
 
     Ok(candidate_dec.to_u128().ok_or(Error::ParseError)?)
