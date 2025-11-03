@@ -148,6 +148,8 @@ impl MonitorManager {
                         })
                         .collect();
 
+                    tracing::debug!("Polling update for tokens: {:?}", tokens_to_fetch);
+
                     // Always check for native tokens too.
                     tokens_to_fetch.extend(native_tokens.clone());
 
@@ -988,6 +990,9 @@ fn estimate_amount_out(
             pending_swap,
             estimated_amount_out
         );
+
+        // dbg!(&pending_swap.order_id, estimated_amount_out);
+
         Ok(estimated_amount_out)
     } else {
         Err(report!(Error::TokenNotFound(format!(
@@ -1031,6 +1036,7 @@ fn required_monitor_estimation_for_solver_fulfillment(
     let bid_solver = Decimal::from_u128(bid_solver).ok_or(Error::ParseError)?;
     let est_monitor = Decimal::from_u128(est_monitor).ok_or(Error::ParseError)?;
     let min_user = Decimal::from_u128(min_user).ok_or(Error::ParseError)?;
+    // dbg!(min_user, bid_solver, est_monitor);
 
     if est_monitor.is_zero() {
         return Err(report!(Error::ParseError).attach_printable("Estimated monitor amount is zero"));
@@ -1067,14 +1073,16 @@ fn required_monitor_estimation_for_solver_fulfillment(
     // let candidate_dec = {
     //     // Simple average method
     //     let solver_diff = min_user - bid_solver;
-    //     est_monitor + (solver_diff / Decimal::from(5u8))
+    //     est_monitor + (solver_diff / Decimal::from(5u8));
     // };
 
-    // More complex method with benevolent margin:
+    // // More complex method with benevolent margin:
     let candidate_dec = {
-        let estimated_deviation = ((est_monitor - bid_solver) / bid_solver) / Decimal::from(3u8);
+        let estimated_deviation = (est_monitor - bid_solver) / bid_solver;
         min_user * (Decimal::ONE + estimated_deviation)
     };
+
+    // dbg!(candidate_dec);
 
     Ok(candidate_dec.to_u128().ok_or(Error::ParseError)?)
 }
