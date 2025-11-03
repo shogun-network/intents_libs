@@ -1,4 +1,4 @@
-use error_stack::{ResultExt, report};
+use error_stack::report;
 use futures_util::future;
 use intents_models::constants::chains::ChainId;
 use std::{
@@ -212,7 +212,7 @@ impl MonitorManager {
                                         Err(e) => Err(e.current_context().clone()),
                                     };
                                     match resp.send(to_send) {
-                                        Ok(_) => tracing::debug!("Error response sent successfully"),
+                                        Ok(_) => tracing::debug!("Response sent successfully"),
                                         Err(_) => tracing::error!("Failed to send error response"),
                                     }
                                 }
@@ -259,13 +259,13 @@ impl MonitorManager {
         // Get Token Info for all tokens in orders
         let mut token_ids = HashSet::new();
         for order in orders.iter() {
-            token_ids.insert(TokenId::new_for_codex(
+            token_ids.insert(TokenId::new(
                 order.src_chain.clone(),
-                &order.token_in,
+                order.token_in.clone(),
             ));
-            token_ids.insert(TokenId::new_for_codex(
+            token_ids.insert(TokenId::new(
                 order.dst_chain.clone(),
-                &order.token_out,
+                order.token_out.clone(),
             ));
         }
         let tokens_info = self.get_coins_data(token_ids).await?;
@@ -457,55 +457,73 @@ impl MonitorManager {
         token_ids: HashSet<TokenId>,
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
         let mut result = HashMap::new();
-        let mut tokens_not_in_cache = HashSet::new();
+        let mut tokens_not_in_cache: HashSet<TokenId> = HashSet::new();
+        // Keep a mapping from original -> codex ids so we can return original keys
+        let mut orig_to_codex: HashMap<TokenId, TokenId> = HashMap::new();
 
-        for token_id in token_ids.into_iter() {
-            // Refine token id to codex format
-            let token_id = TokenId::new_for_codex(token_id.chain.clone(), &token_id.address);
-            // Add token to cache if not already present
-            let chain = token_id.chain.clone();
-            let address = token_id.address.clone();
-            // If we have it in our cache, return it
-            if let Some(data) = self.coin_cache.get(&token_id)
+        for orig_id in token_ids.into_iter() {
+            let codex_id = TokenId::new_for_codex(orig_id.chain.clone(), &orig_id.address);
+            orig_to_codex.insert(orig_id.clone(), codex_id.clone());
+
+            // If we have it in our cache (by CODEX id) and price != 0, return it under ORIGINAL id
+            if let Some(data) = self.coin_cache.get(&codex_id)
                 && data.price != 0.0
             {
-                // If price is 0.0, it means we don't have data
-                tracing::debug!("Cache hit for {:?}: {:?}", (chain, address), data);
-                result.insert(token_id, data.clone());
+                tracing::debug!(
+                    "Cache hit for original {:?} (codex {:?}): {:?}",
+                    orig_id,
+                    codex_id,
+                    data
+                );
+                result.insert(orig_id, data.clone());
+                result.insert(codex_id, data.clone());
             } else {
                 tracing::debug!(
-                    "Cache miss for chain: {}, token: {}, fetching...",
-                    chain,
-                    address
+                    "Cache miss for original {:?} (codex {:?}); fetching...",
+                    orig_id,
+                    codex_id
                 );
-                tokens_not_in_cache.insert(token_id);
+                tokens_not_in_cache.insert(codex_id);
             }
         }
-        // If we have tokens not in cache, fetch them
+
+        // If we have nothing to fetch, return what we already collected
         if tokens_not_in_cache.is_empty() {
             return Ok(result);
         }
-        // Fetch data from Codex
-        let mut data: HashMap<TokenId, TokenPrice> =
+
+        // Fetch data from Codex (keys are CODEX ids)
+        let mut fetched_by_codex: HashMap<TokenId, TokenPrice> =
             self.get_tokens_data(tokens_not_in_cache.clone()).await?;
 
-        self.update_tokens_metadata(&mut data).await?;
+        self.update_tokens_metadata(&mut fetched_by_codex).await?;
+        tracing::debug!("Fetched tokens data from Codex: {:?}", fetched_by_codex);
 
-        tracing::debug!("Fetched tokens data from Codex: {:?}", data);
-        // Subscribe to price updates for these tokens
+        // Subscribe to live updates (by CODEX id)
         if !self.polling_mode.0 {
             for token in tokens_not_in_cache {
                 self.codex_provider.subscribe_to_token(token).await?;
             }
         }
 
-        // Update coin cache
-        for (token_id, token_price) in data.iter() {
+        // Update coin cache (by CODEX id)
+        for (codex_id, token_price) in fetched_by_codex.iter() {
             self.coin_cache
-                .insert(token_id.clone(), token_price.clone());
+                .insert(codex_id.clone(), token_price.clone());
         }
 
-        result.extend(data);
+        // Map fetched CODEX entries back to ORIGINAL keys for the output
+        for (orig_id, codex_id) in orig_to_codex.into_iter() {
+            if result.contains_key(&orig_id) {
+                continue; // already satisfied from cache
+            }
+            if let Some(price) = fetched_by_codex.get(&codex_id) {
+                result.insert(orig_id, price.clone());
+                result.insert(codex_id, price.clone());
+            }
+        }
+
+        tracing::debug!("Final token prices: {:?}", result);
 
         Ok(result)
     }
@@ -728,17 +746,23 @@ impl MonitorManager {
         &self,
         token_ids: HashSet<TokenId>,
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
-        // Refine token ids to codex format
-        let token_ids: Vec<TokenId> = token_ids
-            .into_iter()
-            .map(|t| TokenId::new_for_codex(t.chain.clone(), &t.address))
-            .collect();
-        tracing::debug!("Fetching tokens data for {:?} from Codex", token_ids);
+        // Build mapping original -> codex to preserve both keys in the output
+        let mut orig_to_codex: Vec<(TokenId, TokenId)> = Vec::new();
+        let mut codex_set: HashSet<TokenId> = HashSet::new();
 
-        // Split into batches of up to 25 tokens
+        for orig in token_ids.into_iter() {
+            let codex = TokenId::new_for_codex(orig.chain.clone(), &orig.address);
+            orig_to_codex.push((orig, codex.clone()));
+            codex_set.insert(codex);
+        }
+
+        let codex_ids: Vec<TokenId> = codex_set.into_iter().collect();
+        tracing::debug!("Fetching tokens data for {:?} from Codex", codex_ids);
+
+        // Split into batches of up to 25 tokens (by CODEX ids)
         const BATCH_SIZE: usize = 25;
         let mut batches: Vec<HashSet<TokenId>> = Vec::new();
-        for chunk in token_ids.chunks(BATCH_SIZE) {
+        for chunk in codex_ids.chunks(BATCH_SIZE) {
             batches.push(chunk.iter().cloned().collect());
         }
 
@@ -751,12 +775,12 @@ impl MonitorManager {
 
         let results = future::join_all(fetches).await;
 
-        // Merge results, fail fast on any batch error
-        let mut combined: HashMap<TokenId, TokenPrice> = HashMap::new();
+        // Merge results, fail fast on any batch error (keys are CODEX ids)
+        let mut combined_by_codex: HashMap<TokenId, TokenPrice> = HashMap::new();
         for res in results.into_iter() {
             match res {
                 Ok(mut map) => {
-                    combined.extend(map.drain());
+                    combined_by_codex.extend(map.drain());
                 }
                 Err(e) => {
                     tracing::error!("Codex batch get_tokens_price failed: {:?}", e);
@@ -765,7 +789,17 @@ impl MonitorManager {
             }
         }
 
-        Ok(combined)
+        // Build final map
+        let mut result: HashMap<TokenId, TokenPrice> = combined_by_codex.clone();
+        for (orig, codex) in orig_to_codex.into_iter() {
+            if let Some(price) = combined_by_codex.get(&codex) {
+                // Insert also under the original key; if orig == codex this is a no-op
+                result.entry(orig).or_insert_with(|| price.clone());
+                result.entry(codex).or_insert_with(|| price.clone());
+            }
+        }
+
+        Ok(result)
     }
 
     async fn get_tokens_metadata(
@@ -814,12 +848,8 @@ impl MonitorManager {
 
     async fn evaluate_coins(
         &mut self,
-        mut tokens: Vec<(TokenId, u128)>,
+        tokens: Vec<(TokenId, u128)>,
     ) -> EstimatorResult<(Vec<f64>, f64)> {
-        // Sanitize token ids
-        for token in tokens.iter_mut() {
-            token.0 = TokenId::new_for_codex(token.0.chain.clone(), &token.0.address);
-        }
         let tokens_to_search = tokens
             .iter()
             .map(|(token_id, _)| token_id.clone())
