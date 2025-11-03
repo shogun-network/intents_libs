@@ -7,14 +7,14 @@ use std::{
     u64,
 };
 use strum::IntoEnumIterator;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::Receiver;
 
 use crate::{
     error::{Error, EstimatorResult},
     monitoring::messages::{MonitorAlert, MonitorRequest},
     prices::{
-        PriceEvent, PriceProvider, TokenId, TokenPrice, codex::pricing::CodexProvider,
-        estimating::OrderEstimationData,
+        PriceEvent, PriceProvider, TokenId, TokenMetadata, TokenPrice,
+        codex::pricing::CodexProvider, estimating::OrderEstimationData,
     },
     utils::number_conversion::u128_to_f64,
 };
@@ -39,10 +39,11 @@ pub struct PendingSwap {
 #[derive(Debug)]
 pub struct MonitorManager {
     pub receiver: Receiver<MonitorRequest>,
-    pub alert_sender: Sender<MonitorAlert>,
+    pub alert_sender: tokio::sync::broadcast::Sender<MonitorAlert>,
     pub coin_cache: HashMap<TokenId, TokenPrice>,
     pub pending_swaps: HashMap<String, (PendingSwap, Option<u128>)>, // OrderId to pending swap and optionally, estimated amount out calculated
     pub swaps_by_token: HashMap<TokenId, HashSet<String>>,           // TokenId to OrderIds
+    pub token_metadata: HashMap<TokenId, TokenMetadata>,
     pub codex_provider: CodexProvider,
     pub polling_mode: (bool, u64),
 }
@@ -50,7 +51,7 @@ pub struct MonitorManager {
 impl MonitorManager {
     pub fn new(
         receiver: Receiver<MonitorRequest>,
-        sender: Sender<MonitorAlert>,
+        sender: tokio::sync::broadcast::Sender<MonitorAlert>,
         codex_api_key: String,
         polling_mode: (bool, u64),
     ) -> Self {
@@ -62,6 +63,7 @@ impl MonitorManager {
             coin_cache: HashMap::new(),
             pending_swaps: HashMap::new(),
             swaps_by_token: HashMap::new(),
+            token_metadata: HashMap::new(),
             codex_provider,
             polling_mode,
         }
@@ -149,7 +151,9 @@ impl MonitorManager {
                     // Always check for native tokens too.
                     tokens_to_fetch.extend(native_tokens.clone());
 
-                    let tokens_data = self.get_tokens_data(tokens_to_fetch).await?;
+                    let mut tokens_data = self.get_tokens_data(tokens_to_fetch).await?;
+
+                    self.update_tokens_metadata(&mut tokens_data).await?;
 
                     // Update cache and get updated tokens
                     let updated_tokens = self.update_cache(tokens_data);
@@ -341,13 +345,9 @@ impl MonitorManager {
                             "Swap is immediately feasible for order_id: {}, sending alert",
                             order_id
                         );
-                        if let Err(e) = self
-                            .alert_sender
-                            .send(MonitorAlert::SwapIsFeasible {
-                                order_id: pending_swap.order_id.clone(),
-                            })
-                            .await
-                        {
+                        if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
+                            order_id: pending_swap.order_id.clone(),
+                        }) {
                             tracing::error!(
                                 "Failed to send alert for order_id {}: {:?}",
                                 pending_swap.order_id,
@@ -367,13 +367,9 @@ impl MonitorManager {
                             "Swap is immediately feasible for order_id: {}, sending alert",
                             order_id
                         );
-                        if let Err(e) = self
-                            .alert_sender
-                            .send(MonitorAlert::SwapIsFeasible {
-                                order_id: pending_swap.order_id.clone(),
-                            })
-                            .await
-                        {
+                        if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
+                            order_id: pending_swap.order_id.clone(),
+                        }) {
                             tracing::error!(
                                 "Failed to send alert for order_id {}: {:?}",
                                 pending_swap.order_id,
@@ -436,6 +432,26 @@ impl MonitorManager {
         Ok(())
     }
 
+    /// Fetch price data for a set of tokens using cache-first strategy.
+    ///
+    /// Behavior:
+    /// - Normalizes all incoming token ids to Codex format.
+    /// - Returns cached entries whose price != 0.0 (a zero price is treated as “no data”).
+    /// - For cache misses, batches and fetches fresh prices via Codex.
+    /// - If subscriptions mode is enabled (`!self.polling_mode.0`), subscribes to live updates
+    ///   for the newly-fetched tokens as a side effect.
+    /// - Updates the internal `coin_cache` with any newly-fetched prices and returns the merged map.
+    ///
+    /// Parameters:
+    /// - `token_ids`: unique set of tokens (chain/address) to resolve.
+    ///
+    /// Returns:
+    /// - `HashMap<TokenId, TokenPrice>` with the tokens successfully resolved either from cache
+    ///   or fetched. Tokens not returned by Codex remain absent from the map.
+    ///
+    /// Errors:
+    /// - Propagates any error from Codex price fetching and, when in subscription mode, from
+    ///   subscribing to tokens.
     async fn get_coins_data(
         &mut self,
         token_ids: HashSet<TokenId>,
@@ -470,8 +486,10 @@ impl MonitorManager {
             return Ok(result);
         }
         // Fetch data from Codex
-        let data: HashMap<TokenId, TokenPrice> =
+        let mut data: HashMap<TokenId, TokenPrice> =
             self.get_tokens_data(tokens_not_in_cache.clone()).await?;
+
+        self.update_tokens_metadata(&mut data).await?;
 
         tracing::debug!("Fetched tokens data from Codex: {:?}", data);
         // Subscribe to price updates for these tokens
@@ -492,19 +510,74 @@ impl MonitorManager {
         Ok(result)
     }
 
+    async fn update_tokens_metadata(
+        &mut self,
+        tokens_prices: &mut HashMap<TokenId, TokenPrice>,
+    ) -> EstimatorResult<()> {
+        // Update data fetched with token metadata
+        let mut missing_tokens_metadata: HashSet<TokenId> = HashSet::new();
+        for (token_id, token_price) in tokens_prices.iter_mut() {
+            if let Some(metadata) = self.token_metadata.get(token_id) {
+                token_price.decimals = metadata.decimals;
+            } else {
+                missing_tokens_metadata.insert(token_id.clone());
+            }
+        }
+
+        // Fetch and apply metadata for missing tokens, then cache it
+        if !missing_tokens_metadata.is_empty() {
+            let fetched = self.get_tokens_metadata(missing_tokens_metadata).await?;
+            for (token_id, meta) in fetched.iter() {
+                // cache metadata for future requests
+                self.token_metadata.insert(token_id.clone(), meta.clone());
+                // update decimals in the fetched prices
+                if let Some(price) = tokens_prices.get_mut(token_id) {
+                    price.decimals = meta.decimals;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     // Gestionar un PriceEvent: actualizar cache, re-evaluar órdenes afectadas, limpiar y desuscribir tokens si ya no quedan swaps que dependan de ellos.
     async fn on_price_event(&mut self, mut event: PriceEvent) {
         // Sanitizing token id:
         event.token = TokenId::new_for_codex(event.token.chain.clone(), &event.token.address);
         // Get metadata for the token if not present
-        let token_decimals = if let Some(token_data) = self.coin_cache.get(&event.token) {
+        let token_decimals = if let Some(token_data) = self.token_metadata.get(&event.token) {
             token_data.decimals
         } else {
             tracing::warn!(
                 "Token data not found in cache for {:?}, fetching metadata. Unable to process price event.",
                 event.token
             );
-            return;
+            let mut one = HashSet::new();
+            one.insert(event.token.clone());
+            match self.get_tokens_metadata(one).await {
+                Ok(fetched) => {
+                    if let Some(meta) = fetched.get(&event.token) {
+                        self.token_metadata
+                            .insert(event.token.clone(), meta.clone());
+                        meta.decimals
+                    } else {
+                        // Conservative fallback: ignore this event
+                        tracing::warn!(
+                            "Missing metadata for {:?}; skipping price event",
+                            event.token
+                        );
+                        return;
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to fetch metadata for {:?}: {:?}; skipping event",
+                        event.token,
+                        err
+                    );
+                    return;
+                }
+            }
         };
         // Update in-memory cache
         self.coin_cache.insert(
@@ -581,13 +654,9 @@ impl MonitorManager {
                             "Swap is feasible for order_id: {}, sending alert",
                             pending_swap.order_id
                         );
-                        if let Err(e) = self
-                            .alert_sender
-                            .send(MonitorAlert::SwapIsFeasible {
-                                order_id: pending_swap.order_id.clone(),
-                            })
-                            .await
-                        {
+                        if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
+                            order_id: pending_swap.order_id.clone(),
+                        }) {
                             tracing::error!(
                                 "Failed to send alert for order_id {}: {:?}",
                                 pending_swap.order_id,
@@ -658,7 +727,7 @@ impl MonitorManager {
     async fn get_tokens_data(
         &self,
         token_ids: HashSet<TokenId>,
-    ) -> Result<HashMap<TokenId, TokenPrice>, Error> {
+    ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
         // Refine token ids to codex format
         let token_ids: Vec<TokenId> = token_ids
             .into_iter()
@@ -691,7 +760,51 @@ impl MonitorManager {
                 }
                 Err(e) => {
                     tracing::error!("Codex batch get_tokens_price failed: {:?}", e);
-                    return Err(e.current_context().clone());
+                    return Err(e);
+                }
+            }
+        }
+
+        Ok(combined)
+    }
+
+    async fn get_tokens_metadata(
+        &mut self,
+        token_ids: HashSet<TokenId>,
+    ) -> EstimatorResult<HashMap<TokenId, TokenMetadata>> {
+        // Refine token ids to codex format
+        let token_ids: Vec<TokenId> = token_ids
+            .into_iter()
+            .map(|t| TokenId::new_for_codex(t.chain.clone(), &t.address))
+            .collect();
+        tracing::debug!("Fetching tokens data for {:?} from Codex", token_ids);
+
+        // Split into batches of up to 25 tokens
+        const BATCH_SIZE: usize = 25;
+        let mut batches: Vec<HashSet<TokenId>> = Vec::new();
+        for chunk in token_ids.chunks(BATCH_SIZE) {
+            batches.push(chunk.iter().cloned().collect());
+        }
+
+        // Fire all batch requests in parallel
+        let provider = &self.codex_provider;
+        let fetches = batches.into_iter().map(|batch| {
+            // each future captures provider by shared reference
+            async move { provider.fetch_token_metadata(&batch).await }
+        });
+
+        let results = future::join_all(fetches).await;
+
+        // Merge results, fail fast on any batch error
+        let mut combined: HashMap<TokenId, TokenMetadata> = HashMap::new();
+        for res in results.into_iter() {
+            match res {
+                Ok(mut map) => {
+                    combined.extend(map.drain());
+                }
+                Err(e) => {
+                    tracing::error!("Codex batch fetch_token_metadata failed: {:?}", e);
+                    return Err(e);
                 }
             }
         }
@@ -713,7 +826,10 @@ impl MonitorManager {
             .collect::<HashSet<_>>();
         let tokens_data = if self.polling_mode.0 {
             // Fetch fresh data from the API as cache might not be updated
-            self.get_coins_data(tokens_to_search).await?
+            let tokens_data = self.get_tokens_data(tokens_to_search).await?;
+            self.update_tokens_metadata(&mut tokens_data.clone())
+                .await?;
+            tokens_data
         } else {
             // Cache should be updated via subscriptions
             self.get_coins_data(tokens_to_search).await?
@@ -922,7 +1038,7 @@ fn required_monitor_estimation_for_solver_fulfillment(
 mod tests {
     use super::*;
     use intents_models::{constants::chains::ChainId, log::init_tracing};
-    use tokio::sync::mpsc;
+    use tokio::sync::{broadcast, mpsc};
 
     fn create_coin_data(price: f64, decimals: u8) -> TokenPrice {
         TokenPrice { price, decimals }
@@ -1329,7 +1445,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =
@@ -1400,7 +1516,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =
@@ -1457,7 +1573,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =
@@ -1500,7 +1616,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =
@@ -1568,7 +1684,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =
@@ -1659,7 +1775,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =
@@ -1723,7 +1839,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =
