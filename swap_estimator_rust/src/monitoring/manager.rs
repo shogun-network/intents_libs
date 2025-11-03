@@ -539,26 +539,28 @@ impl MonitorManager {
         // Update data fetched with token metadata
         let mut missing_tokens_metadata: HashSet<TokenId> = HashSet::new();
         for (token_id, token_price) in tokens_prices.iter_mut() {
-            if let Some(metadata) = self.token_metadata.get(token_id) {
+            let codex_id = TokenId::new_for_codex(token_id.chain, &token_id.address);
+            if let Some(metadata) = self.token_metadata.get(&codex_id) {
                 token_price.decimals = metadata.decimals;
             } else {
-                missing_tokens_metadata.insert(token_id.clone());
+                missing_tokens_metadata.insert(codex_id);
             }
         }
-
         // Fetch and apply metadata for missing tokens, then cache it
         if !missing_tokens_metadata.is_empty() {
             let fetched = self.get_tokens_metadata(missing_tokens_metadata).await?;
             for (token_id, meta) in fetched.iter() {
                 // cache metadata for future requests
                 self.token_metadata.insert(token_id.clone(), meta.clone());
-                // update decimals in the fetched prices
-                if let Some(price) = tokens_prices.get_mut(token_id) {
-                    price.decimals = meta.decimals;
+            }
+            // update decimals for all entries (original + codex aliases)
+            for (token_id, token_price) in tokens_prices.iter_mut() {
+                let codex_id = TokenId::new_for_codex(token_id.chain, &token_id.address);
+                if let Some(meta) = self.token_metadata.get(&codex_id) {
+                    token_price.decimals = meta.decimals;
                 }
             }
         }
-
         Ok(())
     }
 
@@ -860,9 +862,8 @@ impl MonitorManager {
             .collect::<HashSet<_>>();
         let tokens_data = if self.polling_mode.0 {
             // Fetch fresh data from the API as cache might not be updated
-            let tokens_data = self.get_tokens_data(tokens_to_search).await?;
-            self.update_tokens_metadata(&mut tokens_data.clone())
-                .await?;
+            let mut tokens_data = self.get_tokens_data(tokens_to_search).await?;
+            self.update_tokens_metadata(&mut tokens_data).await?;
             tokens_data
         } else {
             // Cache should be updated via subscriptions
