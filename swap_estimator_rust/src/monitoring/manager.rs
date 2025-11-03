@@ -268,7 +268,9 @@ impl MonitorManager {
                 order.token_out.clone(),
             ));
         }
-        let tokens_info = self.get_coins_data(token_ids).await?;
+        let mut tokens_info = self.get_tokens_data(token_ids).await?;
+        self.update_tokens_metadata(&mut tokens_info).await?;
+
         match crate::prices::estimating::estimate_orders_amount_out(orders, tokens_info).await {
             Ok(result) => Ok(result),
             Err(e) => {
@@ -1035,12 +1037,12 @@ fn required_monitor_estimation_for_solver_fulfillment(
     }
 
     // Observed solver/monitor ratio from the failed bid:
-    let a_obs = bid_solver / est_monitor;
+    // let a_obs = bid_solver / est_monitor;
 
-    if a_obs <= Decimal::ZERO {
-        return Err(report!(Error::ParseError)
-            .attach_printable("Observed solver/monitor ratio is non-positive"));
-    }
+    // if a_obs <= Decimal::ZERO {
+    //     return Err(report!(Error::ParseError)
+    //         .attach_printable("Observed solver/monitor ratio is non-positive"));
+    // }
 
     // let threshold_low = Decimal::from_str("0.95").change_context(Error::ParseError)?;
     // let candidate_dec = if a_obs < threshold_low {
@@ -1062,10 +1064,16 @@ fn required_monitor_estimation_for_solver_fulfillment(
     // };
 
     // Doing simpler method for now:
+    // let candidate_dec = {
+    //     // Simple average method
+    //     let solver_diff = min_user - bid_solver;
+    //     est_monitor + (solver_diff / Decimal::from(5u8))
+    // };
+
+    // More complex method with benevolent margin:
     let candidate_dec = {
-        // Simple average method
-        let solver_diff = min_user - bid_solver;
-        est_monitor + (solver_diff / Decimal::from(5u8))
+        let estimated_deviation = ((est_monitor - bid_solver) / bid_solver) / Decimal::from(3u8);
+        min_user * (Decimal::ONE + estimated_deviation)
     };
 
     Ok(candidate_dec.to_u128().ok_or(Error::ParseError)?)
