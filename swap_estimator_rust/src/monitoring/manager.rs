@@ -479,8 +479,10 @@ impl MonitorManager {
                     codex_id,
                     data
                 );
+                if orig_id != codex_id {
+                    result.insert(codex_id, data.clone());
+                }
                 result.insert(orig_id, data.clone());
-                result.insert(codex_id, data.clone());
             } else {
                 tracing::debug!(
                     "Cache miss for original {:?} (codex {:?}); fetching...",
