@@ -7,7 +7,7 @@ use swap_estimator_rust::monitoring::manager::MonitorManager;
 use swap_estimator_rust::monitoring::messages::{MonitorAlert, MonitorRequest};
 use swap_estimator_rust::prices::TokenId;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 
 #[tokio::main]
 async fn main() {
@@ -25,7 +25,7 @@ async fn run() -> Result<(), String> {
         .map_err(|_| "CODEX_API_KEY environment variable is not set".to_string())?;
 
     // Alerts channel (manager -> this binary)
-    let (alert_tx, mut alert_rx) = mpsc::channel::<MonitorAlert>(100);
+    let (alert_tx, mut alert_rx) = broadcast::channel::<MonitorAlert>(100);
     // Requests channel (this binary -> manager)
     let (monitor_tx, monitor_rx) = mpsc::channel::<MonitorRequest>(100);
 
@@ -39,7 +39,7 @@ async fn run() -> Result<(), String> {
 
     // Spawn alerts listener
     tokio::spawn(async move {
-        while let Some(alert) = alert_rx.recv().await {
+        while let Ok(alert) = alert_rx.recv().await {
             match alert {
                 MonitorAlert::SwapIsFeasible { order_id } => {
                     println!("[ALERT] Swap is feasible for order_id={order_id}");
