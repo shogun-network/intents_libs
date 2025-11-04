@@ -28,6 +28,14 @@ pub struct CrossChainSolverStartPermission {
     pub min_stablecoins_amount: u128,
     /// Address of stablecoins, tokens IN must be swapped into (if allowed)
     pub stablecoins_address: String,
+    /// Amount of collateral for as solver to lock
+    #[serde_as(as = "DisplayFromStr")]
+    pub collateral_amount: u128,
+    /// Amount of protocol fees to pay for order execution
+    #[serde_as(as = "DisplayFromStr")]
+    pub protocol_fee: u128,
+    /// Address of token that is taken as protocol fee/collateral
+    pub collateral_token_address: String,
     /// Deadline in seconds, by which Solver must execute the intent
     pub solver_deadline: u64,
     /// Contains chain-specific data to start order execution on source chain
