@@ -30,7 +30,8 @@ pub fn update_paraswap_native_token(token_address: String) -> String {
 }
 
 pub fn get_paraswap_max_slippage() -> u32 {
-    9_999 // 99.9%
+    // Sometimes it fails with 0 amountOutMin. 50% will be enough anyway
+    5_000 // 50%
 }
 
 #[cfg(test)]
