@@ -1,4 +1,4 @@
-use error_stack::{ResultExt, report};
+use error_stack::report;
 use futures_util::future;
 use intents_models::constants::chains::ChainId;
 use std::{
@@ -7,14 +7,14 @@ use std::{
     u64,
 };
 use strum::IntoEnumIterator;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::Receiver;
 
 use crate::{
     error::{Error, EstimatorResult},
     monitoring::messages::{MonitorAlert, MonitorRequest},
     prices::{
-        PriceEvent, PriceProvider, TokenId, TokenPrice, codex::pricing::CodexProvider,
-        estimating::OrderEstimationData,
+        PriceEvent, PriceProvider, TokenId, TokenMetadata, TokenPrice,
+        codex::pricing::CodexProvider, estimating::OrderEstimationData,
     },
     utils::number_conversion::u128_to_f64,
 };
@@ -39,10 +39,11 @@ pub struct PendingSwap {
 #[derive(Debug)]
 pub struct MonitorManager {
     pub receiver: Receiver<MonitorRequest>,
-    pub alert_sender: Sender<MonitorAlert>,
+    pub alert_sender: tokio::sync::broadcast::Sender<MonitorAlert>,
     pub coin_cache: HashMap<TokenId, TokenPrice>,
     pub pending_swaps: HashMap<String, (PendingSwap, Option<u128>)>, // OrderId to pending swap and optionally, estimated amount out calculated
     pub swaps_by_token: HashMap<TokenId, HashSet<String>>,           // TokenId to OrderIds
+    pub token_metadata: HashMap<TokenId, TokenMetadata>,
     pub codex_provider: CodexProvider,
     pub polling_mode: (bool, u64),
 }
@@ -50,7 +51,7 @@ pub struct MonitorManager {
 impl MonitorManager {
     pub fn new(
         receiver: Receiver<MonitorRequest>,
-        sender: Sender<MonitorAlert>,
+        sender: tokio::sync::broadcast::Sender<MonitorAlert>,
         codex_api_key: String,
         polling_mode: (bool, u64),
     ) -> Self {
@@ -62,6 +63,7 @@ impl MonitorManager {
             coin_cache: HashMap::new(),
             pending_swaps: HashMap::new(),
             swaps_by_token: HashMap::new(),
+            token_metadata: HashMap::new(),
             codex_provider,
             polling_mode,
         }
@@ -146,10 +148,14 @@ impl MonitorManager {
                         })
                         .collect();
 
+                    tracing::debug!("Polling update for tokens: {:?}", tokens_to_fetch);
+
                     // Always check for native tokens too.
                     tokens_to_fetch.extend(native_tokens.clone());
 
-                    let tokens_data = self.get_tokens_data(tokens_to_fetch).await?;
+                    let mut tokens_data = self.get_tokens_data(tokens_to_fetch).await?;
+
+                    self.update_tokens_metadata(&mut tokens_data).await?;
 
                     // Update cache and get updated tokens
                     let updated_tokens = self.update_cache(tokens_data);
@@ -208,7 +214,7 @@ impl MonitorManager {
                                         Err(e) => Err(e.current_context().clone()),
                                     };
                                     match resp.send(to_send) {
-                                        Ok(_) => tracing::debug!("Error response sent successfully"),
+                                        Ok(_) => tracing::debug!("Response sent successfully"),
                                         Err(_) => tracing::error!("Failed to send error response"),
                                     }
                                 }
@@ -255,16 +261,18 @@ impl MonitorManager {
         // Get Token Info for all tokens in orders
         let mut token_ids = HashSet::new();
         for order in orders.iter() {
-            token_ids.insert(TokenId::new_for_codex(
+            token_ids.insert(TokenId::new(
                 order.src_chain.clone(),
-                &order.token_in,
+                order.token_in.clone(),
             ));
-            token_ids.insert(TokenId::new_for_codex(
+            token_ids.insert(TokenId::new(
                 order.dst_chain.clone(),
-                &order.token_out,
+                order.token_out.clone(),
             ));
         }
-        let tokens_info = self.get_coins_data(token_ids).await?;
+        let mut tokens_info = self.get_tokens_data(token_ids).await?;
+        self.update_tokens_metadata(&mut tokens_info).await?;
+
         match crate::prices::estimating::estimate_orders_amount_out(orders, tokens_info).await {
             Ok(result) => Ok(result),
             Err(e) => {
@@ -341,13 +349,9 @@ impl MonitorManager {
                             "Swap is immediately feasible for order_id: {}, sending alert",
                             order_id
                         );
-                        if let Err(e) = self
-                            .alert_sender
-                            .send(MonitorAlert::SwapIsFeasible {
-                                order_id: pending_swap.order_id.clone(),
-                            })
-                            .await
-                        {
+                        if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
+                            order_id: pending_swap.order_id.clone(),
+                        }) {
                             tracing::error!(
                                 "Failed to send alert for order_id {}: {:?}",
                                 pending_swap.order_id,
@@ -367,13 +371,9 @@ impl MonitorManager {
                             "Swap is immediately feasible for order_id: {}, sending alert",
                             order_id
                         );
-                        if let Err(e) = self
-                            .alert_sender
-                            .send(MonitorAlert::SwapIsFeasible {
-                                order_id: pending_swap.order_id.clone(),
-                            })
-                            .await
-                        {
+                        if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
+                            order_id: pending_swap.order_id.clone(),
+                        }) {
                             tracing::error!(
                                 "Failed to send alert for order_id {}: {:?}",
                                 pending_swap.order_id,
@@ -436,60 +436,134 @@ impl MonitorManager {
         Ok(())
     }
 
+    /// Fetch price data for a set of tokens using cache-first strategy.
+    ///
+    /// Behavior:
+    /// - Normalizes all incoming token ids to Codex format.
+    /// - Returns cached entries whose price != 0.0 (a zero price is treated as “no data”).
+    /// - For cache misses, batches and fetches fresh prices via Codex.
+    /// - If subscriptions mode is enabled (`!self.polling_mode.0`), subscribes to live updates
+    ///   for the newly-fetched tokens as a side effect.
+    /// - Updates the internal `coin_cache` with any newly-fetched prices and returns the merged map.
+    ///
+    /// Parameters:
+    /// - `token_ids`: unique set of tokens (chain/address) to resolve.
+    ///
+    /// Returns:
+    /// - `HashMap<TokenId, TokenPrice>` with the tokens successfully resolved either from cache
+    ///   or fetched. Tokens not returned by Codex remain absent from the map.
+    ///
+    /// Errors:
+    /// - Propagates any error from Codex price fetching and, when in subscription mode, from
+    ///   subscribing to tokens.
     async fn get_coins_data(
         &mut self,
         token_ids: HashSet<TokenId>,
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
         let mut result = HashMap::new();
-        let mut tokens_not_in_cache = HashSet::new();
+        let mut tokens_not_in_cache: HashSet<TokenId> = HashSet::new();
+        // Keep a mapping from original -> codex ids so we can return original keys
+        let mut orig_to_codex: HashMap<TokenId, TokenId> = HashMap::new();
 
-        for token_id in token_ids.into_iter() {
-            // Refine token id to codex format
-            let token_id = TokenId::new_for_codex(token_id.chain.clone(), &token_id.address);
-            // Add token to cache if not already present
-            let chain = token_id.chain.clone();
-            let address = token_id.address.clone();
-            // If we have it in our cache, return it
-            if let Some(data) = self.coin_cache.get(&token_id)
+        for orig_id in token_ids.into_iter() {
+            let codex_id = TokenId::new_for_codex(orig_id.chain.clone(), &orig_id.address);
+            orig_to_codex.insert(orig_id.clone(), codex_id.clone());
+
+            // If we have it in our cache (by CODEX id) and price != 0, return it under ORIGINAL id
+            if let Some(data) = self.coin_cache.get(&codex_id)
                 && data.price != 0.0
             {
-                // If price is 0.0, it means we don't have data
-                tracing::debug!("Cache hit for {:?}: {:?}", (chain, address), data);
-                result.insert(token_id, data.clone());
+                tracing::debug!(
+                    "Cache hit for original {:?} (codex {:?}): {:?}",
+                    orig_id,
+                    codex_id,
+                    data
+                );
+                if orig_id != codex_id {
+                    result.insert(codex_id, data.clone());
+                }
+                result.insert(orig_id, data.clone());
             } else {
                 tracing::debug!(
-                    "Cache miss for chain: {}, token: {}, fetching...",
-                    chain,
-                    address
+                    "Cache miss for original {:?} (codex {:?}); fetching...",
+                    orig_id,
+                    codex_id
                 );
-                tokens_not_in_cache.insert(token_id);
+                tokens_not_in_cache.insert(codex_id);
             }
         }
-        // If we have tokens not in cache, fetch them
+
+        // If we have nothing to fetch, return what we already collected
         if tokens_not_in_cache.is_empty() {
             return Ok(result);
         }
-        // Fetch data from Codex
-        let data: HashMap<TokenId, TokenPrice> =
+
+        // Fetch data from Codex (keys are CODEX ids)
+        let mut fetched_by_codex: HashMap<TokenId, TokenPrice> =
             self.get_tokens_data(tokens_not_in_cache.clone()).await?;
 
-        tracing::debug!("Fetched tokens data from Codex: {:?}", data);
-        // Subscribe to price updates for these tokens
+        self.update_tokens_metadata(&mut fetched_by_codex).await?;
+        tracing::debug!("Fetched tokens data from Codex: {:?}", fetched_by_codex);
+
+        // Subscribe to live updates (by CODEX id)
         if !self.polling_mode.0 {
             for token in tokens_not_in_cache {
                 self.codex_provider.subscribe_to_token(token).await?;
             }
         }
 
-        // Update coin cache
-        for (token_id, token_price) in data.iter() {
+        // Update coin cache (by CODEX id)
+        for (codex_id, token_price) in fetched_by_codex.iter() {
             self.coin_cache
-                .insert(token_id.clone(), token_price.clone());
+                .insert(codex_id.clone(), token_price.clone());
         }
 
-        result.extend(data);
+        // Map fetched CODEX entries back to ORIGINAL keys for the output
+        for (orig_id, codex_id) in orig_to_codex.into_iter() {
+            if result.contains_key(&orig_id) {
+                continue; // already satisfied from cache
+            }
+            if let Some(price) = fetched_by_codex.get(&codex_id) {
+                result.insert(orig_id, price.clone());
+                result.insert(codex_id, price.clone());
+            }
+        }
+
+        tracing::debug!("Final token prices: {:?}", result);
 
         Ok(result)
+    }
+
+    async fn update_tokens_metadata(
+        &mut self,
+        tokens_prices: &mut HashMap<TokenId, TokenPrice>,
+    ) -> EstimatorResult<()> {
+        // Update data fetched with token metadata
+        let mut missing_tokens_metadata: HashSet<TokenId> = HashSet::new();
+        for (token_id, token_price) in tokens_prices.iter_mut() {
+            let codex_id = TokenId::new_for_codex(token_id.chain, &token_id.address);
+            if let Some(metadata) = self.token_metadata.get(&codex_id) {
+                token_price.decimals = metadata.decimals;
+            } else {
+                missing_tokens_metadata.insert(codex_id);
+            }
+        }
+        // Fetch and apply metadata for missing tokens, then cache it
+        if !missing_tokens_metadata.is_empty() {
+            let fetched = self.get_tokens_metadata(missing_tokens_metadata).await?;
+            for (token_id, meta) in fetched.iter() {
+                // cache metadata for future requests
+                self.token_metadata.insert(token_id.clone(), meta.clone());
+            }
+            // update decimals for all entries (original + codex aliases)
+            for (token_id, token_price) in tokens_prices.iter_mut() {
+                let codex_id = TokenId::new_for_codex(token_id.chain, &token_id.address);
+                if let Some(meta) = self.token_metadata.get(&codex_id) {
+                    token_price.decimals = meta.decimals;
+                }
+            }
+        }
+        Ok(())
     }
 
     // Gestionar un PriceEvent: actualizar cache, re-evaluar órdenes afectadas, limpiar y desuscribir tokens si ya no quedan swaps que dependan de ellos.
@@ -497,14 +571,39 @@ impl MonitorManager {
         // Sanitizing token id:
         event.token = TokenId::new_for_codex(event.token.chain.clone(), &event.token.address);
         // Get metadata for the token if not present
-        let token_decimals = if let Some(token_data) = self.coin_cache.get(&event.token) {
+        let token_decimals = if let Some(token_data) = self.token_metadata.get(&event.token) {
             token_data.decimals
         } else {
             tracing::warn!(
                 "Token data not found in cache for {:?}, fetching metadata. Unable to process price event.",
                 event.token
             );
-            return;
+            let mut one = HashSet::new();
+            one.insert(event.token.clone());
+            match self.get_tokens_metadata(one).await {
+                Ok(fetched) => {
+                    if let Some(meta) = fetched.get(&event.token) {
+                        self.token_metadata
+                            .insert(event.token.clone(), meta.clone());
+                        meta.decimals
+                    } else {
+                        // Conservative fallback: ignore this event
+                        tracing::warn!(
+                            "Missing metadata for {:?}; skipping price event",
+                            event.token
+                        );
+                        return;
+                    }
+                }
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to fetch metadata for {:?}: {:?}; skipping event",
+                        event.token,
+                        err
+                    );
+                    return;
+                }
+            }
         };
         // Update in-memory cache
         self.coin_cache.insert(
@@ -581,13 +680,9 @@ impl MonitorManager {
                             "Swap is feasible for order_id: {}, sending alert",
                             pending_swap.order_id
                         );
-                        if let Err(e) = self
-                            .alert_sender
-                            .send(MonitorAlert::SwapIsFeasible {
-                                order_id: pending_swap.order_id.clone(),
-                            })
-                            .await
-                        {
+                        if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
+                            order_id: pending_swap.order_id.clone(),
+                        }) {
                             tracing::error!(
                                 "Failed to send alert for order_id {}: {:?}",
                                 pending_swap.order_id,
@@ -658,7 +753,67 @@ impl MonitorManager {
     async fn get_tokens_data(
         &self,
         token_ids: HashSet<TokenId>,
-    ) -> Result<HashMap<TokenId, TokenPrice>, Error> {
+    ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
+        // Build mapping original -> codex to preserve both keys in the output
+        let mut orig_to_codex: Vec<(TokenId, TokenId)> = Vec::new();
+        let mut codex_set: HashSet<TokenId> = HashSet::new();
+
+        for orig in token_ids.into_iter() {
+            let codex = TokenId::new_for_codex(orig.chain.clone(), &orig.address);
+            orig_to_codex.push((orig, codex.clone()));
+            codex_set.insert(codex);
+        }
+
+        let codex_ids: Vec<TokenId> = codex_set.into_iter().collect();
+        tracing::debug!("Fetching tokens data for {:?} from Codex", codex_ids);
+
+        // Split into batches of up to 25 tokens (by CODEX ids)
+        const BATCH_SIZE: usize = 25;
+        let mut batches: Vec<HashSet<TokenId>> = Vec::new();
+        for chunk in codex_ids.chunks(BATCH_SIZE) {
+            batches.push(chunk.iter().cloned().collect());
+        }
+
+        // Fire all batch requests in parallel
+        let provider = &self.codex_provider;
+        let fetches = batches.into_iter().map(|batch| {
+            // each future captures provider by shared reference
+            async move { provider.get_tokens_price(batch, !self.polling_mode.0).await }
+        });
+
+        let results = future::join_all(fetches).await;
+
+        // Merge results, fail fast on any batch error (keys are CODEX ids)
+        let mut combined_by_codex: HashMap<TokenId, TokenPrice> = HashMap::new();
+        for res in results.into_iter() {
+            match res {
+                Ok(mut map) => {
+                    combined_by_codex.extend(map.drain());
+                }
+                Err(e) => {
+                    tracing::error!("Codex batch get_tokens_price failed: {:?}", e);
+                    return Err(e);
+                }
+            }
+        }
+
+        // Build final map
+        let mut result: HashMap<TokenId, TokenPrice> = combined_by_codex.clone();
+        for (orig, codex) in orig_to_codex.into_iter() {
+            if let Some(price) = combined_by_codex.get(&codex) {
+                // Insert also under the original key; if orig == codex this is a no-op
+                result.entry(orig).or_insert_with(|| price.clone());
+                result.entry(codex).or_insert_with(|| price.clone());
+            }
+        }
+
+        Ok(result)
+    }
+
+    async fn get_tokens_metadata(
+        &mut self,
+        token_ids: HashSet<TokenId>,
+    ) -> EstimatorResult<HashMap<TokenId, TokenMetadata>> {
         // Refine token ids to codex format
         let token_ids: Vec<TokenId> = token_ids
             .into_iter()
@@ -677,21 +832,21 @@ impl MonitorManager {
         let provider = &self.codex_provider;
         let fetches = batches.into_iter().map(|batch| {
             // each future captures provider by shared reference
-            async move { provider.get_tokens_price(batch, !self.polling_mode.0).await }
+            async move { provider.fetch_token_metadata(&batch).await }
         });
 
         let results = future::join_all(fetches).await;
 
         // Merge results, fail fast on any batch error
-        let mut combined: HashMap<TokenId, TokenPrice> = HashMap::new();
+        let mut combined: HashMap<TokenId, TokenMetadata> = HashMap::new();
         for res in results.into_iter() {
             match res {
                 Ok(mut map) => {
                     combined.extend(map.drain());
                 }
                 Err(e) => {
-                    tracing::error!("Codex batch get_tokens_price failed: {:?}", e);
-                    return Err(e.current_context().clone());
+                    tracing::error!("Codex batch fetch_token_metadata failed: {:?}", e);
+                    return Err(e);
                 }
             }
         }
@@ -701,19 +856,17 @@ impl MonitorManager {
 
     async fn evaluate_coins(
         &mut self,
-        mut tokens: Vec<(TokenId, u128)>,
+        tokens: Vec<(TokenId, u128)>,
     ) -> EstimatorResult<(Vec<f64>, f64)> {
-        // Sanitize token ids
-        for token in tokens.iter_mut() {
-            token.0 = TokenId::new_for_codex(token.0.chain.clone(), &token.0.address);
-        }
         let tokens_to_search = tokens
             .iter()
             .map(|(token_id, _)| token_id.clone())
             .collect::<HashSet<_>>();
         let tokens_data = if self.polling_mode.0 {
             // Fetch fresh data from the API as cache might not be updated
-            self.get_coins_data(tokens_to_search).await?
+            let mut tokens_data = self.get_tokens_data(tokens_to_search).await?;
+            self.update_tokens_metadata(&mut tokens_data).await?;
+            tokens_data
         } else {
             // Cache should be updated via subscriptions
             self.get_coins_data(tokens_to_search).await?
@@ -840,6 +993,9 @@ fn estimate_amount_out(
             pending_swap,
             estimated_amount_out
         );
+
+        // dbg!(&pending_swap.order_id, estimated_amount_out);
+
         Ok(estimated_amount_out)
     } else {
         Err(report!(Error::TokenNotFound(format!(
@@ -883,37 +1039,53 @@ fn required_monitor_estimation_for_solver_fulfillment(
     let bid_solver = Decimal::from_u128(bid_solver).ok_or(Error::ParseError)?;
     let est_monitor = Decimal::from_u128(est_monitor).ok_or(Error::ParseError)?;
     let min_user = Decimal::from_u128(min_user).ok_or(Error::ParseError)?;
+    // dbg!(min_user, bid_solver, est_monitor);
 
     if est_monitor.is_zero() {
         return Err(report!(Error::ParseError).attach_printable("Estimated monitor amount is zero"));
     }
 
     // Observed solver/monitor ratio from the failed bid:
-    let a_obs = bid_solver / est_monitor;
+    // let a_obs = bid_solver / est_monitor;
 
-    if a_obs <= Decimal::ZERO {
-        return Err(report!(Error::ParseError)
-            .attach_printable("Observed solver/monitor ratio is non-positive"));
-    }
+    // if a_obs <= Decimal::ZERO {
+    //     return Err(report!(Error::ParseError)
+    //         .attach_printable("Observed solver/monitor ratio is non-positive"));
+    // }
 
-    let threshold_low = Decimal::from_str("0.9").change_context(Error::ParseError)?;
-    let candidate_dec = if a_obs < threshold_low {
-        // Simple average method
-        let solver_diff = min_user - bid_solver;
-        est_monitor + (solver_diff / Decimal::from(3u8))
-    } else {
-        // Porcentage method
-        // Half a_obs margin with 1.0 to get less false negatives
-        let half_a_obs_margin = {
-            let diff = (Decimal::ONE - a_obs) / Decimal::from(2u8);
-            Decimal::ONE - diff
-        };
-        let mut m_req = min_user / half_a_obs_margin;
-        if m_req < est_monitor {
-            m_req = est_monitor / half_a_obs_margin;
-        }
-        m_req
+    // let threshold_low = Decimal::from_str("0.95").change_context(Error::ParseError)?;
+    // let candidate_dec = if a_obs < threshold_low {
+    //     // Simple average method
+    //     let solver_diff = min_user - bid_solver;
+    //     est_monitor + (solver_diff / Decimal::from(5u8))
+    // } else {
+    //     // Porcentage method
+    //     // Lower a_obs margin with 1.0 to get less false negatives
+    //     let lower_a_obs_margin = {
+    //         let diff = (Decimal::ONE - a_obs) / Decimal::from(3u8);
+    //         Decimal::ONE - diff
+    //     };
+    //     let mut m_req = min_user / lower_a_obs_margin;
+    //     if m_req < est_monitor {
+    //         m_req = est_monitor / lower_a_obs_margin;
+    //     }
+    //     m_req
+    // };
+
+    // Doing simpler method for now:
+    // let candidate_dec = {
+    //     // Simple average method
+    //     let solver_diff = min_user - bid_solver;
+    //     est_monitor + (solver_diff / Decimal::from(5u8));
+    // };
+
+    // // More complex method with benevolent margin:
+    let candidate_dec = {
+        let estimated_deviation = (est_monitor - bid_solver) / bid_solver;
+        min_user * (Decimal::ONE + estimated_deviation)
     };
+
+    // dbg!(candidate_dec);
 
     Ok(candidate_dec.to_u128().ok_or(Error::ParseError)?)
 }
@@ -922,7 +1094,7 @@ fn required_monitor_estimation_for_solver_fulfillment(
 mod tests {
     use super::*;
     use intents_models::{constants::chains::ChainId, log::init_tracing};
-    use tokio::sync::mpsc;
+    use tokio::sync::{broadcast, mpsc};
 
     fn create_coin_data(price: f64, decimals: u8) -> TokenPrice {
         TokenPrice { price, decimals }
@@ -1329,7 +1501,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =
@@ -1400,7 +1572,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =
@@ -1457,7 +1629,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =
@@ -1500,7 +1672,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =
@@ -1568,7 +1740,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =
@@ -1659,7 +1831,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =
@@ -1723,7 +1895,7 @@ mod tests {
                 return;
             }
         };
-        let (sender, _receiver) = mpsc::channel(10);
+        let (sender, _receiver) = broadcast::channel(10);
         let (_, monitor_receiver) = mpsc::channel(10);
 
         let mut monitor_manager =

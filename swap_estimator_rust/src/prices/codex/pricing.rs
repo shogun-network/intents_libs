@@ -68,7 +68,7 @@ subscription OnPriceUpdated($address: String!, $networkId: Int!) {
 
 const MAX_SUBSCRIPTIONS_PER_CONNECTION: usize = 20;
 const MAX_CONNECTIONS: usize = 300;
-const INITIAL_PRICE_QUERY: &str = r#"
+const GET_TOKEN_PRICE_QUERY: &str = r#"
 query GetTokenPrice($inputs: [GetPriceInput!]!) {
     prices: getTokenPrices(inputs: $inputs) {
         address
@@ -173,6 +173,14 @@ impl CodexProvider {
     pub async fn subscribe_events(&self) -> EstimatorResult<broadcast::Receiver<PriceEvent>> {
         let pool = self.pool().await?;
         Ok(pool.get_events_subscriber())
+    }
+
+    pub async fn fetch_token_metadata(
+        &self,
+        tokens: &HashSet<TokenId>,
+    ) -> EstimatorResult<HashMap<TokenId, TokenMetadata>> {
+        let pool = self.pool().await?;
+        pool.fetch_token_metadata(&tokens).await
     }
 }
 
@@ -318,6 +326,106 @@ impl CodexConnectionPool {
             return client.latest_price(token).await;
         }
         None
+    }
+
+    async fn fetch_prices(
+        &self,
+        tokens: &[TokenId],
+    ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
+        if tokens.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Build lookup to map response (networkId,address) back to requested TokenId
+        let mut lookup: HashMap<(i64, String), TokenId> = HashMap::new();
+        let mut inputs = Vec::with_capacity(tokens.len());
+        for token_id in tokens.iter() {
+            let network = token_id.chain.to_codex_chain_number();
+            let address = token_id.address.to_lowercase();
+            lookup.insert((network, address.clone()), token_id.clone());
+            inputs.push(serde_json::json!({
+                "address": token_id.address,
+                "networkId": network
+            }));
+        }
+
+        let response = self
+            .http_client
+            .post(CODEX_HTTP_URL)
+            .json(&serde_json::json!({
+                "query": GET_TOKEN_PRICE_QUERY,
+                "variables": { "inputs": inputs }
+            }))
+            .send()
+            .await
+            .change_context(Error::ResponseError)
+            .attach_printable("Failed to send Codex HTTP price request")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .change_context(Error::ResponseError)
+                .attach_printable("Failed to read Codex HTTP error response")?;
+            return Err(report!(Error::ResponseError).attach_printable(format!(
+                "Codex HTTP price request failed with status {}: {}",
+                status.as_u16(),
+                body
+            )));
+        }
+
+        let payload: serde_json::Value = response
+            .json()
+            .await
+            .change_context(Error::ResponseError)
+            .attach_printable("Failed to deserialize Codex HTTP price response")?;
+
+        tracing::debug!("Codex HTTP price response payload: {:#?}", payload);
+
+        let payload = serde_json::from_value::<CodexGraphqlResponse<CodexGetPricesData>>(payload)
+            .change_context(Error::SerdeDeserialize(
+            "Failed to deserialize Codex HTTP price GraphQL response".to_string(),
+        ))?;
+
+        if let Some(errors) = payload.errors.as_ref() {
+            if !errors.is_empty() {
+                tracing::warn!(
+                    "Codex HTTP price batch response contained errors: {:?}",
+                    errors
+                );
+            }
+        }
+
+        let Some(data) = payload.data else {
+            return Err(report!(Error::ResponseError)
+                .attach_printable(format!("No data found in Codex HTTP price response")));
+        };
+
+        let mut out = HashMap::new();
+        for item in data.prices.into_iter() {
+            let Some(item) = item else {
+                continue;
+            };
+            // Map back to the original requested TokenId using (networkId, lowercase address)
+            let key = (item.network_id, item.address.to_lowercase());
+            if let Some(token_id) = lookup.get(&key) {
+                let price = TokenPrice {
+                    price: item.price_usd,
+                    decimals: default_decimals(token_id),
+                };
+                out.insert(token_id.clone(), price);
+            } else {
+                // Defensive: response returned an entry we didn't request
+                tracing::debug!(
+                    "Ignoring Codex price for unrequested token: networkId={}, address={}",
+                    item.network_id,
+                    item.address
+                );
+            }
+        }
+
+        Ok(out)
     }
 
     async fn fetch_token_metadata(
@@ -598,7 +706,7 @@ impl PriceProvider for CodexProvider {
 
         // For missing tokens, fetch price via HTTP
         let missing = missing.into_iter().collect::<Vec<_>>();
-        match pool.fetch_price_and_metadata(&missing).await {
+        match pool.fetch_prices(&missing).await {
             Ok(prices) => {
                 for (token, price) in prices.into_iter() {
                     result.insert(token, price);
