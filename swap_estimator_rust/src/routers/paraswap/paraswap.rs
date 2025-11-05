@@ -284,30 +284,17 @@ mod tests {
             dest_token: to_token_address,
             amount: amount.to_string(),
             side: Some(ParaswapSide::SELL),
-            chain_id: ChainId::Base as u32,
-            other_exchange_prices: None,
-            include_dexs: None,
-            exclude_dexs: None,
-            exclude_rfq: None,
-            include_contract_methods: None,
-            exclude_contract_methods: None,
+            chain_id: (ChainId::Base as u32).to_string(),
             user_address: Some(
                 "0xb5b7FeCdA25d948e62Ce397404Bf765d8b09A4c4"
                     .to_string()
                     .to_lowercase(),
             ),
-            route: None,
-            partner: None,
             dest_decimals: 18,
             max_impact: None,
             receiver: None,
-            src_token_transfer_fee: None,
-            dest_token_transfer_fee: None,
-            src_token_dex_transfer_fee: None,
-            dest_token_dex_transfer_fee: None,
             version: Some(6.2),
-            exclude_contract_methods_without_fee_model: None,
-            ignore_bad_usd_price: None,
+            exclude_dexs: Some("ParaSwapPool,ParaSwapLimitOrders".to_string()), // Had to add this to set ignoreChecks as true on transaction request
         };
 
         let amount_out = estimate_amount_paraswap(request)
