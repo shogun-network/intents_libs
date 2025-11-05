@@ -92,12 +92,12 @@ impl MonitorManager {
         let mut unsubscriptions_interval = if !self.polling_mode.0 {
             tokio::time::interval(Duration::from_secs(60))
         } else {
-            tokio::time::interval(Duration::from_secs(u64::MAX))
+            tokio::time::interval(Duration::from_secs(315360000)) // ~10 years;
         };
         let mut polling_interval = if self.polling_mode.0 {
             tokio::time::interval(Duration::from_secs(self.polling_mode.1))
         } else {
-            tokio::time::interval(Duration::from_secs(u64::MAX))
+            tokio::time::interval(Duration::from_secs(315360000)) // ~10 years;
         };
 
         loop {

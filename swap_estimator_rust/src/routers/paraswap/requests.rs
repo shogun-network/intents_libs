@@ -53,52 +53,11 @@ pub struct GetPriceRouteRequest {
     /// Network ID. (Mainnet - 1, Optimism - 10, BSC - 56, Polygon - 137, Fantom - 250, zkEVM - 1101, Base - 8453, Arbitrum - 42161, Avalanche - 43114, Gnosis - 100).
     /// Default: 1.
     #[serde(rename = "network")]
-    pub chain_id: u32,
-    /// If provided, others object is filled in the response with price quotes from other exchanges (if available for comparison).
-    /// Default: false
-    #[serde(rename = "otherExchangePrices")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub other_exchange_prices: Option<bool>,
-    /// Comma Separated List of DEXs to include.
-    /// All supported DEXs by chain can be found here
-    /// eg: UniswapV3, CurveV1
-    #[serde(rename = "includeDEXS")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include_dexs: Option<String>,
-    /// Comma Separated List of DEXs to exclude.
-    /// All supported DEXs by chain can be found here
-    /// eg: UniswapV3, CurveV1
-    #[serde(rename = "excludeDEXS")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub exclude_dexs: Option<String>,
-    /// Exclude all RFQs from pricing
-    /// eg: AugustusRFQ, Hashflow
-    /// Default: false
-    #[serde(rename = "excludeRFQ")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub exclude_rfq: Option<bool>,
-    /// Comma Separated List of Comma Separated List of Contract Methods to include in pricing (without spaces).
-    /// View the list of the supported methods for V5 and V6
-    /// eg: swapExactAmountIn,swapExactAmountInOnUniswapV2
-    #[serde(rename = "includeContractMethods")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub include_contract_methods: Option<String>,
-    /// Comma Separated List of Contract Methods to exclude from pricing (without spaces).
-    /// View the list of the supported methods for V5 and V6
-    #[serde(rename = "excludeContractMethods")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub exclude_contract_methods: Option<String>,
+    pub chain_id: String,
     /// User's Wallet Address.
     #[serde(rename = "userAddress")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_address: Option<String>,
-    /// Dash (-) separated list of tokens (addresses or symbols from /tokens) to comprise the price route. Max 4 tokens.
-    /// Note: If route is specified, the response will only comprise of the route specified which might not be the optimal route.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub route: Option<String>,
-    /// Partner string.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub partner: Option<String>,
     /// Destination Token Decimals. (Can be omitted if Token Symbol is used in destToken).
     #[serde(rename = "destDecimals")]
     pub dest_decimals: u8,
@@ -109,45 +68,16 @@ pub struct GetPriceRouteRequest {
     /// Receiver's Wallet address. (Can be omitted if swapping tokens from and to same account)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receiver: Option<String>,
-    /// If the source token is a tax token, you should specify the tax amount in BPS.
-    /// For example: for a token with a 5% tax, you should set it to 500 as [(500/10000)*100=5%]
-    /// Note: not all DEXs and contract methods support trading tax tokens, so we will filter those that don't.
-    #[serde(rename = "srcTokenTransferFee")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub src_token_transfer_fee: Option<String>,
-    /// If the destination token is a tax token, you should specify the tax amount in BPS.
-    /// For example: for a token with a 5% tax, you should set it to 500 as [(500/10000)*100=5%]
-    /// Note: not all DEXs and contract methods support trading tax tokens, so we will filter those that don't.
-    #[serde(rename = "destTokenTransferFee")]
-    pub dest_token_transfer_fee: Option<String>,
-    /// If the source token is a tax token, you should specify the tax amount in BPS.
-    /// Some tokens only charge tax when swapped in/out DEXs and not on ordinary transfers.
-    /// For example: for a token with a 5% tax, you should set it to 500 as [(500/10000)*100=5%]
-    /// Note: not all DEXs and contract methods support trading tax tokens, so we will filter those that don't.
-    #[serde(rename = "srcTokenDexTransferFee")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub src_token_dex_transfer_fee: Option<String>,
-    /// If the destination token is a tax token, you should specify the tax amount in BPS.
-    /// Some tokens only charge tax when swapped in/out DEXs, not on ordinary transfers.
-    /// For example: for a token with a 5% tax, you should set it to 500 as [(500/10000)*100=5%]
-    /// Note: not all DEXs and contract methods support trading tax tokens, so we will filter those that don't.
-    #[serde(rename = "destTokenDexTransferFee")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub dest_token_dex_transfer_fee: Option<String>,
     /// To specify the protocol version. Values: 5 or 6.2
     /// Default: 5
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<f64>,
-    /// Specify that methods without fee support should be excluded from the price route.
-    /// Default: false
-    #[serde(rename = "excludeContractMethodsWithoutFeeModel")]
+    /// Comma Separated List of DEXs to exclude.
+    /// All supported DEXs by chain can be found here
+    /// eg: UniswapV3, CurveV1
+    #[serde(rename = "excludeDEXS")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub exclude_contract_methods_without_fee_model: Option<bool>,
-    /// If tokens USD prices are not available, Bad USD Price error will be thrown. Use this param to skip this check.
-    /// Default: false
-    #[serde(rename = "ignoreBadUsdPrice")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ignore_bad_usd_price: Option<bool>,
+    pub exclude_dexs: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -196,35 +126,8 @@ pub struct TransactionsBodyParams {
     pub slippage: Option<u32>,
     #[serde(rename = "userAddress")]
     pub user_address: String,
-    #[serde(rename = "txOrigin")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tx_origin: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receiver: Option<String>,
-    #[serde(rename = "partnerAddress")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub partner_address: Option<String>,
-    #[serde(rename = "partnerFeeBps")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub partner_fee_bps: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub partner: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub permit: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deadline: Option<u64>,
-    #[serde(rename = "isCapSurplus")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_cap_surplus: Option<bool>,
-    #[serde(rename = "takeSurplus")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub take_surplus: Option<bool>,
-    #[serde(rename = "isSirplusToUser")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_surplus_to_user: Option<bool>,
-    #[serde(rename = "isDirectFeeTransfer")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_direct_fee_transfer: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -239,40 +142,14 @@ pub struct ParaswapSwapCombinedRequest {
     pub side: Option<ParaswapSide>,
     #[serde(rename = "network")]
     pub chain_id: u32,
-    #[serde(rename = "otherExchangePrices")]
-    pub other_exchange_prices: Option<bool>,
-    #[serde(rename = "includeDEXS")]
-    pub include_dexs: Option<String>,
-    #[serde(rename = "excludeDEXS")]
-    pub exclude_dexs: Option<String>,
-    #[serde(rename = "excludeRFQ")]
-    pub exclude_rfq: Option<bool>,
-    #[serde(rename = "includeContractMethods")]
-    pub include_contract_methods: Option<String>,
-    #[serde(rename = "excludeContractMethods")]
-    pub exclude_contract_methods: Option<String>,
     #[serde(rename = "userAddress")]
     pub user_address: String,
-    pub route: Option<String>,
-    pub partner: Option<String>,
     #[serde(rename = "destDecimals")]
     pub dest_decimals: u8,
     #[serde(rename = "maxImpact")]
     pub max_impact: Option<u32>,
     pub receiver: Option<String>,
-    #[serde(rename = "srcTokenTransferFee")]
-    pub src_token_transfer_fee: Option<String>,
-    #[serde(rename = "destTokenTransferFee")]
-    pub dest_token_transfer_fee: Option<String>,
-    #[serde(rename = "srcTokenDexTransferFee")]
-    pub src_token_dex_transfer_fee: Option<String>,
-    #[serde(rename = "destTokenDexTransferFee")]
-    pub dest_token_dex_transfer_fee: Option<String>,
     pub version: Option<f64>,
-    #[serde(rename = "excludeContractMethodsWithoutFeeModel")]
-    pub exclude_contract_methods_without_fee_model: Option<bool>,
-    #[serde(rename = "ignoreBadUsdPrice")]
-    pub ignore_bad_usd_price: Option<bool>,
     #[serde(rename = "gasPrice")]
     pub gas_price: String,
     #[serde(rename = "ignoreChecks")]
@@ -297,31 +174,6 @@ pub struct ParaswapSwapCombinedRequest {
     pub price_route: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub slippage: Option<u32>,
-    #[serde(rename = "txOrigin")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tx_origin: Option<String>,
-    #[serde(rename = "partnerAddress")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub partner_address: Option<String>,
-    #[serde(rename = "partnerFeeBps")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub partner_fee_bps: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub permit: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deadline: Option<u64>,
-    #[serde(rename = "isCapSurplus")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_cap_surplus: Option<bool>,
-    #[serde(rename = "takeSurplus")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub take_surplus: Option<bool>,
-    #[serde(rename = "isSirplusToUser")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_surplus_to_user: Option<bool>,
-    #[serde(rename = "isDirectFeeTransfer")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub is_direct_fee_transfer: Option<bool>,
 }
 
 impl GetPriceRouteRequest {
@@ -342,25 +194,12 @@ impl GetPriceRouteRequest {
                 TradeType::ExactIn => ParaswapSide::SELL,
                 TradeType::ExactOut => ParaswapSide::BUY,
             }),
-            chain_id: request.chain_id as u32,
-            other_exchange_prices: None,
-            include_dexs: None,
-            exclude_dexs: None,
-            exclude_rfq: None,
-            include_contract_methods: None,
-            exclude_contract_methods: None,
+            chain_id: (request.chain_id as u32).to_string(),
             user_address: None,
-            route: None,
-            partner: None,
             max_impact: None,
             receiver: None,
-            src_token_transfer_fee: None,
-            dest_token_transfer_fee: None,
-            src_token_dex_transfer_fee: None,
-            dest_token_dex_transfer_fee: None,
             version: Some(6.2),
-            exclude_contract_methods_without_fee_model: None,
-            ignore_bad_usd_price: None,
+            exclude_dexs: Some("ParaSwapPool,ParaSwapLimitOrders".to_string()), // Had to add this to set ignoreChecks as true on transaction request
         }
     }
 }
@@ -409,17 +248,7 @@ impl TransactionsRequest {
                 price_route,
                 slippage,
                 user_address: request.spender.to_string(),
-                tx_origin: None,
                 receiver: Some(request.dest_address.to_string()),
-                partner_address: None,
-                partner_fee_bps: None,
-                partner: None,
-                permit: None,
-                deadline: None,
-                is_cap_surplus: None,
-                take_surplus: None,
-                is_surplus_to_user: None,
-                is_direct_fee_transfer: None,
             },
         })
     }

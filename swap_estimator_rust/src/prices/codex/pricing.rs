@@ -93,6 +93,44 @@ query GetTokenMetadata($inputs: [TokenInput!]!) {
 }
 "#;
 
+const TRENDING_TOKENS_QUERY: &str = r#"
+query FilterTokens(
+    $minLiquidity: Float!,
+    $minMarketCap: Float!,
+    $network: Int!,
+    $minVolume24: Float!
+    $limit: Int!
+) {
+    filterTokens(
+        rankings: {attribute: change5m, direction: DESC}
+        filters: {
+            liquidity: { gt: $minLiquidity },
+            marketCap: { gt: $minMarketCap },
+            network: $network,
+            volume24: { gt: $minVolume24 }
+        }
+        statsType: FILTERED
+        limit: $limit
+    ) {
+        results {
+            token {
+                name
+                symbol
+                decimals
+                address
+                networkId
+            }
+            marketCap
+            liquidity
+            holders
+            volume24
+            walletAgeAvg
+            buyCount24
+        }
+    }
+}
+"#;
+
 #[derive(Debug, Clone)]
 pub struct CodexProvider {
     api_key: String,
@@ -167,6 +205,18 @@ impl CodexProvider {
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
         let pool = self.pool().await?;
         pool.fetch_price_and_metadata(&tokens).await
+    }
+
+    pub async fn fetch_trending_tokens(
+        &self,
+        min_liquidity: f64,
+        min_market_cap: f64,
+        network: ChainId,
+        min_volume_24: f64,
+    ) -> EstimatorResult<Vec<TrendingTokenData>> {
+        let pool = self.pool().await?;
+        pool.fetch_trending_tokens(min_liquidity, min_market_cap, network, min_volume_24, 2)
+            .await
     }
 
     // Public method to subscribe to the global price event stream
@@ -326,6 +376,77 @@ impl CodexConnectionPool {
             return client.latest_price(token).await;
         }
         None
+    }
+
+    async fn fetch_trending_tokens(
+        &self,
+        min_liquidity: f64,
+        min_market_cap: f64,
+        network: ChainId,
+        min_volume_24: f64,
+        limit: u32,
+    ) -> EstimatorResult<Vec<TrendingTokenData>> {
+        let response = self
+            .http_client
+            .post(CODEX_HTTP_URL)
+            .json(&serde_json::json!({
+                "query": TRENDING_TOKENS_QUERY,
+                "variables": {
+                    "minLiquidity": min_liquidity,
+                    "minMarketCap": min_market_cap,
+                    "network": network.to_codex_chain_number(),
+                    "minVolume24": min_volume_24,
+                    "limit": limit
+                }
+            }))
+            .send()
+            .await
+            .change_context(Error::ResponseError)
+            .attach_printable("Failed to send Codex HTTP price request")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .change_context(Error::ResponseError)
+                .attach_printable("Failed to read Codex HTTP error response")?;
+            return Err(report!(Error::ResponseError).attach_printable(format!(
+                "Codex HTTP price request failed with status {}: {}",
+                status.as_u16(),
+                body
+            )));
+        }
+
+        let payload: serde_json::Value = response
+            .json()
+            .await
+            .change_context(Error::ResponseError)
+            .attach_printable("Failed to deserialize Codex HTTP price response")?;
+
+        tracing::debug!("Codex HTTP price response payload: {:#?}", payload);
+
+        let payload =
+            serde_json::from_value::<CodexGraphqlResponse<CodexGetTrendingTokensData>>(payload)
+                .change_context(Error::SerdeDeserialize(
+                    "Failed to deserialize Codex HTTP price GraphQL response".to_string(),
+                ))?;
+
+        if let Some(errors) = payload.errors.as_ref() {
+            if !errors.is_empty() {
+                tracing::warn!(
+                    "Codex HTTP price batch response contained errors: {:?}",
+                    errors
+                );
+            }
+        }
+
+        let Some(data) = payload.data else {
+            return Err(report!(Error::ResponseError)
+                .attach_printable(format!("No data found in Codex HTTP price response")));
+        };
+
+        Ok(data.filter_tokens.results)
     }
 
     async fn fetch_prices(
@@ -750,6 +871,35 @@ struct CodexGraphqlResponse<T> {
     data: Option<T>,
     errors: Option<Vec<serde_json::Value>>,
 }
+
+#[derive(Debug, Deserialize)]
+struct CodexGetTrendingTokensData {
+    #[serde(rename = "filterTokens")]
+    filter_tokens: CodexTrendingTokens,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexTrendingTokens {
+    results: Vec<TrendingTokenData>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TrendingTokenData {
+    token: CodexMetadataPayload,
+    #[serde(rename = "marketCap")]
+    market_cap: String,
+    liquidity: String, // Quoted number
+    holders: u64,
+    #[serde(rename = "volume24")]
+    volume_24: String, // Quoted number
+    #[serde(rename = "walletAgeAvg")]
+    wallet_age_avg: String, // Quoted float
+    #[serde(rename = "buyCount24")]
+    buy_count_24: u64,
+}
+
+#[derive(Debug, Deserialize)]
+struct CodexTokenInfo {}
 
 #[derive(Debug, Deserialize)]
 struct CodexGetPricesAndMetaData {
@@ -1238,6 +1388,28 @@ mod tests {
     use intents_models::{constants::chains::NATIVE_TOKEN_SUI_ADDRESS, log::init_tracing};
 
     use super::*;
+
+    #[tokio::test]
+    async fn test_trending_tokens_fetch() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
+        let codex_provider = CodexProvider::new(codex_api_key);
+
+        let trending_tokens = codex_provider
+            .fetch_trending_tokens(10_000.0, 100_000.0, ChainId::Solana, 5_000.0)
+            .await
+            .expect("Failed to fetch Codex trending tokens");
+        println!("Codex trending tokens: {:#?}", trending_tokens);
+        assert!(!trending_tokens.is_empty());
+    }
 
     #[tokio::test]
     async fn test_codex_get_tokens_price_success() {
