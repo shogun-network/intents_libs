@@ -14,7 +14,6 @@ use reqwest::{
     Client as HttpClient,
     header::{AUTHORIZATION, HeaderMap, HeaderValue as ReqwestHeaderValue},
 };
-use serde::Deserialize;
 use tokio::{
     sync::{Mutex, Notify, OnceCell, RwLock, broadcast, watch},
     time,
@@ -28,7 +27,18 @@ use crate::{
     error::{Error, EstimatorResult},
     prices::{
         PriceEvent, PriceProvider, TokenId, TokenMetadata, TokenPrice,
-        codex::{CODEX_HTTP_URL, CODEX_WS_URL, CodexChain},
+        codex::{
+            CODEX_HTTP_URL, CODEX_WS_URL, CodexChain,
+            models::{
+                CodexGetMetadataData, CodexGetPricesData, CodexGetTrendingTokensData,
+                CodexGraphqlResponse, GraphqlWsMessage, NextPayload, TokenSubscription,
+                TrendingTokenData,
+            },
+            utils::{
+                assemble_price_and_metadata_results, combine_price_and_metadata_query,
+                default_decimals, subscription_id,
+            },
+        },
     },
 };
 
@@ -667,18 +677,8 @@ impl CodexConnectionPool {
             return Ok(HashMap::new());
         }
 
-        // Build lookup to map response (networkId,address) back to requested TokenId
-        let mut lookup: HashMap<(i64, String), TokenId> = HashMap::new();
-        let mut inputs = Vec::with_capacity(tokens.len());
-        for token_id in tokens.iter() {
-            let network = token_id.chain.to_codex_chain_number();
-            let address = token_id.address.to_lowercase();
-            lookup.insert((network, address.clone()), token_id.clone());
-            inputs.push(serde_json::json!({
-                "address": token_id.address,
-                "networkId": network
-            }));
-        }
+        // Create json body with query and inputs
+        let body = combine_price_and_metadata_query(tokens)?;
 
         let response = self
             .http_client
@@ -689,10 +689,7 @@ impl CodexConnectionPool {
                     .change_context(Error::ResponseError)
                     .attach_printable("Invalid characters in CODEX_API_KEY")?,
             )
-            .json(&serde_json::json!({
-                "query": PRICE_AND_METADATA_QUERY,
-                "variables": { "priceInputs": inputs.clone(), "tokenInputs": inputs.clone() }
-            }))
+            .json(&body)
             .send()
             .await
             .change_context(Error::ResponseError)
@@ -718,27 +715,9 @@ impl CodexConnectionPool {
             .change_context(Error::ResponseError)
             .attach_printable("Failed to deserialize Codex HTTP price response")?;
 
-        // tracing::debug!("Codex HTTP price and meta response payload: {:#?}", payload);
+        tracing::debug!("Codex HTTP price and meta response payload: {:#?}", payload);
 
-        let payload =
-            serde_json::from_value::<CodexGraphqlResponse<CodexGetPricesAndMetaData>>(payload)
-                .change_context(Error::SerdeDeserialize(
-                    "Failed to deserialize Codex HTTP price GraphQL response".to_string(),
-                ))?;
-
-        if let Some(errors) = payload.errors.as_ref() {
-            if !errors.is_empty() {
-                tracing::warn!(
-                    "Codex HTTP price batch response contained errors: {:?}",
-                    errors
-                );
-            }
-        }
-
-        let Some(data) = payload.data else {
-            return Err(report!(Error::ResponseError)
-                .attach_printable(format!("No data found in Codex HTTP price response")));
-        };
+        let data = assemble_price_and_metadata_results(tokens.len(), payload)?;
 
         let mut out = HashMap::new();
         for (price, meta) in data.prices.into_iter().zip(data.meta.into_iter()) {
@@ -746,21 +725,16 @@ impl CodexConnectionPool {
                 continue;
             };
             // Map back to the original requested TokenId using (networkId, lowercase address)
-            let key = (meta.network_id, meta.address.to_lowercase());
-            if let Some(token_id) = lookup.get(&key) {
-                let price = TokenPrice {
-                    price: price.price_usd,
-                    decimals: meta.decimals,
-                };
-                out.insert(token_id.clone(), price);
-            } else {
-                // Defensive: response returned an entry we didn't request
-                tracing::debug!(
-                    "Ignoring Codex price for unrequested token: networkId={}, address={}",
-                    meta.network_id,
-                    meta.address
-                );
-            }
+            let token_id = TokenId {
+                chain: ChainId::from_codex_chain_number(meta.network_id)
+                    .ok_or(Error::ParseError)?,
+                address: meta.address,
+            };
+            let price = TokenPrice {
+                price: price.price_usd,
+                decimals: meta.decimals,
+            };
+            out.insert(token_id.clone(), price);
         }
 
         Ok(out)
@@ -870,83 +844,6 @@ impl PriceProvider for CodexProvider {
     async fn unsubscribe_from_token(&self, token: TokenId) -> EstimatorResult<bool> {
         self.unsubscribe_internal(&token).await
     }
-}
-
-#[derive(Debug, Clone)]
-struct TokenSubscription {
-    token: TokenId,
-    updates_tx: watch::Sender<Option<TokenPrice>>,
-    ref_count: usize,
-}
-
-#[derive(Debug, Deserialize)]
-struct CodexGraphqlResponse<T> {
-    data: Option<T>,
-    errors: Option<Vec<serde_json::Value>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CodexGetTrendingTokensData {
-    #[serde(rename = "filterTokens")]
-    filter_tokens: CodexTrendingTokens,
-}
-
-#[derive(Debug, Deserialize)]
-struct CodexTrendingTokens {
-    results: Vec<TrendingTokenData>,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct TrendingTokenData {
-    pub token: CodexMetadataPayload,
-    #[serde(rename = "marketCap")]
-    pub market_cap: String,
-    pub liquidity: String, // Quoted number
-    pub holders: u64,
-    #[serde(rename = "volume24")]
-    pub volume_24: String, // Quoted number
-    #[serde(rename = "walletAgeAvg")]
-    pub wallet_age_avg: String, // Quoted float
-    #[serde(rename = "buyCount24")]
-    pub buy_count_24: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct CodexTokenInfo {}
-
-#[derive(Debug, Deserialize)]
-struct CodexGetPricesAndMetaData {
-    prices: Vec<Option<CodexPricePayload>>,
-    meta: Vec<Option<CodexMetadataPayload>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CodexGetPricesData {
-    prices: Vec<Option<CodexPricePayload>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CodexGetMetadataData {
-    meta: Vec<Option<CodexMetadataPayload>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CodexPricePayload {
-    address: String,
-    #[serde(rename = "priceUsd")]
-    price_usd: f64,
-    #[serde(rename = "networkId")]
-    network_id: i64,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct CodexMetadataPayload {
-    pub address: String,
-    #[serde(rename = "networkId")]
-    pub network_id: i64,
-    pub name: String,
-    pub symbol: String,
-    pub decimals: u8,
 }
 
 #[derive(Debug)]
@@ -1355,47 +1252,6 @@ impl Drop for CodexSubscription {
     }
 }
 
-#[derive(Debug, Deserialize)]
-struct GraphqlWsMessage {
-    #[serde(rename = "type")]
-    message_type: String,
-    id: Option<String>,
-    payload: Option<serde_json::Value>,
-}
-
-#[derive(Debug, Deserialize)]
-struct NextPayload {
-    data: Option<NextData>,
-    errors: Option<Vec<serde_json::Value>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct NextData {
-    #[serde(rename = "onPriceUpdated")]
-    on_price_updated: Option<OnPriceUpdated>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OnPriceUpdated {
-    #[serde(rename = "priceUsd")]
-    price_usd: f64,
-}
-
-fn subscription_id(token: &TokenId) -> String {
-    format!(
-        "{}:{}",
-        token.chain.to_codex_chain_number(),
-        token.address.to_lowercase()
-    )
-}
-
-fn default_decimals(token: &TokenId) -> u8 {
-    match token.chain {
-        ChainId::Solana | ChainId::Sui => 9,
-        _ => 18,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use intents_models::{constants::chains::NATIVE_TOKEN_SUI_ADDRESS, log::init_tracing};
@@ -1487,6 +1343,69 @@ mod tests {
         println!("Codex tokens price: {:#?}", tokens_price);
         for token in tokens.into_iter() {
             assert!(tokens_price.contains_key(&token));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_codex_get_tokens_price_and_metadata_success() {
+        dotenv::dotenv().ok();
+        init_tracing(false);
+
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
+        let codex_provider = CodexProvider::new(codex_api_key);
+
+        let tokens = Vec::from([
+            TokenId {
+                chain: ChainId::Solana,
+                address: "So11111111111111111111111111111111111111112".to_string(),
+            },
+            TokenId::new_for_codex(ChainId::Sui, NATIVE_TOKEN_SUI_ADDRESS),
+            TokenId {
+                chain: ChainId::Solana,
+                address: "G6jmigL9nkgYrT9MFP5fvrgrztDhtdVZkrmQz5Q5bonk".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Solana,
+                address: "3sNToh4Z3WJyqzMMDP34Jjiw9PLcW8KabuewS1EB8ray".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Solana,
+                address: "55E5Bn6n3L44tjfUBc18turPsdSBvs8MVb22oeM9robo".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Solana,
+                address: "GTEPYkUDfArmcijxE2Z4g54TuNHECzMnrntYkyPapump".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Solana,
+                address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Base,
+                address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Ethereum,
+                address: "0x3fc29836e84e471a053d2d9e80494a867d670ead".to_string(),
+            },
+        ]);
+
+        let tokens_price_and_meta = codex_provider.fetch_initial_prices(&tokens).await;
+        println!(
+            "Codex tokens price and meta fetch_initial_prices result: {:#?}",
+            tokens_price_and_meta
+        );
+        let tokens_price_and_meta =
+            tokens_price_and_meta.expect("Failed to get Codex tokens price and metadata");
+        println!("Codex tokens price and meta: {:#?}", tokens_price_and_meta);
+        for token in tokens.into_iter() {
+            assert!(tokens_price_and_meta.contains_key(&token));
         }
     }
 

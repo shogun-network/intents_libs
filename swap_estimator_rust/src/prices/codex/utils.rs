@@ -1,12 +1,37 @@
 use std::collections::HashMap;
 
-use error_stack::report;
+use error_stack::{ResultExt as _, report};
+use intents_models::constants::chains::ChainId;
 use serde_json::{Map, Value};
 
 use crate::{
     error::{Error, EstimatorResult},
-    prices::TokenId,
+    prices::{
+        TokenId,
+        codex::{
+            CodexChain as _,
+            models::{
+                CodexGetPricesAndMetaData, CodexGraphqlResponse, CodexMetadataPayload,
+                CodexPricePayload,
+            },
+        },
+    },
 };
+
+pub fn subscription_id(token: &TokenId) -> String {
+    format!(
+        "{}:{}",
+        token.chain.to_codex_chain_number(),
+        token.address.to_lowercase()
+    )
+}
+
+pub fn default_decimals(token: &TokenId) -> u8 {
+    match token.chain {
+        ChainId::Solana | ChainId::Sui => 9,
+        _ => 18,
+    }
+}
 
 const BATCH_SIZE: usize = 25;
 
@@ -65,9 +90,10 @@ fn create_price_and_metadata_inputs(tokens: &[TokenId]) -> EstimatorResult<Value
     for (i, chunk) in tokens.chunks(BATCH_SIZE).enumerate() {
         let mut inputs = Vec::new();
         for token in chunk {
+            let network = token.chain.to_codex_chain_number();
             inputs.push(serde_json::json!({
                 "address": token.address,
-                "networkId": token.chain
+                "networkId": network
             }));
         }
         let token_inputs_key = format!("tokenInputs{i}");
@@ -99,6 +125,65 @@ pub fn combine_price_and_metadata_query(tokens: &[TokenId]) -> EstimatorResult<V
         "query": query,
         "variables": inputs
     }))
+}
+
+pub fn assemble_price_and_metadata_results(
+    tokens_len: usize,
+    result: Value,
+) -> EstimatorResult<CodexGetPricesAndMetaData> {
+    if tokens_len > 100 {
+        return Err(report!(Error::CodexError(
+            "Can't request more than 200 results".to_string()
+        )));
+    }
+    let payload = serde_json::from_value::<CodexGraphqlResponse<Value>>(result).change_context(
+        Error::SerdeDeserialize(
+            "Failed to deserialize Codex HTTP price GraphQL response".to_string(),
+        ),
+    )?;
+
+    if let Some(errors) = payload.errors.as_ref() {
+        if !errors.is_empty() {
+            tracing::warn!(
+                "Codex HTTP price batch response contained errors: {:?}",
+                errors
+            );
+        }
+    }
+
+    let Some(data) = payload.data else {
+        return Err(report!(Error::ResponseError)
+            .attach_printable(format!("No data found in Codex HTTP price response")));
+    };
+
+    let mut prices: Vec<Option<CodexPricePayload>> = Vec::with_capacity(tokens_len);
+    let mut meta: Vec<Option<CodexMetadataPayload>> = Vec::with_capacity(tokens_len);
+
+    let results_needed = tokens_len.div_ceil(25);
+    for i in 0..results_needed {
+        let prices_key = format!("prices{i}");
+        let meta_key = format!("meta{i}");
+        if let Some(prices_value) = data.get(&prices_key) {
+            let mut parsed_prices: Vec<Option<CodexPricePayload>> = serde_json::from_value(
+                prices_value.clone(),
+            )
+            .change_context(Error::SerdeDeserialize(
+                "Failed to deserialize Codex HTTP price GraphQL prices response".to_string(),
+            ))?;
+            prices.extend(parsed_prices.drain(..));
+        }
+        if let Some(meta_value) = data.get(&meta_key) {
+            let mut parsed_meta: Vec<Option<CodexMetadataPayload>> = serde_json::from_value(
+                meta_value.clone(),
+            )
+            .change_context(Error::SerdeDeserialize(
+                "Failed to deserialize Codex HTTP price GraphQL metadata response".to_string(),
+            ))?;
+            meta.extend(parsed_meta.drain(..));
+        }
+    }
+
+    Ok(CodexGetPricesAndMetaData { prices, meta })
 }
 
 #[cfg(test)]
