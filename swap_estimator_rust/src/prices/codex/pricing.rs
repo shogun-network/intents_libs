@@ -100,6 +100,7 @@ query FilterTokens(
     $network: Int!,
     $minVolume24: Float!
     $limit: Int!
+    $offset: Int!
 ) {
     filterTokens(
         rankings: {attribute: change5m, direction: DESC}
@@ -111,6 +112,7 @@ query FilterTokens(
         }
         statsType: FILTERED
         limit: $limit
+        offset: $offset
     ) {
         results {
             token {
@@ -213,10 +215,19 @@ impl CodexProvider {
         min_market_cap: f64,
         network: ChainId,
         min_volume_24: f64,
+        limit: u32,
+        offset: u32,
     ) -> EstimatorResult<Vec<TrendingTokenData>> {
         let pool = self.pool().await?;
-        pool.fetch_trending_tokens(min_liquidity, min_market_cap, network, min_volume_24, 2)
-            .await
+        pool.fetch_trending_tokens(
+            min_liquidity,
+            min_market_cap,
+            network,
+            min_volume_24,
+            limit,
+            offset,
+        )
+        .await
     }
 
     // Public method to subscribe to the global price event stream
@@ -385,6 +396,7 @@ impl CodexConnectionPool {
         network: ChainId,
         min_volume_24: f64,
         limit: u32,
+        offset: u32,
     ) -> EstimatorResult<Vec<TrendingTokenData>> {
         let response = self
             .http_client
@@ -396,7 +408,8 @@ impl CodexConnectionPool {
                     "minMarketCap": min_market_cap,
                     "network": network.to_codex_chain_number(),
                     "minVolume24": min_volume_24,
-                    "limit": limit
+                    "limit": limit,
+                    "offset": offset
                 }
             }))
             .send()
@@ -885,17 +898,17 @@ struct CodexTrendingTokens {
 
 #[derive(Debug, Deserialize)]
 pub struct TrendingTokenData {
-    token: CodexMetadataPayload,
+    pub token: CodexMetadataPayload,
     #[serde(rename = "marketCap")]
-    market_cap: String,
-    liquidity: String, // Quoted number
-    holders: u64,
+    pub market_cap: String,
+    pub liquidity: String, // Quoted number
+    pub holders: u64,
     #[serde(rename = "volume24")]
-    volume_24: String, // Quoted number
+    pub volume_24: String, // Quoted number
     #[serde(rename = "walletAgeAvg")]
-    wallet_age_avg: String, // Quoted float
+    pub wallet_age_avg: String, // Quoted float
     #[serde(rename = "buyCount24")]
-    buy_count_24: u64,
+    pub buy_count_24: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -927,13 +940,13 @@ struct CodexPricePayload {
 }
 
 #[derive(Debug, Deserialize)]
-struct CodexMetadataPayload {
-    address: String,
+pub struct CodexMetadataPayload {
+    pub address: String,
     #[serde(rename = "networkId")]
-    network_id: i64,
-    name: String,
-    symbol: String,
-    decimals: u8,
+    pub network_id: i64,
+    pub name: String,
+    pub symbol: String,
+    pub decimals: u8,
 }
 
 #[derive(Debug)]
@@ -1404,7 +1417,13 @@ mod tests {
         let codex_provider = CodexProvider::new(codex_api_key);
 
         let trending_tokens = codex_provider
-            .fetch_trending_tokens(10_000.0, 100_000.0, ChainId::Solana, 5_000.0)
+            .fetch_trending_tokens(10_000.0, 100_000.0, ChainId::Solana, 5_000.0, 2, 0)
+            .await
+            .expect("Failed to fetch Codex trending tokens");
+        println!("Codex trending tokens: {:#?}", trending_tokens);
+        assert!(!trending_tokens.is_empty());
+        let trending_tokens = codex_provider
+            .fetch_trending_tokens(10_000.0, 100_000.0, ChainId::Solana, 5_000.0, 2, 2)
             .await
             .expect("Failed to fetch Codex trending tokens");
         println!("Codex trending tokens: {:#?}", trending_tokens);

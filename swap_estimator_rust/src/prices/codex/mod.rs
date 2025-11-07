@@ -1,6 +1,7 @@
 use intents_models::constants::chains::ChainId;
 
 pub mod pricing;
+pub mod utils;
 // https://docs.codex.io/api-reference/introduction
 pub const CODEX_WS_URL: &str = "wss://graph.codex.io/graphql";
 pub const CODEX_HTTP_URL: &str = "https://graph.codex.io/graphql";
