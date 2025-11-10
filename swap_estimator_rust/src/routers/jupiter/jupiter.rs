@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use crate::error::{Error, EstimatorResult};
 use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType};
 use crate::routers::jupiter::get_jupiter_max_slippage;
@@ -12,6 +11,7 @@ use intents_models::constants::chains::{
 use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
 use std::str::FromStr;
 
 // QUOTE
