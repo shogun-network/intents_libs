@@ -7,3 +7,9 @@ This library provides shared data structures and constants used across various i
 ## Swap Estimator Rust
 
 This library provides functionality to obtain current token prices from centralized services like Codex (websocket) or GeckoTerminal and also from decentralized exchanges via aggregators.
+
+# Testing
+To run local tests:
+```shell
+cargo test -- --test-threads=1
+```

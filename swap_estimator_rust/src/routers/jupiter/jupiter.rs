@@ -11,6 +11,7 @@ use intents_models::constants::chains::{
 use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
 use std::str::FromStr;
 
 // QUOTE
@@ -32,6 +33,7 @@ pub struct SwapInfo {
 pub struct RoutePlan {
     swapInfo: SwapInfo,
     percent: u64,
+    bps: Option<u64>,
 }
 
 #[allow(non_snake_case)]
@@ -49,6 +51,18 @@ pub struct QuoteResponse {
     pub routePlan: Vec<RoutePlan>,
     pub contextSlot: u64,
     pub timeTaken: f64,
+    pub swapUsdValue: Option<String>,
+    pub simplerRouteUsed: Option<bool>,
+    pub mostReliableAmmsQuoteReport: Option<MostReliableAmmsQuoteReportInfo>,
+    pub useIncurredSlippageForQuoting: Option<bool>,
+    pub otherRoutePlans: Option<Vec<RoutePlan>>,
+    pub loadedLongtailToken: Option<bool>,
+    pub instructionVersion: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MostReliableAmmsQuoteReportInfo {
+    pub info: HashMap<String, String>,
 }
 
 impl Default for QuoteResponse {
@@ -66,6 +80,13 @@ impl Default for QuoteResponse {
             routePlan: Vec::new(),
             contextSlot: 0,
             timeTaken: 0.0,
+            swapUsdValue: None,
+            simplerRouteUsed: None,
+            mostReliableAmmsQuoteReport: None,
+            useIncurredSlippageForQuoting: None,
+            otherRoutePlans: None,
+            loadedLongtailToken: None,
+            instructionVersion: None,
         }
     }
 }
@@ -74,6 +95,7 @@ impl Default for QuoteResponse {
 #[derive(Deserialize, Debug)]
 pub struct JupiterSwapResponse {
     pub swapTransaction: String,
+    pub computeUnitLimit: u32,
 }
 
 #[derive(Debug)]
@@ -127,6 +149,7 @@ pub async fn get_jupiter_quote(
             TradeType::ExactIn => SwapMode::ExactIn.as_str(),
         },
         "slippageBps": slippage_bps,
+        "instructionVersion": "V2",
     });
     let query_string =
         value_to_sorted_querystring(&query_value).change_context(Error::ModelsError)?;
@@ -189,6 +212,13 @@ pub async fn get_jupiter_transaction(
     priority_fee: Option<SolanaPriorityFeeType>,
     destination_token_account: Option<String>,
 ) -> EstimatorResult<JupiterSwapResponse> {
+    let token_out_is_native =
+        is_native_token_solana_address(generic_swap_request.dest_token.as_str());
+    let native_destination_account = if token_out_is_native {
+        Some(generic_swap_request.dest_address.clone())
+    } else {
+        None
+    };
     let mut swap_request_body = json!({
         "quoteResponse": quote,
         "userPublicKey": generic_swap_request.spender,
@@ -196,6 +226,7 @@ pub async fn get_jupiter_transaction(
         "wrapAndUnwrapSol": generic_swap_request.dest_token.to_string()
             .ne(&WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS),
         "destinationTokenAccount": destination_token_account,
+        "nativeDestinationAccount": native_destination_account,
     });
     if let Some(priority_fee) = priority_fee {
         swap_request_body["prioritizationFeeLamports"] = match priority_fee {
@@ -225,9 +256,12 @@ pub async fn get_jupiter_transaction(
         .await
         .change_context(Error::ReqwestError)?;
 
-    let swap_response: JupiterSwapResponse = handle_reqwest_response(response)
+    let mut swap_response: JupiterSwapResponse = handle_reqwest_response(response)
         .await
         .change_context(Error::ModelsError)?;
+    if swap_response.computeUnitLimit == 1_400_000 {
+        swap_response.computeUnitLimit = 700_000;
+    }
     Ok(swap_response)
 }
 
