@@ -38,7 +38,7 @@ const BATCH_SIZE: usize = 25;
 fn create_price_and_metadata_args(tokens_len: usize) -> EstimatorResult<String> {
     if tokens_len > 100 {
         return Err(report!(Error::CodexError(
-            "Can't request more than 200 results".to_string()
+            "Can't request more than 100 tokens".to_string()
         )));
     }
     let mut args = Vec::new();
@@ -53,7 +53,7 @@ fn create_price_and_metadata_args(tokens_len: usize) -> EstimatorResult<String> 
 fn create_price_and_metadata_body(tokens_len: usize) -> EstimatorResult<String> {
     if tokens_len > 100 {
         return Err(report!(Error::CodexError(
-            "Can't request more than 200 results".to_string()
+            "Can't request more than 100 tokens".to_string()
         )));
     }
     let mut body = Vec::new();
@@ -83,7 +83,7 @@ fn create_price_and_metadata_body(tokens_len: usize) -> EstimatorResult<String> 
 fn create_price_and_metadata_inputs(tokens: &[TokenId]) -> EstimatorResult<Value> {
     if tokens.len() > 100 {
         return Err(report!(Error::CodexError(
-            "Can't request more than 200 results".to_string()
+            "Can't request more than 100 tokens".to_string()
         )));
     }
     let mut result = HashMap::new();
@@ -133,7 +133,7 @@ pub fn assemble_price_and_metadata_results(
 ) -> EstimatorResult<CodexGetPricesAndMetaData> {
     if tokens_len > 100 {
         return Err(report!(Error::CodexError(
-            "Can't request more than 200 results".to_string()
+            "Can't request more than 100 tokens".to_string()
         )));
     }
     let payload = serde_json::from_value::<CodexGraphqlResponse<Value>>(result).change_context(
