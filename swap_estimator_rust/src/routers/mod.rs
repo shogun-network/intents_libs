@@ -39,6 +39,7 @@ pub enum RouterType {
     SimpleTransfer,
     UnwrapAndTransfer,
     Paraswap,
+    OneInch,
     Liquidswap,
     Jupiter,
     Aftermath,

@@ -17,6 +17,6 @@ pub struct OneInchSwapRequest {
     pub amount: String,
     pub from: String,
     pub origin: String,
-    pub slippage: Option<u32>, // Slippage tolerance in percent. Min: 0; Max: 50.
+    pub slippage: Option<f64>, // Slippage tolerance in percent. Min: 0; Max: 50.
     pub min_return: Option<String>, // Use either slippage or minReturn, not both.
 }
