@@ -115,10 +115,10 @@ pub fn combine_price_and_metadata_query(tokens: &[TokenId]) -> EstimatorResult<V
     let inputs = create_price_and_metadata_inputs(tokens)?;
     let query = format!(
         r#"query TokensWithPrices(
-    {args}
-) {{
-    {body}
-}}
+            {args}
+        ) {{
+            {body}
+        }}
         "#
     );
     Ok(serde_json::json!({

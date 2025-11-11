@@ -95,7 +95,7 @@ impl MonitorManager {
             tokio::time::interval(Duration::from_secs(315360000)) // ~10 years;
         };
         let mut polling_interval = if self.polling_mode.0 {
-            tokio::time::interval(Duration::from_secs(self.polling_mode.1))
+            tokio::time::interval(Duration::from_millis(self.polling_mode.1))
         } else {
             tokio::time::interval(Duration::from_secs(315360000)) // ~10 years;
         };
@@ -338,11 +338,12 @@ impl MonitorManager {
                             estimated_amount_out,
                             amount_out,
                         )?;
-                    dbg!(
-                        estimated_amount_out,
-                        solver_last_bid,
-                        req_monitor_estimation
-                    );
+                    // dbg!(
+                    //     &pending_swap.order_id,
+                    //     estimated_amount_out,
+                    //     solver_last_bid,
+                    //     req_monitor_estimation
+                    // );
                     tracing::debug!(
                         "Required monitor estimation for order_id {}: {}",
                         order_id,
@@ -675,7 +676,11 @@ impl MonitorManager {
                     } else {
                         pending_swap.amount_out
                     };
-                    dbg!(estimated_amount_out, needed_amount_out);
+                    // dbg!(
+                    //     &pending_swap.order_id,
+                    //     estimated_amount_out,
+                    //     needed_amount_out
+                    // );
                     tracing::debug!(
                         "Needed amount out for order_id {}: {}",
                         pending_swap.order_id,

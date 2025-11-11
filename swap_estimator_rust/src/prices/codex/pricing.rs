@@ -42,28 +42,6 @@ use crate::{
     },
 };
 
-const PRICE_AND_METADATA_QUERY: &str = r#"
-query TokensWithPrices(
-    $tokenInputs: [TokenInput!]
-    $priceInputs: [GetPriceInput!]
-) {
-    meta: tokens(ids: $tokenInputs) {
-        address
-        networkId
-        decimals
-        name
-        symbol
-    }
-
-    prices: getTokenPrices(inputs: $priceInputs) {
-        address
-        networkId
-        priceUsd
-        timestamp
-    }
-}
-"#;
-
 const GRAPHQL_SUBSCRIPTION: &str = r#"
 subscription OnPriceUpdated($address: String!, $networkId: Int!) {
     onPriceUpdated(address: $address, networkId: $networkId) {
@@ -113,7 +91,7 @@ query FilterTokens(
     $offset: Int!
 ) {
     filterTokens(
-        rankings: {attribute: change5m, direction: DESC}
+        rankings: {attribute: change1, direction: DESC}
         filters: {
             liquidity: { gt: $minLiquidity },
             marketCap: { gt: $minMarketCap },
@@ -1393,6 +1371,10 @@ mod tests {
             TokenId {
                 chain: ChainId::Ethereum,
                 address: "0x3fc29836e84e471a053d2d9e80494a867d670ead".to_string(),
+            },
+            TokenId {
+                chain: ChainId::Bsc,
+                address: "0x5449ecb1da825204003abba9b4cb9f139417aa89".to_string(),
             },
         ]);
 
