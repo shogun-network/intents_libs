@@ -12,12 +12,12 @@ const INIT_MULTIPLIER: u128 = 10_010;
 
 /// This is 100%
 const THRESHOLD_BASE: u128 = 10_000;
-/// If result is within 0.5% threshold - we count it as success
-const SUCCESS_THRESHOLD_BPS: u128 = 50;
+/// If result is within 0.2% threshold - we count it as success
+/// The lower this value - the more attempts it may take
+const SUCCESS_THRESHOLD_BPS: u128 = 20;
 
 /// If we could not adjust amounts in 3 attempts - something's very wrong
 const MAX_LOOP_ATTEMPTS: usize = 3;
-
 
 /// Tries to find such exact IN quote for given exact OUT quote, that
 /// `amount_limit` of resulting exact IN quote be as close as possible to
@@ -98,20 +98,26 @@ where
         max_amount_in,
     };
 
-    if let Some(response) = try_exact_in(&quote_request, try_values, &quote_fn).await? {
-        return Ok((response, 1));
+    let (quote_response, success) = try_exact_in(&quote_request, try_values, &quote_fn).await?;
+
+    if success {
+        return Ok((quote_response, 1));
     }
 
     let mut attempt_number = 0;
     let target_amount_out = (target_min_amount_out + target_max_amount_out) / 2;
+    // Adjusting amount IN proportionally to amount_out_min
+    try_values.test_amount_in =
+        try_values.test_amount_in * target_amount_out / quote_response.amount_limit;
     while attempt_number < MAX_LOOP_ATTEMPTS {
         attempt_number += 1;
-        // Adjusting amount IN proportionally to amount_out_min
-        let test_amount_in = test_amount_in * target_amount_out / quote_response.amount_limit;
-        try_values.test_amount_in = test_amount_in;
-        if let Some(response) = try_exact_in(&quote_request, try_values, &quote_fn).await? {
-            return Ok((response, attempt_number + 1));
+        let (quote_response, success) = try_exact_in(&quote_request, try_values, &quote_fn).await?;
+        if success {
+            return Ok((quote_response, attempt_number + 1));
         }
+        // Adjusting amount IN proportionally to amount_out_min
+        try_values.test_amount_in =
+            try_values.test_amount_in * target_amount_out / quote_response.amount_limit;
     }
 
     Err(report!(Error::AggregatorError(format!(
@@ -130,12 +136,15 @@ struct TryExactInValues {
 
 /// Tries to quote with exact amount IN
 /// If `amount_limit` is within threshold - return success
-/// Else - return None
+///
+/// ### Returns
+///
+/// * Estimate response
 async fn try_exact_in<F, Fut>(
     quote_request: &GenericEstimateRequest,
     values: TryExactInValues,
     quote_fn: &F,
-) -> EstimatorResult<Option<GenericEstimateResponse>>
+) -> EstimatorResult<(GenericEstimateResponse, bool)>
 where
     F: Fn(GenericEstimateRequest) -> Fut + Send + Sync,
     Fut: Future<Output = EstimatorResult<GenericEstimateResponse>> + Send,
@@ -159,7 +168,7 @@ where
 
     let quote_response = quote_fn(target_request).await?;
 
-    if quote_response.amount_limit <= target_max_amount_out
+    let success = if quote_response.amount_limit <= target_max_amount_out
         && quote_response.amount_limit >= target_min_amount_out
     {
         if let Some(max_amount_in) = max_amount_in
@@ -169,10 +178,12 @@ where
                 "Estimated amount IN {test_amount_in} is above maximum requested {max_amount_in}"
             ))));
         }
-        Ok(Some(quote_response))
+        true
     } else {
-        Ok(None)
-    }
+        false
+    };
+
+    Ok((quote_response, success))
 }
 
 #[cfg(test)]
@@ -185,13 +196,13 @@ mod tests {
     async fn test_quote_exact_out_with_exact_in_jupiter() {
         dotenv::dotenv().ok();
 
-        // Searching for amount of Sol to spend to receive at least 10 USDT
+        // Searching for amount of Sol to spend to receive at least 1 Million USDT
         let quote_request = GenericEstimateRequest {
             trade_type: TradeType::ExactOut,
             chain_id: ChainId::Solana,
             src_token: "So11111111111111111111111111111111111111112".to_string(), // SOL
             dest_token: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB".to_string(), // USDT
-            amount_fixed: 10_000_000,
+            amount_fixed: 1_000_000_000,
             slippage: Slippage::Percent(2.0),
         };
 
@@ -206,9 +217,14 @@ mod tests {
             },
         )
         .await;
-        assert!(res.is_ok());
+        assert!(
+            res.is_ok(),
+            "Expected successful quote response: {:?}",
+            res.err()
+        );
 
         let (_, attempts) = res.unwrap();
+        println!("Success in {attempts} attempts");
         assert!(attempts >= 1 && attempts <= 2);
     }
 
