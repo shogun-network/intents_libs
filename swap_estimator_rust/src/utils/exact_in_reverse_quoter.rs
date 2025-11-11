@@ -101,7 +101,10 @@ where
     let (quote_response, success) = try_exact_in(&quote_request, try_values, &quote_fn).await?;
 
     if success {
-        return Ok((quote_response, 1));
+        return Ok((
+            update_response(quote_response, try_values.test_amount_in),
+            1,
+        ));
     }
 
     let mut attempt_number = 0;
@@ -113,7 +116,10 @@ where
         attempt_number += 1;
         let (quote_response, success) = try_exact_in(&quote_request, try_values, &quote_fn).await?;
         if success {
-            return Ok((quote_response, attempt_number + 1));
+            return Ok((
+                update_response(quote_response, try_values.test_amount_in),
+                attempt_number + 1,
+            ));
         }
         // Adjusting amount IN proportionally to amount_out_min
         try_values.test_amount_in =
@@ -184,6 +190,16 @@ where
     };
 
     Ok((quote_response, success))
+}
+
+/// Updates response so it would look like Exact OUT response
+fn update_response(
+    mut response: GenericEstimateResponse,
+    amount_in: u128,
+) -> GenericEstimateResponse {
+    response.amount_quote = amount_in;
+    response.amount_limit = amount_in;
+    response
 }
 
 #[cfg(test)]
