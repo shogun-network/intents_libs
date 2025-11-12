@@ -3,6 +3,7 @@ use intents_models::network::http::{handle_reqwest_response, value_to_sorted_que
 use reqwest::Client;
 use serde_json::json;
 
+use crate::utils::exact_in_reverse_quoter::quote_exact_out_with_exact_in;
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
@@ -116,37 +117,57 @@ pub async fn one_inch_get_approve_address(
     Ok(resp_json.address)
 }
 
-pub async fn estimate_swap_one_inch(
-    client: &Client,
+pub fn estimate_swap_one_inch(
+    client: Client,
     api_key: &str,
     estimator_request: GenericEstimateRequest,
-) -> EstimatorResult<GenericEstimateResponse> {
-    match estimator_request.trade_type {
-        TradeType::ExactIn => {
-            let request = OneInchGetQuoteRequest {
-                chain: estimator_request.chain_id as u32,
-                src: estimator_request.src_token,
-                dst: estimator_request.dest_token,
-                amount: estimator_request.amount_fixed.to_string(),
-            };
+) -> impl Future<Output = EstimatorResult<GenericEstimateResponse>> + Send {
+    let api_key = api_key.to_owned();
+    async {
+        match estimator_request.trade_type {
+            TradeType::ExactIn => {
+                let request = OneInchGetQuoteRequest {
+                    chain: estimator_request.chain_id as u32,
+                    src: estimator_request.src_token,
+                    dst: estimator_request.dest_token,
+                    amount: estimator_request.amount_fixed.to_string(),
+                };
 
-            let amount_out = one_inch_get_quote(client, api_key, request).await?;
+                let amount_out = one_inch_get_quote(&client, &api_key, request).await?;
 
-            let amount_limit = get_limit_amount(
-                estimator_request.trade_type,
-                amount_out,
-                estimator_request.slippage,
-            )?;
+                let amount_limit = get_limit_amount(
+                    estimator_request.trade_type,
+                    amount_out,
+                    estimator_request.slippage,
+                )?;
 
-            Ok(GenericEstimateResponse {
-                amount_quote: amount_out,
-                amount_limit,
-                router: RouterType::OneInch,
-                router_data: serde_json::Value::Null,
-            })
-        }
-        TradeType::ExactOut => {
-            todo!();
+                Ok(GenericEstimateResponse {
+                    amount_quote: amount_out,
+                    amount_limit,
+                    router: RouterType::OneInch,
+                    router_data: serde_json::Value::Null,
+                })
+            }
+            TradeType::ExactOut => {
+                let (response, _) = quote_exact_out_with_exact_in(
+                    estimator_request,
+                    move |generic_estimate_request: GenericEstimateRequest| {
+                        let client = client.clone();
+                        let api_key = api_key.clone();
+                        async move {
+                            Box::pin(estimate_swap_one_inch(
+                                client,
+                                &api_key,
+                                generic_estimate_request,
+                            ))
+                            .await
+                        }
+                    },
+                )
+                .await?;
+
+                Ok(response)
+            }
         }
     }
 }
@@ -298,7 +319,7 @@ mod tests {
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result =
-            estimate_swap_one_inch(&client, &one_inch_api_key, generic_estimate_request).await;
+            estimate_swap_one_inch(client.clone(), &one_inch_api_key, generic_estimate_request).await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
@@ -307,5 +328,42 @@ mod tests {
         let result = prepare_swap_one_inch(&client, &one_inch_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_one_inch_swap_exact_out() {
+        dotenv::dotenv().ok();
+
+        let one_inch_api_key =
+            std::env::var("ONE_INCH_API_KEY").expect("ONE_INCH_API_KEY must be set");
+
+        let chain_id = ChainId::Bsc;
+        let src_token = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c".to_string();
+        let dest_token = "0x55d398326f99059ff775485246999027b3197955".to_string();
+        let request = GenericSwapRequest {
+            trade_type: TradeType::ExactOut,
+            chain_id,
+            spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
+            dest_address: "0x4E28f22DE1DBDe92310db2779217a74607691038".to_string(),
+            src_token,
+            dest_token,
+            // 10 Million USDT
+            amount_fixed: 10_000_000_000_000_000_000_000_000u128,
+            slippage: Slippage::Percent(2.0),
+        };
+
+        let client = Client::new();
+
+        let generic_estimate_request = GenericEstimateRequest::from(request.clone());
+        let result =
+            estimate_swap_one_inch(client.clone(), &one_inch_api_key, generic_estimate_request).await;
+        assert!(
+            result.is_ok(),
+            "Expected a successful estimate swap response"
+        );
+
+        // let result = prepare_swap_one_inch(&client, &one_inch_api_key, request).await;
+        // println!("Result: {:#?}", result);
+        // assert!(result.is_ok());
     }
 }

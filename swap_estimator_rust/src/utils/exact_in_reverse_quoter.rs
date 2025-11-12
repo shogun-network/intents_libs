@@ -3,6 +3,7 @@ use crate::error::EstimatorResult;
 use crate::routers::Slippage;
 use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType};
 use crate::utils::limit_amount::get_limit_amount;
+use crate::utils::uint::mul_div;
 use error_stack::report;
 
 /// We'll be adding 0.1 % on the top of initial quote to try to compensate swap fees
@@ -69,8 +70,11 @@ where
     };
 
     let target_min_amount_out = quote_request.amount_fixed;
-    let target_max_amount_out =
-        target_min_amount_out * (THRESHOLD_BASE + SUCCESS_THRESHOLD_BPS) / THRESHOLD_BASE;
+    let target_max_amount_out = mul_div(
+        target_min_amount_out,
+        THRESHOLD_BASE + SUCCESS_THRESHOLD_BPS,
+        THRESHOLD_BASE,
+    )?;
 
     let exact_in_request = GenericEstimateRequest {
         trade_type: TradeType::ExactIn,
@@ -86,7 +90,11 @@ where
     let test_amount_in = get_limit_amount(
         TradeType::ExactOut,
         // Increasing quote amount in attempt to compensate swap fees
-        quote_response.amount_quote * INIT_MULTIPLIER / INIT_MULTIPLIER_BASE,
+        mul_div(
+            quote_response.amount_quote,
+            INIT_MULTIPLIER,
+            INIT_MULTIPLIER_BASE,
+        )?,
         Slippage::Percent(slippage_percent),
     )?;
 
@@ -110,8 +118,11 @@ where
     let mut attempt_number = 0;
     let target_amount_out = (target_min_amount_out + target_max_amount_out) / 2;
     // Adjusting amount IN proportionally to amount_out_min
-    try_values.test_amount_in =
-        try_values.test_amount_in * target_amount_out / quote_response.amount_limit;
+    try_values.test_amount_in = mul_div(
+        try_values.test_amount_in,
+        target_amount_out,
+        quote_response.amount_limit,
+    )?;
     while attempt_number < MAX_LOOP_ATTEMPTS {
         attempt_number += 1;
         let (quote_response, success) = try_exact_in(&quote_request, try_values, &quote_fn).await?;
@@ -122,8 +133,11 @@ where
             ));
         }
         // Adjusting amount IN proportionally to amount_out_min
-        try_values.test_amount_in =
-            try_values.test_amount_in * target_amount_out / quote_response.amount_limit;
+        try_values.test_amount_in = mul_div(
+            try_values.test_amount_in,
+            target_amount_out,
+            quote_response.amount_limit,
+        )?;
     }
 
     Err(report!(Error::AggregatorError(format!(

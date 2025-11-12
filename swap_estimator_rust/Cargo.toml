@@ -22,5 +22,6 @@ rust_decimal      = { workspace = true }
 dashmap           = { workspace = true }
 strum             = { workspace = true }
 strum_macros      = { workspace = true }
+uint              = { workspace = true }
 intents_models    = { path = "../intents_models" }
 # intents_models = { git = "https://github.com/shogun-network/intents_libs.git", tag = "v0.0.23" }
