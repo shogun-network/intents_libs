@@ -12,16 +12,27 @@ use crate::{
         zero_x::{
             BASE_ZERO_X_API_URL,
             requests::{ZeroXGetPriceRequest, ZeroXGetQuoteRequest},
+            responses::{ZeroXApiResponse, ZeroXGetPriceResponse, ZeroXGetQuoteResponse},
         },
     },
     utils::{limit_amount::get_limit_amount, number_conversion::decimal_string_to_u128},
 };
 
+fn handle_zero_x_response(response: ZeroXApiResponse) -> EstimatorResult<ZeroXApiResponse> {
+    println!("Zero X Response: {:#?}", response);
+    match response {
+        ZeroXApiResponse::LiquidityResponse(res) => Err(report!(Error::AggregatorError(
+            "No liquidity available for Zero X swap".to_string()
+        ))),
+        _ => Ok(response),
+    }
+}
+
 pub async fn zero_x_get_price(
     client: &Client,
     api_key: &str,
     request: ZeroXGetPriceRequest,
-) -> EstimatorResult<()> {
+) -> EstimatorResult<ZeroXGetPriceResponse> {
     let query = json!({
         "chainId": request.chain_id,
         "buyToken": request.buy_token,
@@ -42,20 +53,25 @@ pub async fn zero_x_get_price(
         .change_context(Error::ReqwestError)
         .attach_printable("Error in 1inch request")?;
 
-    let get_price_response: Value = handle_reqwest_response(response)
+    let get_price_response: ZeroXApiResponse = handle_reqwest_response(response)
         .await
         .change_context(Error::ModelsError)?;
 
-    println!("ZeroX Get Price Response: {:?}", get_price_response);
-
-    Ok(())
+    if let ZeroXApiResponse::GetPriceResponse(res) = handle_zero_x_response(get_price_response)? {
+        return Ok(res);
+    } else {
+        return Err(report!(Error::AggregatorError(
+            "Expected GetPriceResponse variant from ZeroXApiResponse".to_string()
+        ))
+        .attach_printable("Expected GetPriceResponse variant from ZeroXApiResponse"));
+    }
 }
 
 pub async fn zero_x_get_quote(
     client: &Client,
     api_key: &str,
     request: ZeroXGetQuoteRequest,
-) -> EstimatorResult<()> {
+) -> EstimatorResult<ZeroXGetQuoteResponse> {
     let mut query = json!({
         "chainId": request.chain_id,
         "buyToken": request.buy_token,
@@ -85,13 +101,18 @@ pub async fn zero_x_get_quote(
         .change_context(Error::ReqwestError)
         .attach_printable("Error in 1inch request")?;
 
-    let get_quote_response: Value = handle_reqwest_response(response)
+    let get_quote_response: ZeroXApiResponse = handle_reqwest_response(response)
         .await
         .change_context(Error::ModelsError)?;
 
-    println!("ZeroX Get Quote Response: {:?}", get_quote_response);
-
-    Ok(())
+    if let ZeroXApiResponse::GetQuoteResponse(res) = handle_zero_x_response(get_quote_response)? {
+        return Ok(res);
+    } else {
+        return Err(report!(Error::AggregatorError(
+            "Expected GetPriceResponse variant from ZeroXApiResponse".to_string()
+        ))
+        .attach_printable("Expected GetPriceResponse variant from ZeroXApiResponse"));
+    }
 }
 
 #[cfg(test)]
