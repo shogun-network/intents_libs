@@ -50,7 +50,7 @@ pub struct TokenMetadata {
     pub decimals: u8,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct TokenPrice {
     pub price: f64,
     pub decimals: u8,
