@@ -100,7 +100,7 @@ impl UserRequestGenericData {
 }
 
 #[serde_as]
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GetUserIntentsRequest {
     #[serde_as(as = "StringWithSeparator<CommaSeparator, String>")]
