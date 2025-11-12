@@ -39,6 +39,9 @@ pub enum Error {
     #[error("Codex error: {0}")]
     CodexError(String),
 
+    #[error("Logic Error: {0}")]
+    LogicError(String),
+
     #[error("Unknown error")]
     Unknown,
 }

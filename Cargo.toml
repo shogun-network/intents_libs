@@ -29,3 +29,4 @@ async-trait = "0.1.88"
 dotenv = "0.15.0"
 rust_decimal = { version = "1.39.0", features = ["maths"] }
 dashmap = "6.1.0"
+uint = "0.10.0"

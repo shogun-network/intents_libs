@@ -3,6 +3,7 @@ use intents_models::network::http::{handle_reqwest_response, value_to_sorted_que
 use reqwest::Client;
 use serde_json::json;
 
+use crate::utils::exact_in_reverse_quoter::quote_exact_out_with_exact_in;
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
@@ -31,7 +32,7 @@ fn handle_zero_x_response(response: ZeroXApiResponse) -> EstimatorResult<ZeroXAp
 }
 
 pub async fn zero_x_get_price(
-    client: Client,
+    client: &Client,
     api_key: &str,
     request: ZeroXGetPriceRequest,
 ) -> EstimatorResult<ZeroXGetPriceResponse> {
@@ -70,7 +71,7 @@ pub async fn zero_x_get_price(
 }
 
 pub async fn zero_x_get_quote(
-    client: Client,
+    client: &Client,
     api_key: &str,
     request: ZeroXGetQuoteRequest,
 ) -> EstimatorResult<ZeroXGetQuoteResponse> {
@@ -118,56 +119,78 @@ pub async fn zero_x_get_quote(
 }
 
 pub async fn estimate_swap_zero_x(
-    client: Client,
+    client: &Client,
     api_key: &str,
     estimator_request: GenericEstimateRequest,
 ) -> EstimatorResult<GenericEstimateResponse> {
     match estimator_request.trade_type {
         TradeType::ExactIn => {
-            let slippage_bps = match estimator_request.slippage {
-                Slippage::Percent(percent) => {
-                    let bps = slippage_to_bps(percent)?;
-                    if bps > 10_000 {
-                        return Err(report!(Error::AggregatorError(
-                            "Slippage percent cannot be more than 100%".to_string()
-                        )));
-                    }
-                    bps
-                }
-                Slippage::AmountLimit {
-                    amount_limit: _,
-                    fallback_slippage,
-                } => slippage_to_bps(fallback_slippage)?,
-                Slippage::MaxSlippage => 10000, // 100%
-            };
-
-            let request = ZeroXGetPriceRequest {
-                chain_id: estimator_request.chain_id as u32,
-                sell_token: estimator_request.src_token,
-                buy_token: estimator_request.dest_token,
-                sell_amount: estimator_request.amount_fixed.to_string(),
-                slippage_bps,
-            };
-
-            let price_response = zero_x_get_price(client, api_key, request).await?;
-
-            let amount_out = decimal_string_to_u128(&price_response.buy_amount, 0)?;
-
-            let amount_limit = decimal_string_to_u128(&price_response.min_buy_amount, 0)?;
-
-            Ok(GenericEstimateResponse {
-                amount_quote: amount_out,
-                amount_limit,
-                router: RouterType::ZeroX,
-                router_data: serde_json::Value::Null,
-            })
+            estimate_exact_in_swap_zero_x(client, api_key, estimator_request).await
         }
-        TradeType::ExactOut => todo!(),
+        TradeType::ExactOut => {
+            let (response, _) = quote_exact_out_with_exact_in(
+                estimator_request,
+                async |generic_estimate_request: GenericEstimateRequest| {
+                    let res =
+                        estimate_exact_in_swap_zero_x(client, &api_key, generic_estimate_request)
+                            .await?;
+
+                    Ok(res)
+                },
+            )
+            .await?;
+
+            Ok(response)
+        }
     }
 }
 
+async fn estimate_exact_in_swap_zero_x(
+    client: &Client,
+    api_key: &str,
+    estimator_request: GenericEstimateRequest,
+) -> EstimatorResult<GenericEstimateResponse> {
+    let slippage_bps = match estimator_request.slippage {
+        Slippage::Percent(percent) => {
+            let bps = slippage_to_bps(percent)?;
+            if bps > 10_000 {
+                return Err(report!(Error::AggregatorError(
+                    "Slippage percent cannot be more than 100%".to_string()
+                )));
+            }
+            bps
+        }
+        Slippage::AmountLimit {
+            amount_limit: _,
+            fallback_slippage,
+        } => slippage_to_bps(fallback_slippage)?,
+        Slippage::MaxSlippage => 10000, // 100%
+    };
+
+    let request = ZeroXGetPriceRequest {
+        chain_id: estimator_request.chain_id as u32,
+        sell_token: estimator_request.src_token,
+        buy_token: estimator_request.dest_token,
+        sell_amount: estimator_request.amount_fixed.to_string(),
+        slippage_bps,
+    };
+
+    let price_response = zero_x_get_price(client, api_key, request).await?;
+
+    let amount_out = decimal_string_to_u128(&price_response.buy_amount, 0)?;
+
+    let amount_limit = decimal_string_to_u128(&price_response.min_buy_amount, 0)?;
+
+    Ok(GenericEstimateResponse {
+        amount_quote: amount_out,
+        amount_limit,
+        router: RouterType::ZeroX,
+        router_data: serde_json::Value::Null,
+    })
+}
+
 pub async fn prepare_swap_zero_x(
-    client: Client,
+    client: &Client,
     api_key: &str,
     swap_request: GenericSwapRequest,
     amount_estimated: Option<u128>,
@@ -175,66 +198,96 @@ pub async fn prepare_swap_zero_x(
 ) -> EstimatorResult<EvmSwapResponse> {
     match swap_request.trade_type {
         TradeType::ExactIn => {
-            let slippage_bps = match swap_request.slippage {
-                Slippage::Percent(percent) => {
-                    let bps = slippage_to_bps(percent)?;
-                    if bps > 10_000 {
-                        return Err(report!(Error::AggregatorError(
-                            "Slippage percent cannot be more than 100%".to_string()
-                        )));
-                    }
-                    bps
-                }
-                Slippage::AmountLimit {
-                    amount_limit,
-                    fallback_slippage,
-                } => match amount_estimated {
-                    Some(amount_estimated) => {
-                        let percent = get_slippage_percentage(
-                            amount_estimated,
-                            amount_limit,
-                            swap_request.trade_type,
-                        )?;
-                        slippage_to_bps(percent)?
-                    }
-                    None => slippage_to_bps(fallback_slippage)?,
-                },
-                Slippage::MaxSlippage => 10000, // 100%
-            };
-
-            let request = ZeroXGetQuoteRequest {
-                chain_id: swap_request.chain_id as u32,
-                sell_token: swap_request.src_token,
-                buy_token: swap_request.dest_token,
-                sell_amount: swap_request.amount_fixed.to_string(),
-                slippage_bps,
-                recipient: if swap_request.dest_address == swap_request.spender {
-                    None
-                } else {
-                    Some(swap_request.dest_address)
-                },
-                taker: swap_request.spender,
-                tx_origin,
-            };
-
-            let quote_response = zero_x_get_quote(client, api_key, request).await?;
-
-            let amount_out = decimal_string_to_u128(&quote_response.buy_amount, 0)?;
-
-            let amount_limit = decimal_string_to_u128(&quote_response.min_buy_amount, 0)?;
-
-            Ok(EvmSwapResponse {
-                amount_quote: amount_out,
-                amount_limit,
-                tx_to: quote_response.transaction.to.clone(),
-                tx_data: quote_response.transaction.data,
-                tx_value: decimal_string_to_u128(&quote_response.transaction.value, 0)?,
-                approve_address: Some(quote_response.allowance_target),
-                require_transfer: false,
-            })
+            prepare_exact_in_swap_zero_x(client, api_key, swap_request, amount_estimated, tx_origin)
+                .await
         }
-        TradeType::ExactOut => todo!(),
+        TradeType::ExactOut => {
+            let (response, _) = quote_exact_out_with_exact_in(
+                swap_request,
+                async |swap_request: GenericSwapRequest| {
+                    let res = prepare_exact_in_swap_zero_x(
+                        client,
+                        api_key,
+                        swap_request,
+                        amount_estimated,
+                        tx_origin.clone(),
+                    )
+                    .await?;
+
+                    Ok(res)
+                },
+            )
+            .await?;
+
+            Ok(response)
+        }
     }
+}
+
+async fn prepare_exact_in_swap_zero_x(
+    client: &Client,
+    api_key: &str,
+    swap_request: GenericSwapRequest,
+    amount_estimated: Option<u128>,
+    tx_origin: Option<String>,
+) -> EstimatorResult<EvmSwapResponse> {
+    let slippage_bps = match swap_request.slippage {
+        Slippage::Percent(percent) => {
+            let bps = slippage_to_bps(percent)?;
+            if bps > 10_000 {
+                return Err(report!(Error::AggregatorError(
+                    "Slippage percent cannot be more than 100%".to_string()
+                )));
+            }
+            bps
+        }
+        Slippage::AmountLimit {
+            amount_limit,
+            fallback_slippage,
+        } => match amount_estimated {
+            Some(amount_estimated) => {
+                let percent = get_slippage_percentage(
+                    amount_estimated,
+                    amount_limit,
+                    swap_request.trade_type,
+                )?;
+                slippage_to_bps(percent)?
+            }
+            None => slippage_to_bps(fallback_slippage)?,
+        },
+        Slippage::MaxSlippage => 10000, // 100%
+    };
+
+    let request = ZeroXGetQuoteRequest {
+        chain_id: swap_request.chain_id as u32,
+        sell_token: swap_request.src_token,
+        buy_token: swap_request.dest_token,
+        sell_amount: swap_request.amount_fixed.to_string(),
+        slippage_bps,
+        recipient: if swap_request.dest_address == swap_request.spender {
+            None
+        } else {
+            Some(swap_request.dest_address)
+        },
+        taker: swap_request.spender,
+        tx_origin,
+    };
+
+    let quote_response = zero_x_get_quote(client, api_key, request).await?;
+
+    let amount_out = decimal_string_to_u128(&quote_response.buy_amount, 0)?;
+
+    let amount_limit = decimal_string_to_u128(&quote_response.min_buy_amount, 0)?;
+
+    Ok(EvmSwapResponse {
+        amount_quote: amount_out,
+        amount_limit,
+        tx_to: quote_response.transaction.to.clone(),
+        tx_data: quote_response.transaction.data,
+        tx_value: decimal_string_to_u128(&quote_response.transaction.value, 0)?,
+        approve_address: Some(quote_response.allowance_target),
+        require_transfer: false,
+    })
 }
 
 #[cfg(test)]
@@ -257,7 +310,7 @@ mod tests {
             slippage_bps: 100,                  // 1%
         };
 
-        let result = zero_x_get_price(client, &zero_x_api_key, request).await;
+        let result = zero_x_get_price(&client, &zero_x_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -279,7 +332,7 @@ mod tests {
             tx_origin: None,
         };
 
-        let result = zero_x_get_quote(client, &zero_x_api_key, request).await;
+        let result = zero_x_get_quote(&client, &zero_x_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -306,15 +359,49 @@ mod tests {
         let client = Client::new();
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
-        let result =
-            estimate_swap_zero_x(client.clone(), &zero_x_api_key, generic_estimate_request).await;
+        let result = estimate_swap_zero_x(&client, &zero_x_api_key, generic_estimate_request).await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
         );
         println!("Result: {:#?}", result);
 
-        let result = prepare_swap_zero_x(client, &zero_x_api_key, request, None, None).await;
+        let result = prepare_swap_zero_x(&client, &zero_x_api_key, request, None, None).await;
+        println!("Result: {:#?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_zero_x_swap_exact_out() {
+        dotenv::dotenv().ok();
+
+        let zero_x_api_key = std::env::var("ZERO_X_API_KEY").expect("ZERO_X_API_KEY must be set");
+        let chain_id = ChainId::Bsc;
+        let src_token = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c".to_string();
+        let dest_token = "0x55d398326f99059ff775485246999027b3197955".to_string();
+        let request = GenericSwapRequest {
+            trade_type: TradeType::ExactOut,
+            chain_id,
+            spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
+            dest_address: "0x4E28f22DE1DBDe92310db2779217a74607691038".to_string(),
+            src_token,
+            dest_token,
+            // 10 Million USDT
+            amount_fixed: 10_000_000_000_000_000_000_000_000u128,
+            slippage: Slippage::Percent(2.0),
+        };
+
+        let client = Client::new();
+
+        let generic_estimate_request = GenericEstimateRequest::from(request.clone());
+        let result = estimate_swap_zero_x(&client, &zero_x_api_key, generic_estimate_request).await;
+        assert!(
+            result.is_ok(),
+            "Expected a successful estimate swap response"
+        );
+        println!("Result: {:#?}", result);
+
+        let result = prepare_swap_zero_x(&client, &zero_x_api_key, request, None, None).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
