@@ -224,7 +224,8 @@ where
         max_amount_in,
     };
 
-    let (mut quote_response, success) = try_exact_in(&request, try_values, &quote_exact_in_fn).await?;
+    let (mut quote_response, success) =
+        try_exact_in(&request, try_values, &quote_exact_in_fn).await?;
 
     if success {
         quote_response.update_with_amount_in(try_values.test_amount_in);
@@ -241,7 +242,8 @@ where
     )?;
     while attempt_number < MAX_LOOP_ATTEMPTS {
         attempt_number += 1;
-        let (mut quote_response, success) = try_exact_in(&request, try_values, &quote_exact_in_fn).await?;
+        let (mut quote_response, success) =
+            try_exact_in(&request, try_values, &quote_exact_in_fn).await?;
         if success {
             quote_response.update_with_amount_in(try_values.test_amount_in);
             return Ok((quote_response, attempt_number + 1));
@@ -293,7 +295,7 @@ where
     let success = if amount_limit <= target_max_amount_out && amount_limit >= target_min_amount_out
     {
         if let Some(max_amount_in) = max_amount_in
-            && max_amount_in > test_amount_in
+            && test_amount_in > max_amount_in
         {
             return Err(report!(Error::AggregatorError(format!(
                 "Estimated amount IN {test_amount_in} is above maximum requested {max_amount_in}"
@@ -310,13 +312,43 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::routers::jupiter::jupiter::get_jupiter_quote;
+    use crate::routers::RouterType;
     use intents_models::constants::chains::ChainId;
 
-    #[tokio::test]
-    async fn test_quote_exact_out_with_exact_in_jupiter() {
-        dotenv::dotenv().ok();
+    async fn mock_jupiter_quote(
+        generic_estimate_request: &GenericEstimateRequest,
+    ) -> EstimatorResult<GenericEstimateResponse> {
+        let slippage = match generic_estimate_request.slippage {
+            Slippage::Percent(slippage) => slippage,
+            Slippage::AmountLimit {
+                fallback_slippage, ..
+            } => fallback_slippage,
+            Slippage::MaxSlippage => panic!("MaxSlippage not allowed"),
+        };
+        // Let's say SOL/USDT price is 150
+        let amount_out = generic_estimate_request.amount_fixed
+            // SOL (9 decimals) - USDT (6 decimals)
+            * 1000
+            // Dividing by price
+            / 150
+            // simulating swap expenses
+            * 98
+            / 100;
 
+        Ok(GenericEstimateResponse {
+            amount_quote: amount_out,
+            amount_limit: get_limit_amount(
+                TradeType::ExactIn,
+                amount_out,
+                Slippage::Percent(slippage),
+            )?,
+            router: RouterType::Jupiter,
+            router_data: Default::default(),
+        })
+    }
+
+    #[tokio::test]
+    async fn test_quote_exact_out_with_exact_in() {
         // Searching for amount of Sol to spend to receive at least 1 Million USDT
         let quote_request = GenericEstimateRequest {
             trade_type: TradeType::ExactOut,
@@ -327,14 +359,12 @@ mod tests {
             slippage: Slippage::Percent(2.0),
         };
 
-        let jupiter_url = std::env::var("JUPITER_URL").unwrap();
-
         let res = quote_exact_out_with_exact_in(
             quote_request,
             async |generic_estimate_request: GenericEstimateRequest| {
-                let res = get_jupiter_quote(&generic_estimate_request, &jupiter_url, None).await?;
+                let res = mock_jupiter_quote(&generic_estimate_request).await?;
 
-                Ok(res.0)
+                Ok(res)
             },
         )
         .await;
@@ -348,5 +378,66 @@ mod tests {
         println!("Success in {attempts} attempts");
         assert!(attempts >= 1 && attempts <= 2);
     }
-    // todo test Slippage::AmountLimit
+
+    #[tokio::test]
+    async fn test_quote_exact_out_with_exact_in_with_amount_limit() {
+        // Searching for amount of Sol to spend to receive at least 1 Million USDT
+        let quote_request = GenericEstimateRequest {
+            trade_type: TradeType::ExactOut,
+            chain_id: ChainId::Solana,
+            src_token: "So11111111111111111111111111111111111111112".to_string(), // SOL
+            dest_token: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB".to_string(), // USDT
+            amount_fixed: 1_000_000_000,
+            slippage: Slippage::AmountLimit {
+                amount_limit: 100_000_000_000, // Max 100 SOL to spend should be enough
+                fallback_slippage: 2.0,
+            },
+        };
+
+        let res = quote_exact_out_with_exact_in(
+            quote_request,
+            async |generic_estimate_request: GenericEstimateRequest| {
+                let res = mock_jupiter_quote(&generic_estimate_request).await?;
+
+                Ok(res)
+            },
+        )
+        .await;
+        assert!(
+            res.is_ok(),
+            "Expected successful quote response: {:?}",
+            res.err()
+        );
+
+        let (_, attempts) = res.unwrap();
+        println!("Success in {attempts} attempts");
+        assert!(attempts >= 1 && attempts <= 2);
+    }
+
+    #[tokio::test]
+    async fn test_quote_exact_out_with_exact_in_with_amount_limit_error() {
+        // Searching for amount of Sol to spend to receive at least 1 Million USDT
+        let quote_request = GenericEstimateRequest {
+            trade_type: TradeType::ExactOut,
+            chain_id: ChainId::Solana,
+            src_token: "So11111111111111111111111111111111111111112".to_string(), // SOL
+            dest_token: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB".to_string(), // USDT
+            amount_fixed: 1_000_000_000,
+            slippage: Slippage::AmountLimit {
+                amount_limit: 100_000_000, // Max 0.1 SOL to spend should not be enough
+                fallback_slippage: 2.0,
+            },
+        };
+
+        let res = quote_exact_out_with_exact_in(
+            quote_request,
+            async |generic_estimate_request: GenericEstimateRequest| {
+                let res = mock_jupiter_quote(&generic_estimate_request).await?;
+
+                Ok(res)
+            },
+        )
+        .await;
+        assert!(res.is_err());
+    }
 }
