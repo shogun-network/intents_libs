@@ -19,7 +19,7 @@ use crate::{
 };
 
 pub async fn one_inch_get_quote(
-    client: &Client,
+    client: Client,
     api_key: &str,
     request: OneInchGetQuoteRequest,
 ) -> EstimatorResult<u128> {
@@ -51,7 +51,7 @@ pub async fn one_inch_get_quote(
 }
 
 pub async fn one_inch_swap(
-    client: &Client,
+    client: Client,
     api_key: &str,
     request: OneInchSwapRequest,
 ) -> EstimatorResult<OneInchSwapResponse> {
@@ -95,7 +95,7 @@ pub async fn one_inch_swap(
 }
 
 pub async fn one_inch_get_approve_address(
-    client: &Client,
+    client: Client,
     api_key: &str,
     chain: u32,
 ) -> EstimatorResult<String> {
@@ -117,7 +117,7 @@ pub async fn one_inch_get_approve_address(
 }
 
 pub async fn estimate_swap_one_inch(
-    client: &Client,
+    client: Client,
     api_key: &str,
     estimator_request: GenericEstimateRequest,
 ) -> EstimatorResult<GenericEstimateResponse> {
@@ -152,7 +152,7 @@ pub async fn estimate_swap_one_inch(
 }
 
 pub async fn prepare_swap_one_inch(
-    client: &Client,
+    client: Client,
     api_key: &str,
     swap_request: GenericSwapRequest,
 ) -> EstimatorResult<EvmSwapResponse> {
@@ -230,7 +230,7 @@ mod tests {
             amount: "1000000".to_string(), // 1 USDC
         };
 
-        let result = one_inch_get_quote(&client, &one_inch_api_key, request).await;
+        let result = one_inch_get_quote(client, &one_inch_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -254,7 +254,7 @@ mod tests {
             slippage: Some(0.5), // 0.5%
         };
 
-        let result = one_inch_swap(&client, &one_inch_api_key, request).await;
+        let result = one_inch_swap(client, &one_inch_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -268,7 +268,7 @@ mod tests {
         let client = Client::new();
 
         let result =
-            one_inch_get_approve_address(&client, &one_inch_api_key, ChainId::Base as u32).await;
+            one_inch_get_approve_address(client, &one_inch_api_key, ChainId::Base as u32).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -298,13 +298,14 @@ mod tests {
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result =
-            estimate_swap_one_inch(&client, &one_inch_api_key, generic_estimate_request).await;
+            estimate_swap_one_inch(client.clone(), &one_inch_api_key, generic_estimate_request)
+                .await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
         );
 
-        let result = prepare_swap_one_inch(&client, &one_inch_api_key, request).await;
+        let result = prepare_swap_one_inch(client, &one_inch_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }

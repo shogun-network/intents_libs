@@ -31,7 +31,7 @@ fn handle_zero_x_response(response: ZeroXApiResponse) -> EstimatorResult<ZeroXAp
 }
 
 pub async fn zero_x_get_price(
-    client: &Client,
+    client: Client,
     api_key: &str,
     request: ZeroXGetPriceRequest,
 ) -> EstimatorResult<ZeroXGetPriceResponse> {
@@ -70,7 +70,7 @@ pub async fn zero_x_get_price(
 }
 
 pub async fn zero_x_get_quote(
-    client: &Client,
+    client: Client,
     api_key: &str,
     request: ZeroXGetQuoteRequest,
 ) -> EstimatorResult<ZeroXGetQuoteResponse> {
@@ -118,7 +118,7 @@ pub async fn zero_x_get_quote(
 }
 
 pub async fn estimate_swap_zero_x(
-    client: &Client,
+    client: Client,
     api_key: &str,
     estimator_request: GenericEstimateRequest,
 ) -> EstimatorResult<GenericEstimateResponse> {
@@ -167,10 +167,11 @@ pub async fn estimate_swap_zero_x(
 }
 
 pub async fn prepare_swap_zero_x(
-    client: &Client,
+    client: Client,
     api_key: &str,
     swap_request: GenericSwapRequest,
     amount_estimated: Option<u128>,
+    tx_origin: Option<String>,
 ) -> EstimatorResult<EvmSwapResponse> {
     match swap_request.trade_type {
         TradeType::ExactIn => {
@@ -213,7 +214,7 @@ pub async fn prepare_swap_zero_x(
                     Some(swap_request.dest_address)
                 },
                 taker: swap_request.spender,
-                tx_origin: None, // TODO: pass tx_origin if taker is solver multicall SC, as doc says
+                tx_origin,
             };
 
             let quote_response = zero_x_get_quote(client, api_key, request).await?;
@@ -256,7 +257,7 @@ mod tests {
             slippage_bps: 100,                  // 1%
         };
 
-        let result = zero_x_get_price(&client, &zero_x_api_key, request).await;
+        let result = zero_x_get_price(client, &zero_x_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -278,7 +279,7 @@ mod tests {
             tx_origin: None,
         };
 
-        let result = zero_x_get_quote(&client, &zero_x_api_key, request).await;
+        let result = zero_x_get_quote(client, &zero_x_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -305,14 +306,15 @@ mod tests {
         let client = Client::new();
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
-        let result = estimate_swap_zero_x(&client, &zero_x_api_key, generic_estimate_request).await;
+        let result =
+            estimate_swap_zero_x(client.clone(), &zero_x_api_key, generic_estimate_request).await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
         );
         println!("Result: {:#?}", result);
 
-        let result = prepare_swap_zero_x(&client, &zero_x_api_key, request, None).await;
+        let result = prepare_swap_zero_x(client, &zero_x_api_key, request, None, None).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
