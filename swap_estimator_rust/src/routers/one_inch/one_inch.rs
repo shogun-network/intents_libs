@@ -172,61 +172,78 @@ pub fn estimate_swap_one_inch(
     }
 }
 
-pub async fn prepare_swap_one_inch(
-    client: &Client,
+pub fn prepare_swap_one_inch(
+    client: Client,
     api_key: &str,
     swap_request: GenericSwapRequest,
-) -> EstimatorResult<EvmSwapResponse> {
-    match swap_request.trade_type {
-        TradeType::ExactIn => {
-            let mut request = OneInchSwapRequest {
-                chain: swap_request.chain_id as u32,
-                src: swap_request.src_token,
-                dst: swap_request.dest_token,
-                amount: swap_request.amount_fixed.to_string(),
-                from: swap_request.spender,
-                min_return: None,
-                origin: swap_request.dest_address,
-                slippage: None,
-            };
+) -> impl Future<Output = EstimatorResult<EvmSwapResponse>> + Send {
+    let api_key = api_key.to_owned();
+    async {
+        match swap_request.trade_type {
+            TradeType::ExactIn => {
+                let mut request = OneInchSwapRequest {
+                    chain: swap_request.chain_id as u32,
+                    src: swap_request.src_token,
+                    dst: swap_request.dest_token,
+                    amount: swap_request.amount_fixed.to_string(),
+                    from: swap_request.spender,
+                    min_return: None,
+                    origin: swap_request.dest_address,
+                    slippage: None,
+                };
 
-            match swap_request.slippage {
-                Slippage::Percent(slippage) => {
-                    if slippage > 50.0 {
-                        request.slippage = Some(50.0);
-                    } else {
-                        request.slippage = Some(slippage);
+                match swap_request.slippage {
+                    Slippage::Percent(slippage) => {
+                        if slippage > 50.0 {
+                            request.slippage = Some(50.0);
+                        } else {
+                            request.slippage = Some(slippage);
+                        }
+                    }
+                    Slippage::AmountLimit {
+                        amount_limit,
+                        fallback_slippage: _,
+                    } => {
+                        request.min_return = Some(amount_limit.to_string());
+                    }
+                    Slippage::MaxSlippage => {
+                        request.slippage = Some(50.0); // 50%
                     }
                 }
-                Slippage::AmountLimit {
+
+                let swap_response = one_inch_swap(&client, &api_key, request).await?;
+
+                let amount_out = decimal_string_to_u128(&swap_response.dst_amount, 0)?;
+
+                let amount_limit =
+                    get_limit_amount(swap_request.trade_type, amount_out, swap_request.slippage)?;
+
+                Ok(EvmSwapResponse {
+                    amount_quote: amount_out,
                     amount_limit,
-                    fallback_slippage: _,
-                } => {
-                    request.min_return = Some(amount_limit.to_string());
-                }
-                Slippage::MaxSlippage => {
-                    request.slippage = Some(50.0); // 50%
-                }
+                    tx_to: swap_response.tx.to.clone(),
+                    tx_data: swap_response.tx.data,
+                    tx_value: decimal_string_to_u128(&swap_response.tx.value, 0)?,
+                    approve_address: Some(swap_response.tx.to),
+                    require_transfer: false,
+                })
             }
+            TradeType::ExactOut => {
+                let (response, _) = quote_exact_out_with_exact_in(
+                    swap_request,
+                    move |swap_request: GenericSwapRequest| {
+                        let client = client.clone();
+                        let api_key = api_key.clone();
+                        async move {
+                            Box::pin(prepare_swap_one_inch(client, &api_key, swap_request)).await
+                        }
+                    },
+                )
+                .await?;
 
-            let swap_response = one_inch_swap(client, api_key, request).await?;
-
-            let amount_out = decimal_string_to_u128(&swap_response.dst_amount, 0)?;
-
-            let amount_limit =
-                get_limit_amount(swap_request.trade_type, amount_out, swap_request.slippage)?;
-
-            Ok(EvmSwapResponse {
-                amount_quote: amount_out,
-                amount_limit,
-                tx_to: swap_response.tx.to.clone(),
-                tx_data: swap_response.tx.data,
-                tx_value: decimal_string_to_u128(&swap_response.tx.value, 0)?,
-                approve_address: Some(swap_response.tx.to),
-                require_transfer: false,
-            })
+                Ok(response)
+            }
         }
-        TradeType::ExactOut => todo!(),
     }
 }
 
@@ -319,13 +336,14 @@ mod tests {
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result =
-            estimate_swap_one_inch(client.clone(), &one_inch_api_key, generic_estimate_request).await;
+            estimate_swap_one_inch(client.clone(), &one_inch_api_key, generic_estimate_request)
+                .await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
         );
 
-        let result = prepare_swap_one_inch(&client, &one_inch_api_key, request).await;
+        let result = prepare_swap_one_inch(client, &one_inch_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -356,14 +374,15 @@ mod tests {
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result =
-            estimate_swap_one_inch(client.clone(), &one_inch_api_key, generic_estimate_request).await;
+            estimate_swap_one_inch(client.clone(), &one_inch_api_key, generic_estimate_request)
+                .await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
         );
 
-        // let result = prepare_swap_one_inch(&client, &one_inch_api_key, request).await;
-        // println!("Result: {:#?}", result);
-        // assert!(result.is_ok());
+        let result = prepare_swap_one_inch(client, &one_inch_api_key, request).await;
+        println!("Result: {:#?}", result);
+        assert!(result.is_ok());
     }
 }

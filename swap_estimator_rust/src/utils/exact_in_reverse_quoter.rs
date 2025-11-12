@@ -2,6 +2,7 @@ use crate::error::Error;
 use crate::error::EstimatorResult;
 use crate::routers::Slippage;
 use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType};
+use crate::routers::swap::{EvmSwapResponse, GenericSwapRequest};
 use crate::utils::limit_amount::get_limit_amount;
 use crate::utils::uint::mul_div;
 use error_stack::report;
@@ -71,6 +72,42 @@ impl ReverseQuoteRequest for GenericEstimateRequest {
     }
 }
 
+impl ReverseQuoteRequest for GenericSwapRequest {
+    fn get_init_values(&self) -> (TradeType, Slippage, u128) {
+        (self.trade_type, self.slippage, self.amount_fixed)
+    }
+
+    fn get_reversed_exact_in_with_slippage(&self, slippage_percent: f64) -> Self {
+        Self {
+            trade_type: TradeType::ExactIn,
+            chain_id: self.chain_id,
+            spender: self.spender.clone(),
+            dest_address: self.dest_address.clone(),
+            src_token: self.dest_token.clone(),
+            dest_token: self.src_token.clone(),
+            amount_fixed: self.amount_fixed,
+            slippage: Slippage::Percent(slippage_percent),
+        }
+    }
+
+    fn get_exact_in_with_slippage_and_amount_in(
+        &self,
+        slippage_percent: f64,
+        amount_in: u128,
+    ) -> Self {
+        Self {
+            trade_type: TradeType::ExactIn,
+            chain_id: self.chain_id,
+            spender: self.spender.clone(),
+            dest_address: self.dest_address.clone(),
+            src_token: self.src_token.clone(),
+            dest_token: self.dest_token.clone(),
+            amount_fixed: amount_in,
+            slippage: Slippage::Percent(slippage_percent),
+        }
+    }
+}
+
 pub trait ReverseQuoteResponse {
     fn get_amount_quote(&self) -> u128;
     fn get_amount_limit(&self) -> u128;
@@ -78,6 +115,19 @@ pub trait ReverseQuoteResponse {
 }
 
 impl ReverseQuoteResponse for GenericEstimateResponse {
+    fn get_amount_quote(&self) -> u128 {
+        self.amount_quote
+    }
+    fn get_amount_limit(&self) -> u128 {
+        self.amount_limit
+    }
+    fn update_with_amount_in(&mut self, amount_in: u128) {
+        self.amount_quote = amount_in;
+        self.amount_limit = amount_in;
+    }
+}
+
+impl ReverseQuoteResponse for EvmSwapResponse {
     fn get_amount_quote(&self) -> u128 {
         self.amount_quote
     }
