@@ -20,7 +20,7 @@ use crate::{
 };
 
 pub async fn one_inch_get_quote(
-    client: Client,
+    client: &Client,
     api_key: &str,
     request: OneInchGetQuoteRequest,
 ) -> EstimatorResult<u128> {
@@ -52,7 +52,7 @@ pub async fn one_inch_get_quote(
 }
 
 pub async fn one_inch_swap(
-    client: Client,
+    client: &Client,
     api_key: &str,
     request: OneInchSwapRequest,
 ) -> EstimatorResult<OneInchSwapResponse> {
@@ -96,7 +96,7 @@ pub async fn one_inch_swap(
 }
 
 pub async fn one_inch_get_approve_address(
-    client: Client,
+    client: &Client,
     api_key: &str,
     chain: u32,
 ) -> EstimatorResult<String> {
@@ -117,134 +117,135 @@ pub async fn one_inch_get_approve_address(
     Ok(resp_json.address)
 }
 
-pub fn estimate_swap_one_inch(
-    client: Client,
+pub async fn estimate_swap_one_inch(
+    client: &Client,
     api_key: &str,
     estimator_request: GenericEstimateRequest,
-) -> impl Future<Output = EstimatorResult<GenericEstimateResponse>> + Send {
-    let api_key = api_key.to_owned();
-    async {
-        match estimator_request.trade_type {
-            TradeType::ExactIn => {
-                let request = OneInchGetQuoteRequest {
-                    chain: estimator_request.chain_id as u32,
-                    src: estimator_request.src_token,
-                    dst: estimator_request.dest_token,
-                    amount: estimator_request.amount_fixed.to_string(),
-                };
+) -> EstimatorResult<GenericEstimateResponse> {
+    match estimator_request.trade_type {
+        TradeType::ExactIn => {
+            estimate_exact_in_swap_one_inch(client, api_key, estimator_request).await
+        }
+        TradeType::ExactOut => {
+            let (response, _) = quote_exact_out_with_exact_in(
+                estimator_request,
+                async |generic_estimate_request: GenericEstimateRequest| {
+                    let res =
+                        estimate_exact_in_swap_one_inch(client, &api_key, generic_estimate_request)
+                            .await?;
 
-                let amount_out = one_inch_get_quote(&client, &api_key, request).await?;
+                    Ok(res)
+                },
+            )
+            .await?;
 
-                let amount_limit = get_limit_amount(
-                    estimator_request.trade_type,
-                    amount_out,
-                    estimator_request.slippage,
-                )?;
-
-                Ok(GenericEstimateResponse {
-                    amount_quote: amount_out,
-                    amount_limit,
-                    router: RouterType::OneInch,
-                    router_data: serde_json::Value::Null,
-                })
-            }
-            TradeType::ExactOut => {
-                let (response, _) = quote_exact_out_with_exact_in(
-                    estimator_request,
-                    move |generic_estimate_request: GenericEstimateRequest| {
-                        let client = client.clone();
-                        let api_key = api_key.clone();
-                        async move {
-                            Box::pin(estimate_swap_one_inch(
-                                client,
-                                &api_key,
-                                generic_estimate_request,
-                            ))
-                            .await
-                        }
-                    },
-                )
-                .await?;
-
-                Ok(response)
-            }
+            Ok(response)
         }
     }
 }
 
-pub fn prepare_swap_one_inch(
-    client: Client,
+async fn estimate_exact_in_swap_one_inch(
+    client: &Client,
+    api_key: &str,
+    estimator_request: GenericEstimateRequest,
+) -> EstimatorResult<GenericEstimateResponse> {
+    let request = OneInchGetQuoteRequest {
+        chain: estimator_request.chain_id as u32,
+        src: estimator_request.src_token,
+        dst: estimator_request.dest_token,
+        amount: estimator_request.amount_fixed.to_string(),
+    };
+
+    let amount_out = one_inch_get_quote(client, &api_key, request).await?;
+
+    let amount_limit = get_limit_amount(
+        estimator_request.trade_type,
+        amount_out,
+        estimator_request.slippage,
+    )?;
+
+    Ok(GenericEstimateResponse {
+        amount_quote: amount_out,
+        amount_limit,
+        router: RouterType::OneInch,
+        router_data: serde_json::Value::Null,
+    })
+}
+
+pub async fn prepare_swap_one_inch(
+    client: &Client,
     api_key: &str,
     swap_request: GenericSwapRequest,
-) -> impl Future<Output = EstimatorResult<EvmSwapResponse>> + Send {
-    let api_key = api_key.to_owned();
-    async {
-        match swap_request.trade_type {
-            TradeType::ExactIn => {
-                let mut request = OneInchSwapRequest {
-                    chain: swap_request.chain_id as u32,
-                    src: swap_request.src_token,
-                    dst: swap_request.dest_token,
-                    amount: swap_request.amount_fixed.to_string(),
-                    from: swap_request.spender,
-                    min_return: None,
-                    origin: swap_request.dest_address,
-                    slippage: None,
-                };
+) -> EstimatorResult<EvmSwapResponse> {
+    match swap_request.trade_type {
+        TradeType::ExactIn => prepare_exact_in_swap_one_inch(client, api_key, swap_request).await,
+        TradeType::ExactOut => {
+            let (response, _) = quote_exact_out_with_exact_in(
+                swap_request,
+                async |swap_request: GenericSwapRequest| {
+                    let res = prepare_exact_in_swap_one_inch(client, api_key, swap_request).await?;
 
-                match swap_request.slippage {
-                    Slippage::Percent(slippage) => {
-                        if slippage > 50.0 {
-                            request.slippage = Some(50.0);
-                        } else {
-                            request.slippage = Some(slippage);
-                        }
-                    }
-                    Slippage::AmountLimit {
-                        amount_limit,
-                        fallback_slippage: _,
-                    } => {
-                        request.min_return = Some(amount_limit.to_string());
-                    }
-                    Slippage::MaxSlippage => {
-                        request.slippage = Some(50.0); // 50%
-                    }
-                }
+                    Ok(res)
+                },
+            )
+            .await?;
 
-                let swap_response = one_inch_swap(&client, &api_key, request).await?;
-
-                let amount_out = decimal_string_to_u128(&swap_response.dst_amount, 0)?;
-
-                let amount_limit =
-                    get_limit_amount(swap_request.trade_type, amount_out, swap_request.slippage)?;
-
-                Ok(EvmSwapResponse {
-                    amount_quote: amount_out,
-                    amount_limit,
-                    tx_to: swap_response.tx.to.clone(),
-                    tx_data: swap_response.tx.data,
-                    tx_value: decimal_string_to_u128(&swap_response.tx.value, 0)?,
-                    approve_address: Some(swap_response.tx.to),
-                    require_transfer: false,
-                })
-            }
-            TradeType::ExactOut => {
-                let (response, _) = quote_exact_out_with_exact_in(
-                    swap_request,
-                    move |swap_request: GenericSwapRequest| {
-                        let client = client.clone();
-                        let api_key = api_key.clone();
-                        async move {
-                            Box::pin(prepare_swap_one_inch(client, &api_key, swap_request)).await
-                        }
-                    },
-                )
-                .await?;
-
-                Ok(response)
-            }
+            Ok(response)
         }
     }
+}
+
+async fn prepare_exact_in_swap_one_inch(
+    client: &Client,
+    api_key: &str,
+    swap_request: GenericSwapRequest,
+) -> EstimatorResult<EvmSwapResponse> {
+    let mut request = OneInchSwapRequest {
+        chain: swap_request.chain_id as u32,
+        src: swap_request.src_token,
+        dst: swap_request.dest_token,
+        amount: swap_request.amount_fixed.to_string(),
+        from: swap_request.spender,
+        min_return: None,
+        origin: swap_request.dest_address,
+        slippage: None,
+    };
+
+    match swap_request.slippage {
+        Slippage::Percent(slippage) => {
+            if slippage > 50.0 {
+                request.slippage = Some(50.0);
+            } else {
+                request.slippage = Some(slippage);
+            }
+        }
+        Slippage::AmountLimit {
+            amount_limit,
+            fallback_slippage: _,
+        } => {
+            request.min_return = Some(amount_limit.to_string());
+        }
+        Slippage::MaxSlippage => {
+            request.slippage = Some(50.0); // 50%
+        }
+    }
+
+    let swap_response = one_inch_swap(client, &api_key, request).await?;
+
+    let amount_out = decimal_string_to_u128(&swap_response.dst_amount, 0)?;
+
+    let amount_limit =
+        get_limit_amount(swap_request.trade_type, amount_out, swap_request.slippage)?;
+
+    Ok(EvmSwapResponse {
+        amount_quote: amount_out,
+        amount_limit,
+        tx_to: swap_response.tx.to.clone(),
+        tx_data: swap_response.tx.data,
+        tx_value: decimal_string_to_u128(&swap_response.tx.value, 0)?,
+        approve_address: Some(swap_response.tx.to),
+        require_transfer: false,
+    })
 }
 
 #[cfg(test)]
@@ -268,7 +269,7 @@ mod tests {
             amount: "1000000".to_string(), // 1 USDC
         };
 
-        let result = one_inch_get_quote(client, &one_inch_api_key, request).await;
+        let result = one_inch_get_quote(&client, &one_inch_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -292,7 +293,7 @@ mod tests {
             slippage: Some(0.5), // 0.5%
         };
 
-        let result = one_inch_swap(client, &one_inch_api_key, request).await;
+        let result = one_inch_swap(&client, &one_inch_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -306,7 +307,7 @@ mod tests {
         let client = Client::new();
 
         let result =
-            one_inch_get_approve_address(client, &one_inch_api_key, ChainId::Base as u32).await;
+            one_inch_get_approve_address(&client, &one_inch_api_key, ChainId::Base as u32).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -336,14 +337,13 @@ mod tests {
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result =
-            estimate_swap_one_inch(client.clone(), &one_inch_api_key, generic_estimate_request)
-                .await;
+            estimate_swap_one_inch(&client, &one_inch_api_key, generic_estimate_request).await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
         );
 
-        let result = prepare_swap_one_inch(client, &one_inch_api_key, request).await;
+        let result = prepare_swap_one_inch(&client, &one_inch_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -374,14 +374,13 @@ mod tests {
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result =
-            estimate_swap_one_inch(client.clone(), &one_inch_api_key, generic_estimate_request)
-                .await;
+            estimate_swap_one_inch(&client, &one_inch_api_key, generic_estimate_request).await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
         );
 
-        let result = prepare_swap_one_inch(client, &one_inch_api_key, request).await;
+        let result = prepare_swap_one_inch(&client, &one_inch_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
