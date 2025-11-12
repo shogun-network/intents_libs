@@ -53,7 +53,7 @@ pub async fn zero_x_get_price(
         .send()
         .await
         .change_context(Error::ReqwestError)
-        .attach_printable("Error in 1inch request")?;
+        .attach_printable("Error in 0x request")?;
 
     let get_price_response: ZeroXApiResponse = handle_reqwest_response(response)
         .await
@@ -101,7 +101,7 @@ pub async fn zero_x_get_quote(
         .send()
         .await
         .change_context(Error::ReqwestError)
-        .attach_printable("Error in 1inch request")?;
+        .attach_printable("Error in 0x request")?;
 
     let get_quote_response: ZeroXApiResponse = handle_reqwest_response(response)
         .await
@@ -111,9 +111,9 @@ pub async fn zero_x_get_quote(
         return Ok(res);
     } else {
         return Err(report!(Error::AggregatorError(
-            "Expected GetPriceResponse variant from ZeroXApiResponse".to_string()
+            "Expected GetQuoteResponse variant from ZeroXApiResponse".to_string()
         ))
-        .attach_printable("Expected GetPriceResponse variant from ZeroXApiResponse"));
+        .attach_printable("Expected GetQuoteResponse variant from ZeroXApiResponse"));
     }
 }
 

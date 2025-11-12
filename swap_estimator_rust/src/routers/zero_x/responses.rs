@@ -5,7 +5,7 @@ use serde::Deserialize;
 pub enum ZeroXApiResponse {
     GetQuoteResponse(ZeroXGetQuoteResponse),
     GetPriceResponse(ZeroXGetPriceResponse),
-    LiquidityResponse(ZeroXIliquidityResponse),
+    LiquidityResponse(ZeroXLiquidityResponse),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -36,6 +36,6 @@ pub struct ZeroXTransaction {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ZeroXIliquidityResponse {
+pub struct ZeroXLiquidityResponse {
     pub liquidity_available: bool,
 }
