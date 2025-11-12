@@ -20,26 +20,98 @@ const SUCCESS_THRESHOLD_BPS: u128 = 20;
 /// If we could not adjust amounts in 3 attempts - something's very wrong
 const MAX_LOOP_ATTEMPTS: usize = 3;
 
+#[derive(Debug, Clone, Copy)]
+struct TryExactInValues {
+    pub test_amount_in: u128,
+    pub slippage_percent: f64,
+    pub target_min_amount_out: u128,
+    pub target_max_amount_out: u128,
+    pub max_amount_in: Option<u128>,
+}
+
+pub trait ReverseQuoteRequest {
+    fn get_init_values(&self) -> (TradeType, Slippage, u128);
+    fn get_reversed_exact_in_with_slippage(&self, slippage_percent: f64) -> Self;
+    fn get_exact_in_with_slippage_and_amount_in(
+        &self,
+        slippage_percent: f64,
+        amount_in: u128,
+    ) -> Self;
+}
+
+impl ReverseQuoteRequest for GenericEstimateRequest {
+    fn get_init_values(&self) -> (TradeType, Slippage, u128) {
+        (self.trade_type, self.slippage, self.amount_fixed)
+    }
+
+    fn get_reversed_exact_in_with_slippage(&self, slippage_percent: f64) -> Self {
+        Self {
+            trade_type: TradeType::ExactIn,
+            chain_id: self.chain_id,
+            src_token: self.dest_token.clone(),
+            dest_token: self.src_token.clone(),
+            amount_fixed: self.amount_fixed,
+            slippage: Slippage::Percent(slippage_percent),
+        }
+    }
+
+    fn get_exact_in_with_slippage_and_amount_in(
+        &self,
+        slippage_percent: f64,
+        amount_in: u128,
+    ) -> Self {
+        Self {
+            trade_type: TradeType::ExactIn,
+            chain_id: self.chain_id,
+            src_token: self.src_token.clone(),
+            dest_token: self.dest_token.clone(),
+            amount_fixed: amount_in,
+            slippage: Slippage::Percent(slippage_percent),
+        }
+    }
+}
+
+pub trait ReverseQuoteResponse {
+    fn get_amount_quote(&self) -> u128;
+    fn get_amount_limit(&self) -> u128;
+    fn update_with_amount_in(&mut self, amount_in: u128);
+}
+
+impl ReverseQuoteResponse for GenericEstimateResponse {
+    fn get_amount_quote(&self) -> u128 {
+        self.amount_quote
+    }
+    fn get_amount_limit(&self) -> u128 {
+        self.amount_limit
+    }
+    fn update_with_amount_in(&mut self, amount_in: u128) {
+        self.amount_quote = amount_in;
+        self.amount_limit = amount_in;
+    }
+}
+
 /// Tries to find such exact IN quote for given exact OUT quote, that
 /// `amount_limit` of resulting exact IN quote be as close as possible to
 /// `amount_fixed` of given quote
 ///
 /// ### Arguments
 ///
-/// * `quote_request` - Exact OUT quote request
+/// * `request` - Exact OUT request
 /// * `quote_fn` - Function to use for exact IN quotes
 ///
 /// ### Returns
 ///
 /// * Estimate response
 /// * Number of attempts, that estimation took. We consider 1st exact_in quote to be 1st attempt
-pub async fn quote_exact_out_with_exact_in<F, Fut>(
-    quote_request: GenericEstimateRequest,
+pub async fn quote_exact_out_with_exact_in<F, Fut, Request, Response>(
+    request: Request,
     quote_fn: F,
-) -> EstimatorResult<(GenericEstimateResponse, usize)>
+) -> EstimatorResult<(Response, usize)>
 where
-    F: Fn(GenericEstimateRequest) -> Fut + Send + Sync,
-    Fut: Future<Output = EstimatorResult<GenericEstimateResponse>> + Send,
+    Request: ReverseQuoteRequest,
+    Response: ReverseQuoteResponse,
+    F: Fn(Request) -> Fut + Send + Sync,
+    Fut: Future<Output = EstimatorResult<Response>> + Send,
 {
     // Let's say we need to know how much to spend ETH to get 3500 USDC
     // The approach will be:
@@ -50,13 +122,16 @@ where
     // 3.1. If result is just a bit above 3500 USDC - we found it!
     // 3.2. If it's lower or much higher - adjust amount IN proportionally and retry in the loop
 
-    if quote_request.trade_type != TradeType::ExactOut {
+    let (requested_trade_type, requested_slippage, requested_amount_out) =
+        request.get_init_values();
+
+    if requested_trade_type != TradeType::ExactOut {
         return Err(report!(Error::LogicError(
             "ExactOut trade must be passed to quote_exact_out_with_exact_in".to_string()
         )));
     }
 
-    let (slippage_percent, max_amount_in) = match quote_request.slippage {
+    let (slippage_percent, max_amount_in) = match requested_slippage {
         Slippage::Percent(slippage_percent) => (slippage_percent, None),
         Slippage::AmountLimit {
             amount_limit,
@@ -69,21 +144,14 @@ where
         }
     };
 
-    let target_min_amount_out = quote_request.amount_fixed;
+    let target_min_amount_out = requested_amount_out;
     let target_max_amount_out = mul_div(
         target_min_amount_out,
         THRESHOLD_BASE + SUCCESS_THRESHOLD_BPS,
         THRESHOLD_BASE,
     )?;
 
-    let exact_in_request = GenericEstimateRequest {
-        trade_type: TradeType::ExactIn,
-        chain_id: quote_request.chain_id,
-        src_token: quote_request.dest_token.clone(),
-        dest_token: quote_request.src_token.clone(),
-        amount_fixed: quote_request.amount_fixed,
-        slippage: Slippage::Percent(slippage_percent),
-    };
+    let exact_in_request = request.get_reversed_exact_in_with_slippage(slippage_percent);
 
     let quote_response = quote_fn(exact_in_request).await?;
 
@@ -91,7 +159,7 @@ where
         TradeType::ExactOut,
         // Increasing quote amount in attempt to compensate swap fees
         mul_div(
-            quote_response.amount_quote,
+            quote_response.get_amount_quote(),
             INIT_MULTIPLIER,
             INIT_MULTIPLIER_BASE,
         )?,
@@ -106,13 +174,11 @@ where
         max_amount_in,
     };
 
-    let (quote_response, success) = try_exact_in(&quote_request, try_values, &quote_fn).await?;
+    let (mut quote_response, success) = try_exact_in(&request, try_values, &quote_fn).await?;
 
     if success {
-        return Ok((
-            update_response(quote_response, try_values.test_amount_in),
-            1,
-        ));
+        quote_response.update_with_amount_in(try_values.test_amount_in);
+        return Ok((quote_response, 1));
     }
 
     let mut attempt_number = 0;
@@ -121,22 +187,20 @@ where
     try_values.test_amount_in = mul_div(
         try_values.test_amount_in,
         target_amount_out,
-        quote_response.amount_limit,
+        quote_response.get_amount_limit(),
     )?;
     while attempt_number < MAX_LOOP_ATTEMPTS {
         attempt_number += 1;
-        let (quote_response, success) = try_exact_in(&quote_request, try_values, &quote_fn).await?;
+        let (mut quote_response, success) = try_exact_in(&request, try_values, &quote_fn).await?;
         if success {
-            return Ok((
-                update_response(quote_response, try_values.test_amount_in),
-                attempt_number + 1,
-            ));
+            quote_response.update_with_amount_in(try_values.test_amount_in);
+            return Ok((quote_response, attempt_number + 1));
         }
         // Adjusting amount IN proportionally to amount_out_min
         try_values.test_amount_in = mul_div(
             try_values.test_amount_in,
             target_amount_out,
-            quote_response.amount_limit,
+            quote_response.get_amount_limit(),
         )?;
     }
 
@@ -145,29 +209,22 @@ where
     ))))
 }
 
-#[derive(Debug, Clone, Copy)]
-struct TryExactInValues {
-    pub test_amount_in: u128,
-    pub slippage_percent: f64,
-    pub target_min_amount_out: u128,
-    pub target_max_amount_out: u128,
-    pub max_amount_in: Option<u128>,
-}
-
 /// Tries to quote with exact amount IN
 /// If `amount_limit` is within threshold - return success
 ///
 /// ### Returns
 ///
 /// * Estimate response
-async fn try_exact_in<F, Fut>(
-    quote_request: &GenericEstimateRequest,
+async fn try_exact_in<F, Fut, Request, Response>(
+    quote_request: &Request,
     values: TryExactInValues,
     quote_fn: &F,
-) -> EstimatorResult<(GenericEstimateResponse, bool)>
+) -> EstimatorResult<(Response, bool)>
 where
-    F: Fn(GenericEstimateRequest) -> Fut + Send + Sync,
-    Fut: Future<Output = EstimatorResult<GenericEstimateResponse>> + Send,
+    Request: ReverseQuoteRequest,
+    Response: ReverseQuoteResponse,
+    F: Fn(Request) -> Fut + Send + Sync,
+    Fut: Future<Output = EstimatorResult<Response>> + Send,
 {
     let TryExactInValues {
         test_amount_in,
@@ -177,19 +234,13 @@ where
         max_amount_in,
     } = values;
 
-    let target_request = GenericEstimateRequest {
-        trade_type: TradeType::ExactIn,
-        chain_id: quote_request.chain_id,
-        src_token: quote_request.src_token.clone(),
-        dest_token: quote_request.dest_token.clone(),
-        amount_fixed: test_amount_in,
-        slippage: Slippage::Percent(slippage_percent),
-    };
+    let target_request =
+        quote_request.get_exact_in_with_slippage_and_amount_in(slippage_percent, test_amount_in);
 
     let quote_response = quote_fn(target_request).await?;
 
-    let success = if quote_response.amount_limit <= target_max_amount_out
-        && quote_response.amount_limit >= target_min_amount_out
+    let amount_limit = quote_response.get_amount_limit();
+    let success = if amount_limit <= target_max_amount_out && amount_limit >= target_min_amount_out
     {
         if let Some(max_amount_in) = max_amount_in
             && max_amount_in > test_amount_in
@@ -204,16 +255,6 @@ where
     };
 
     Ok((quote_response, success))
-}
-
-/// Updates response so it would look like Exact OUT response
-fn update_response(
-    mut response: GenericEstimateResponse,
-    amount_in: u128,
-) -> GenericEstimateResponse {
-    response.amount_quote = amount_in;
-    response.amount_limit = amount_in;
-    response
 }
 
 #[cfg(test)]
@@ -257,6 +298,5 @@ mod tests {
         println!("Success in {attempts} attempts");
         assert!(attempts >= 1 && attempts <= 2);
     }
-
     // todo test Slippage::AmountLimit
 }
