@@ -155,7 +155,7 @@ impl ReverseQuoteResponse for EvmSwapResponse {
 /// * Number of attempts, that estimation took. We consider 1st exact_in quote to be 1st attempt
 pub async fn quote_exact_out_with_exact_in<F, Fut, Request, Response>(
     request: Request,
-    quote_fn: F,
+    quote_exact_in_fn: F,
 ) -> EstimatorResult<(Response, usize)>
 where
     Request: ReverseQuoteRequest,
@@ -203,7 +203,7 @@ where
 
     let exact_in_request = request.get_reversed_exact_in_with_slippage(slippage_percent);
 
-    let quote_response = quote_fn(exact_in_request).await?;
+    let quote_response = quote_exact_in_fn(exact_in_request).await?;
 
     let test_amount_in = get_limit_amount(
         TradeType::ExactOut,
@@ -224,7 +224,7 @@ where
         max_amount_in,
     };
 
-    let (mut quote_response, success) = try_exact_in(&request, try_values, &quote_fn).await?;
+    let (mut quote_response, success) = try_exact_in(&request, try_values, &quote_exact_in_fn).await?;
 
     if success {
         quote_response.update_with_amount_in(try_values.test_amount_in);
@@ -241,7 +241,7 @@ where
     )?;
     while attempt_number < MAX_LOOP_ATTEMPTS {
         attempt_number += 1;
-        let (mut quote_response, success) = try_exact_in(&request, try_values, &quote_fn).await?;
+        let (mut quote_response, success) = try_exact_in(&request, try_values, &quote_exact_in_fn).await?;
         if success {
             quote_response.update_with_amount_in(try_values.test_amount_in);
             return Ok((quote_response, attempt_number + 1));
@@ -268,7 +268,7 @@ where
 async fn try_exact_in<F, Fut, Request, Response>(
     quote_request: &Request,
     values: TryExactInValues,
-    quote_fn: &F,
+    quote_exact_in_fn: &F,
 ) -> EstimatorResult<(Response, bool)>
 where
     Request: ReverseQuoteRequest,
@@ -287,7 +287,7 @@ where
     let target_request =
         quote_request.get_exact_in_with_slippage_and_amount_in(slippage_percent, test_amount_in);
 
-    let quote_response = quote_fn(target_request).await?;
+    let quote_response = quote_exact_in_fn(target_request).await?;
 
     let amount_limit = quote_response.get_amount_limit();
     let success = if amount_limit <= target_max_amount_out && amount_limit >= target_min_amount_out
