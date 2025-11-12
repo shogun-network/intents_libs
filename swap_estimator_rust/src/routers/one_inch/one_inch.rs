@@ -20,7 +20,7 @@ use crate::{
 };
 
 pub async fn one_inch_get_quote(
-    client: &Client,
+    client: Client,
     api_key: &str,
     request: OneInchGetQuoteRequest,
 ) -> EstimatorResult<u128> {
@@ -52,7 +52,7 @@ pub async fn one_inch_get_quote(
 }
 
 pub async fn one_inch_swap(
-    client: &Client,
+    client: Client,
     api_key: &str,
     request: OneInchSwapRequest,
 ) -> EstimatorResult<OneInchSwapResponse> {
@@ -96,7 +96,7 @@ pub async fn one_inch_swap(
 }
 
 pub async fn one_inch_get_approve_address(
-    client: &Client,
+    client: Client,
     api_key: &str,
     chain: u32,
 ) -> EstimatorResult<String> {
@@ -268,7 +268,7 @@ mod tests {
             amount: "1000000".to_string(), // 1 USDC
         };
 
-        let result = one_inch_get_quote(&client, &one_inch_api_key, request).await;
+        let result = one_inch_get_quote(client, &one_inch_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -292,7 +292,7 @@ mod tests {
             slippage: Some(0.5), // 0.5%
         };
 
-        let result = one_inch_swap(&client, &one_inch_api_key, request).await;
+        let result = one_inch_swap(client, &one_inch_api_key, request).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -306,7 +306,7 @@ mod tests {
         let client = Client::new();
 
         let result =
-            one_inch_get_approve_address(&client, &one_inch_api_key, ChainId::Base as u32).await;
+            one_inch_get_approve_address(client, &one_inch_api_key, ChainId::Base as u32).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }

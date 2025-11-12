@@ -7,6 +7,7 @@ pub mod one_inch;
 pub mod paraswap;
 pub mod raydium;
 pub mod swap;
+pub mod zero_x;
 
 use crate::error::EstimatorResult;
 use intents_models::constants::chains::ChainId;
@@ -40,6 +41,7 @@ pub enum RouterType {
     UnwrapAndTransfer,
     Paraswap,
     OneInch,
+    ZeroX,
     Liquidswap,
     Jupiter,
     Aftermath,

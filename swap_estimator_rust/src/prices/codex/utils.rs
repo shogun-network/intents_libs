@@ -42,7 +42,7 @@ fn create_price_and_metadata_args(tokens_len: usize) -> EstimatorResult<String> 
         )));
     }
     let mut args = Vec::new();
-    let args_needed = tokens_len.div_ceil(25);
+    let args_needed = tokens_len.div_ceil(BATCH_SIZE);
     for i in 0..args_needed {
         args.push(format!("$tokenInputs{i}: [TokenInput!]"));
         args.push(format!("$priceInputs{i}: [GetPriceInput!]"));
@@ -57,7 +57,7 @@ fn create_price_and_metadata_body(tokens_len: usize) -> EstimatorResult<String> 
         )));
     }
     let mut body = Vec::new();
-    let args_needed = tokens_len.div_ceil(25);
+    let args_needed = tokens_len.div_ceil(BATCH_SIZE);
     for i in 0..args_needed {
         body.push(format!(
             r#"meta{i}: tokens(ids: $tokenInputs{i}) {{
@@ -159,7 +159,7 @@ pub fn assemble_price_and_metadata_results(
     let mut prices: Vec<Option<CodexPricePayload>> = Vec::with_capacity(tokens_len);
     let mut meta: Vec<Option<CodexMetadataPayload>> = Vec::with_capacity(tokens_len);
 
-    let results_needed = tokens_len.div_ceil(25);
+    let results_needed = tokens_len.div_ceil(BATCH_SIZE);
     for i in 0..results_needed {
         let prices_key = format!("prices{i}");
         let meta_key = format!("meta{i}");
@@ -181,6 +181,15 @@ pub fn assemble_price_and_metadata_results(
             ))?;
             meta.extend(parsed_meta.drain(..));
         }
+    }
+
+    if prices.len() != tokens_len || meta.len() != tokens_len {
+        return Err(report!(Error::CodexError(format!(
+            "Expected {} tokens but received {} prices and {} metadata entries",
+            tokens_len,
+            prices.len(),
+            meta.len()
+        ))));
     }
 
     Ok(CodexGetPricesAndMetaData { prices, meta })
