@@ -20,7 +20,7 @@ use tokio::{
 };
 use tokio_tungstenite::{
     connect_async,
-    tungstenite::{client::IntoClientRequest, http::HeaderValue, protocol::Message},
+    tungstenite::{client::IntoClientRequest, protocol::Message},
 };
 
 use crate::{
@@ -442,7 +442,7 @@ impl CodexConnectionPool {
             .post(CODEX_HTTP_URL)
             .header(
                 "Authorization",
-                HeaderValue::from_str(&self.api_key)
+                ReqwestHeaderValue::from_str(&self.api_key)
                     .change_context(Error::ResponseError)
                     .attach_printable("Invalid characters in CODEX_API_KEY")?,
             )
@@ -509,7 +509,7 @@ impl CodexConnectionPool {
             .post(CODEX_HTTP_URL)
             .header(
                 "Authorization",
-                HeaderValue::from_str(&self.api_key)
+                ReqwestHeaderValue::from_str(&self.api_key)
                     .change_context(Error::ResponseError)
                     .attach_printable("Invalid characters in CODEX_API_KEY")?,
             )
@@ -579,7 +579,7 @@ impl CodexConnectionPool {
             .post(CODEX_HTTP_URL)
             .header(
                 "Authorization",
-                HeaderValue::from_str(&self.api_key)
+                ReqwestHeaderValue::from_str(&self.api_key)
                     .change_context(Error::ResponseError)
                     .attach_printable("Invalid characters in CODEX_API_KEY")?,
             )
@@ -759,11 +759,11 @@ impl CodexWsClient {
 
         request.headers_mut().insert(
             "Sec-WebSocket-Protocol",
-            HeaderValue::from_static("graphql-transport-ws"),
+            ReqwestHeaderValue::from_static("graphql-transport-ws"),
         );
         request.headers_mut().insert(
             "Authorization",
-            HeaderValue::from_str(&api_key)
+            ReqwestHeaderValue::from_str(&api_key)
                 .change_context(Error::ResponseError)
                 .attach_printable("Invalid characters in CODEX_API_KEY")?,
         );
