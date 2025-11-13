@@ -6,6 +6,7 @@ use intents_models::log::init_tracing;
 use swap_estimator_rust::monitoring::manager::MonitorManager;
 use swap_estimator_rust::monitoring::messages::{MonitorAlert, MonitorRequest};
 use swap_estimator_rust::prices::TokenId;
+use swap_estimator_rust::utils::get_timestamp;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
@@ -157,6 +158,7 @@ async fn run() -> Result<(), String> {
                         token_out,
                         amount_in,
                         amount_out,
+                        deadline: get_timestamp() + 300,
                         solver_last_bid,
                         extra_expenses: HashMap::new(),
                     })
