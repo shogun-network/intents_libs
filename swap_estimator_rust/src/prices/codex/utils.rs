@@ -11,12 +11,75 @@ use crate::{
         codex::{
             CodexChain as _,
             models::{
-                CodexGetPricesAndMetaData, CodexGraphqlResponse, CodexMetadataPayload,
-                CodexPricePayload,
+                CodexGetMetadataData, CodexGetPricesAndMetaData, CodexGetPricesData,
+                CodexGraphqlResponse, CodexMetadataPayload, CodexPricePayload,
             },
         },
     },
 };
+
+const PRICE_AND_META_MAX_TOKENS: usize = 100;
+const PRICE_OR_METADATA_ONLY_MAX_TOKENS: usize = 200;
+const BATCH_SIZE: usize = 25;
+
+fn validate_token_len(kind: &str, len: usize, max: usize) -> EstimatorResult<usize> {
+    if len > max {
+        return Err(report!(Error::CodexError(format!(
+            "Can't request more than {max} tokens for {kind} (requested {len})"
+        ))));
+    }
+    Ok(len.div_ceil(BATCH_SIZE))
+}
+
+fn build_inputs_object(
+    tokens: &[TokenId],
+    max_tokens: usize,
+    key_prefixes: &[&str],
+    kind: &str,
+) -> EstimatorResult<Value> {
+    validate_token_len(kind, tokens.len(), max_tokens)?;
+    let mut result: HashMap<String, Value> = HashMap::new();
+
+    for (i, chunk) in tokens.chunks(BATCH_SIZE).enumerate() {
+        let mut inputs = Vec::with_capacity(chunk.len());
+        for token in chunk {
+            let network = token.chain.to_codex_chain_number();
+            inputs.push(serde_json::json!({
+                "address": token.address,
+                "networkId": network
+            }));
+        }
+
+        for prefix in key_prefixes {
+            let key = format!("{prefix}{i}");
+            result.insert(key, Value::Array(inputs.clone()));
+        }
+    }
+
+    let mut object_map: Map<String, Value> = Map::with_capacity(result.len());
+    for (k, v) in result {
+        object_map.insert(k, v);
+    }
+
+    Ok(Value::Object(object_map))
+}
+
+fn build_batched_body<F>(
+    tokens_len: usize,
+    max_tokens: usize,
+    kind: &str,
+    mut build_chunk: F,
+) -> EstimatorResult<String>
+where
+    F: FnMut(usize) -> String,
+{
+    let chunks = validate_token_len(kind, tokens_len, max_tokens)?;
+    let mut body = Vec::with_capacity(chunks);
+    for i in 0..chunks {
+        body.push(build_chunk(i));
+    }
+    Ok(body.join("\n"))
+}
 
 pub fn subscription_id(token: &TokenId) -> String {
     format!(
@@ -26,23 +89,17 @@ pub fn subscription_id(token: &TokenId) -> String {
     )
 }
 
-pub fn default_decimals(token: &TokenId) -> u8 {
-    match token.chain {
+pub fn default_decimals(chain: ChainId) -> u8 {
+    match chain {
         ChainId::Solana | ChainId::Sui => 9,
         _ => 18,
     }
 }
 
-const BATCH_SIZE: usize = 25;
-
 fn create_price_and_metadata_args(tokens_len: usize) -> EstimatorResult<String> {
-    if tokens_len > 100 {
-        return Err(report!(Error::CodexError(
-            "Can't request more than 100 tokens".to_string()
-        )));
-    }
-    let mut args = Vec::new();
-    let args_needed = tokens_len.div_ceil(BATCH_SIZE);
+    let args_needed = validate_token_len("price+metadata", tokens_len, PRICE_AND_META_MAX_TOKENS)?;
+
+    let mut args = Vec::with_capacity(args_needed);
     for i in 0..args_needed {
         args.push(format!("$tokenInputs{i}: [TokenInput!]"));
         args.push(format!("$priceInputs{i}: [GetPriceInput!]"));
@@ -51,62 +108,37 @@ fn create_price_and_metadata_args(tokens_len: usize) -> EstimatorResult<String> 
 }
 
 fn create_price_and_metadata_body(tokens_len: usize) -> EstimatorResult<String> {
-    if tokens_len > 100 {
-        return Err(report!(Error::CodexError(
-            "Can't request more than 100 tokens".to_string()
-        )));
-    }
-    let mut body = Vec::new();
-    let args_needed = tokens_len.div_ceil(BATCH_SIZE);
-    for i in 0..args_needed {
-        body.push(format!(
-            r#"meta{i}: tokens(ids: $tokenInputs{i}) {{
+    build_batched_body(
+        tokens_len,
+        PRICE_AND_META_MAX_TOKENS,
+        "price+metadata",
+        |i| {
+            format!(
+                r#"meta{i}: tokens(ids: $tokenInputs{i}) {{
         address
         networkId
         decimals
         name
         symbol
-        }}"#
-        ));
-        body.push(format!(
-            r#"prices{i}: getTokenPrices(inputs: $priceInputs{i}) {{
+    }}
+    prices{i}: getTokenPrices(inputs: $priceInputs{i}) {{
         address
         networkId
         priceUsd
         timestamp
-        }}"#
-        ));
-    }
-    Ok(body.join("\n"))
+    }}"#
+            )
+        },
+    )
 }
 
 fn create_price_and_metadata_inputs(tokens: &[TokenId]) -> EstimatorResult<Value> {
-    if tokens.len() > 100 {
-        return Err(report!(Error::CodexError(
-            "Can't request more than 100 tokens".to_string()
-        )));
-    }
-    let mut result = HashMap::new();
-    for (i, chunk) in tokens.chunks(BATCH_SIZE).enumerate() {
-        let mut inputs = Vec::new();
-        for token in chunk {
-            let network = token.chain.to_codex_chain_number();
-            inputs.push(serde_json::json!({
-                "address": token.address,
-                "networkId": network
-            }));
-        }
-        let token_inputs_key = format!("tokenInputs{i}");
-        let price_inputs_key = format!("priceInputs{i}");
-        result.insert(token_inputs_key, Value::Array(inputs.clone()));
-        result.insert(price_inputs_key, Value::Array(inputs));
-    }
-
-    let mut object_map: Map<String, Value> = Map::with_capacity(result.len());
-    for (k, v) in result {
-        object_map.insert(k, v);
-    }
-    Ok(Value::Object(object_map))
+    build_inputs_object(
+        tokens,
+        PRICE_AND_META_MAX_TOKENS,
+        &["tokenInputs", "priceInputs"],
+        "price+metadata",
+    )
 }
 
 pub fn combine_price_and_metadata_query(tokens: &[TokenId]) -> EstimatorResult<Value> {
@@ -131,11 +163,6 @@ pub fn assemble_price_and_metadata_results(
     tokens_len: usize,
     result: Value,
 ) -> EstimatorResult<CodexGetPricesAndMetaData> {
-    if tokens_len > 100 {
-        return Err(report!(Error::CodexError(
-            "Can't request more than 100 tokens".to_string()
-        )));
-    }
     let payload = serde_json::from_value::<CodexGraphqlResponse<Value>>(result).change_context(
         Error::SerdeDeserialize(
             "Failed to deserialize Codex HTTP price GraphQL response".to_string(),
@@ -193,6 +220,208 @@ pub fn assemble_price_and_metadata_results(
     }
 
     Ok(CodexGetPricesAndMetaData { prices, meta })
+}
+
+fn create_get_prices_args(tokens_len: usize) -> EstimatorResult<String> {
+    let args_needed =
+        validate_token_len("price-only", tokens_len, PRICE_OR_METADATA_ONLY_MAX_TOKENS)?;
+    let mut args = Vec::with_capacity(args_needed);
+    for i in 0..args_needed {
+        args.push(format!("$inputs{i}: [GetPriceInput!]"));
+    }
+    Ok(args.join("\n"))
+}
+
+fn create_get_prices_body(tokens_len: usize) -> EstimatorResult<String> {
+    build_batched_body(
+        tokens_len,
+        PRICE_OR_METADATA_ONLY_MAX_TOKENS,
+        "price-only",
+        |i| {
+            format!(
+                r#"prices{i}: getTokenPrices(inputs: $inputs{i}) {{
+        address
+        networkId
+        priceUsd
+        timestamp
+        poolAddress
+        confidence
+    }}"#
+            )
+        },
+    )
+}
+
+fn create_get_prices_inputs(tokens: &[TokenId]) -> EstimatorResult<Value> {
+    build_inputs_object(
+        tokens,
+        PRICE_OR_METADATA_ONLY_MAX_TOKENS,
+        &["inputs"],
+        "price-only",
+    )
+}
+
+pub fn combine_get_prices_query(tokens: &[TokenId]) -> EstimatorResult<Value> {
+    let args = create_get_prices_args(tokens.len())?;
+    let body = create_get_prices_body(tokens.len())?;
+    let inputs = create_get_prices_inputs(tokens)?;
+    let query = format!(
+        r#"query GetTokenPrice(
+            {args}
+        ) {{
+            {body}
+        }}
+        "#
+    );
+    Ok(serde_json::json!({
+        "query": query,
+        "variables": inputs
+    }))
+}
+
+pub fn assemble_get_prices_results(
+    tokens_len: usize,
+    result: Value,
+) -> EstimatorResult<CodexGetPricesData> {
+    let payload = serde_json::from_value::<CodexGraphqlResponse<Value>>(result).change_context(
+        Error::SerdeDeserialize(
+            "Failed to deserialize Codex HTTP price GraphQL response".to_string(),
+        ),
+    )?;
+
+    if let Some(errors) = payload.errors.as_ref() {
+        if !errors.is_empty() {
+            tracing::warn!(
+                "Codex HTTP price batch response contained errors: {:?}",
+                errors
+            );
+        }
+    }
+
+    let Some(data) = payload.data else {
+        return Err(report!(Error::ResponseError)
+            .attach_printable(format!("No data found in Codex HTTP price response")));
+    };
+
+    let mut prices: Vec<Option<CodexPricePayload>> = Vec::with_capacity(tokens_len);
+
+    let results_needed = tokens_len.div_ceil(BATCH_SIZE);
+    for i in 0..results_needed {
+        let prices_key = format!("prices{i}");
+        if let Some(prices_value) = data.get(&prices_key) {
+            let mut parsed_prices: Vec<Option<CodexPricePayload>> = serde_json::from_value(
+                prices_value.clone(),
+            )
+            .change_context(Error::SerdeDeserialize(
+                "Failed to deserialize Codex HTTP price GraphQL prices response".to_string(),
+            ))?;
+            prices.extend(parsed_prices.drain(..));
+        }
+    }
+
+    Ok(CodexGetPricesData { prices })
+}
+
+fn create_get_metadata_args(tokens_len: usize) -> EstimatorResult<String> {
+    let args_needed = validate_token_len(
+        "metadata-only",
+        tokens_len,
+        PRICE_OR_METADATA_ONLY_MAX_TOKENS,
+    )?;
+    let mut args = Vec::with_capacity(args_needed);
+    for i in 0..args_needed {
+        args.push(format!("$inputs{i}: [TokenInput!]"));
+    }
+    Ok(args.join("\n"))
+}
+
+fn create_get_metadata_body(tokens_len: usize) -> EstimatorResult<String> {
+    build_batched_body(
+        tokens_len,
+        PRICE_OR_METADATA_ONLY_MAX_TOKENS,
+        "metadata-only",
+        |i| {
+            format!(
+                r#"meta{i}: tokens(ids: $inputs{i}) {{
+        address
+        networkId
+        name
+        symbol
+        decimals
+    }}"#
+            )
+        },
+    )
+}
+
+fn create_get_metadata_inputs(tokens: &[TokenId]) -> EstimatorResult<Value> {
+    build_inputs_object(
+        tokens,
+        PRICE_OR_METADATA_ONLY_MAX_TOKENS,
+        &["inputs"],
+        "metadata-only",
+    )
+}
+
+pub fn combine_get_metadata_query(tokens: &[TokenId]) -> EstimatorResult<Value> {
+    let args = create_get_metadata_args(tokens.len())?;
+    let body = create_get_metadata_body(tokens.len())?;
+    let inputs = create_get_metadata_inputs(tokens)?;
+    let query = format!(
+        r#"query GetTokenMetadata(
+            {args}
+        ) {{
+            {body}
+        }}
+        "#
+    );
+    Ok(serde_json::json!({
+        "query": query,
+        "variables": inputs
+    }))
+}
+
+pub fn assemble_get_metadata_results(
+    tokens_len: usize,
+    result: Value,
+) -> EstimatorResult<CodexGetMetadataData> {
+    let payload = serde_json::from_value::<CodexGraphqlResponse<Value>>(result).change_context(
+        Error::SerdeDeserialize(
+            "Failed to deserialize Codex HTTP price GraphQL response".to_string(),
+        ),
+    )?;
+
+    if let Some(errors) = payload.errors.as_ref() {
+        if !errors.is_empty() {
+            tracing::warn!(
+                "Codex HTTP price batch response contained errors: {:?}",
+                errors
+            );
+        }
+    }
+
+    let Some(data) = payload.data else {
+        return Err(report!(Error::ResponseError)
+            .attach_printable(format!("No data found in Codex HTTP price response")));
+    };
+
+    let mut meta: Vec<Option<CodexMetadataPayload>> = Vec::with_capacity(tokens_len);
+
+    let results_needed = tokens_len.div_ceil(BATCH_SIZE);
+    for i in 0..results_needed {
+        let meta_key = format!("meta{i}");
+        if let Some(meta_value) = data.get(&meta_key) {
+            let mut parsed_meta: Vec<Option<CodexMetadataPayload>> = serde_json::from_value(
+                meta_value.clone(),
+            )
+            .change_context(Error::SerdeDeserialize(
+                "Failed to deserialize Codex HTTP price GraphQL metadata response".to_string(),
+            ))?;
+            meta.extend(parsed_meta.drain(..));
+        }
+    }
+
+    Ok(CodexGetMetadataData { meta })
 }
 
 #[cfg(test)]

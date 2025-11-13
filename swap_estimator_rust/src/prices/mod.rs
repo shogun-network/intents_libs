@@ -69,7 +69,7 @@ impl TokenPrice {
 pub trait PriceProvider {
     async fn get_tokens_price(
         &self,
-        tokens: HashSet<TokenId>,
+        tokens: &[TokenId],
         with_subscriptions: bool,
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>>;
 

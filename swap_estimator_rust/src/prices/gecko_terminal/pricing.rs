@@ -172,7 +172,7 @@ impl GeckoTerminalProvider {
 impl PriceProvider for GeckoTerminalProvider {
     async fn get_tokens_price(
         &self,
-        tokens: HashSet<TokenId>,
+        tokens: &[TokenId],
         with_subscriptions: bool,
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
         if tokens.is_empty() {
@@ -188,7 +188,7 @@ impl PriceProvider for GeckoTerminalProvider {
             tokens_by_chain
                 .entry(token.chain)
                 .or_default()
-                .push(token.address);
+                .push(token.address.clone());
         }
 
         // For all missing per chain, batch HTTP fetch and fill results
@@ -394,7 +394,7 @@ mod tests {
         ]);
 
         let tokens_info = gt_provider
-            .get_tokens_price(tokens, false)
+            .get_tokens_price(&tokens.iter().cloned().collect::<Vec<_>>(), false)
             .await
             .expect("Failed to get tokens price");
         println!("Tokens Info: {:?}", tokens_info);

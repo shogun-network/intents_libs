@@ -830,9 +830,9 @@ impl MonitorManager {
         let codex_ids: Vec<TokenId> = codex_set.into_iter().collect();
         tracing::debug!("Fetching tokens data for {:?} from Codex", codex_ids);
 
-        // Split into batches of up to 25 tokens (by CODEX ids)
-        const BATCH_SIZE: usize = 25;
-        let mut batches: Vec<HashSet<TokenId>> = Vec::new();
+        // Split into batches of up to 200 tokens (by CODEX ids)
+        const BATCH_SIZE: usize = 200;
+        let mut batches: Vec<Vec<TokenId>> = Vec::new();
         for chunk in codex_ids.chunks(BATCH_SIZE) {
             batches.push(chunk.iter().cloned().collect());
         }
@@ -841,7 +841,11 @@ impl MonitorManager {
         let provider = &self.codex_provider;
         let fetches = batches.into_iter().map(|batch| {
             // each future captures provider by shared reference
-            async move { provider.get_tokens_price(batch, !self.polling_mode.0).await }
+            async move {
+                provider
+                    .get_tokens_price(&batch, !self.polling_mode.0)
+                    .await
+            }
         });
 
         let results = future::join_all(fetches).await;
@@ -884,9 +888,9 @@ impl MonitorManager {
             .collect();
         tracing::debug!("Fetching tokens data for {:?} from Codex", token_ids);
 
-        // Split into batches of up to 25 tokens
-        const BATCH_SIZE: usize = 25;
-        let mut batches: Vec<HashSet<TokenId>> = Vec::new();
+        // Split into batches of up to 200 tokens
+        const BATCH_SIZE: usize = 200;
+        let mut batches: Vec<Vec<TokenId>> = Vec::new();
         for chunk in token_ids.chunks(BATCH_SIZE) {
             batches.push(chunk.iter().cloned().collect());
         }
