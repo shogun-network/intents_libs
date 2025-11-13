@@ -440,12 +440,6 @@ impl CodexConnectionPool {
         let response = self
             .http_client
             .post(CODEX_HTTP_URL)
-            .header(
-                "Authorization",
-                ReqwestHeaderValue::from_str(&self.api_key)
-                    .change_context(Error::ResponseError)
-                    .attach_printable("Invalid characters in CODEX_API_KEY")?,
-            )
             .json(&body)
             .send()
             .await
@@ -507,12 +501,6 @@ impl CodexConnectionPool {
         let response = self
             .http_client
             .post(CODEX_HTTP_URL)
-            .header(
-                "Authorization",
-                ReqwestHeaderValue::from_str(&self.api_key)
-                    .change_context(Error::ResponseError)
-                    .attach_printable("Invalid characters in CODEX_API_KEY")?,
-            )
             .json(&body)
             .send()
             .await
@@ -577,12 +565,6 @@ impl CodexConnectionPool {
         let response = self
             .http_client
             .post(CODEX_HTTP_URL)
-            .header(
-                "Authorization",
-                ReqwestHeaderValue::from_str(&self.api_key)
-                    .change_context(Error::ResponseError)
-                    .attach_printable("Invalid characters in CODEX_API_KEY")?,
-            )
             .json(&body)
             .send()
             .await
