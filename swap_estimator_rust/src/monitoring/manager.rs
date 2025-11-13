@@ -784,6 +784,7 @@ impl MonitorManager {
     }
 
     async fn remove_order(&mut self, order_id: &str) {
+        tracing::debug!("Removing order_id: {} from monitoring", order_id);
         // Remove from pending swaps
         if let Some((pending_swap, _)) = self.pending_swaps.remove(order_id) {
             // Remove from orders by deadline

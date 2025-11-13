@@ -31,7 +31,7 @@ async fn run() -> Result<(), String> {
     let (monitor_tx, monitor_rx) = mpsc::channel::<MonitorRequest>(100);
 
     // Spawn manager
-    let manager = MonitorManager::new(monitor_rx, alert_tx, codex_api_key, (true, 5));
+    let manager = MonitorManager::new(monitor_rx, alert_tx, codex_api_key, (true, 5000));
     tokio::spawn(async move {
         if let Err(e) = manager.run().await {
             eprintln!("MonitorManager stopped with error: {e:?}");
