@@ -16,7 +16,7 @@ use dashmap::{DashMap, Entry};
 use error_stack::{ResultExt as _, report};
 use intents_models::{constants::chains::ChainId, network::http::handle_reqwest_response};
 use reqwest::Client;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -173,7 +173,7 @@ impl PriceProvider for GeckoTerminalProvider {
     async fn get_tokens_price(
         &self,
         tokens: &[TokenId],
-        with_subscriptions: bool,
+        _with_subscriptions: bool,
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
         if tokens.is_empty() {
             return Ok(HashMap::new());
@@ -371,6 +371,8 @@ fn handle_gecko_terminal_response(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use intents_models::log::init_tracing;
 
     use super::*;

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use intents_models::constants::chains::{ChainId, ChainType};
 use serde::{Deserialize, Serialize};
