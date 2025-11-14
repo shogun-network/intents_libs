@@ -2,7 +2,7 @@ use error_stack::{ResultExt as _, report};
 use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
 use reqwest::Client;
 use serde_json::json;
-
+use intents_models::constants::chains::is_native_token_evm_address;
 use crate::utils::exact_in_reverse_quoter::quote_exact_out_with_exact_in;
 use crate::{
     error::{Error, EstimatorResult},
@@ -22,6 +22,14 @@ use crate::{
     },
 };
 
+pub fn update_zero_x_native_token(token_address: String) -> String {
+    if is_native_token_evm_address(&token_address) {
+        "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string()
+    } else {
+        token_address
+    }
+}
+
 fn handle_zero_x_response(response: ZeroXApiResponse) -> EstimatorResult<ZeroXApiResponse> {
     match response {
         ZeroXApiResponse::LiquidityResponse(_) => Err(report!(Error::AggregatorError(
@@ -38,8 +46,8 @@ pub async fn zero_x_get_price(
 ) -> EstimatorResult<ZeroXGetPriceResponse> {
     let query = json!({
         "chainId": request.chain_id,
-        "buyToken": request.buy_token,
-        "sellToken": request.sell_token,
+        "buyToken": update_zero_x_native_token(request.buy_token),
+        "sellToken": update_zero_x_native_token(request.sell_token),
         "sellAmount": request.sell_amount,
         "slippageBps": request.slippage_bps,
     });
@@ -61,12 +69,12 @@ pub async fn zero_x_get_price(
         .change_context(Error::ModelsError)?;
 
     if let ZeroXApiResponse::GetPriceResponse(res) = handle_zero_x_response(get_price_response)? {
-        return Ok(res);
+        Ok(res)
     } else {
-        return Err(report!(Error::AggregatorError(
+        Err(report!(Error::AggregatorError(
             "Expected GetPriceResponse variant from ZeroXApiResponse".to_string()
         ))
-        .attach_printable("Expected GetPriceResponse variant from ZeroXApiResponse"));
+        .attach_printable("Expected GetPriceResponse variant from ZeroXApiResponse"))
     }
 }
 
@@ -77,8 +85,8 @@ pub async fn zero_x_get_quote(
 ) -> EstimatorResult<ZeroXGetQuoteResponse> {
     let mut query = json!({
         "chainId": request.chain_id,
-        "buyToken": request.buy_token,
-        "sellToken": request.sell_token,
+        "buyToken": update_zero_x_native_token(request.buy_token),
+        "sellToken": update_zero_x_native_token(request.sell_token),
         "sellAmount": request.sell_amount,
         "slippageBps": request.slippage_bps,
         "taker": request.taker,
@@ -109,12 +117,12 @@ pub async fn zero_x_get_quote(
         .change_context(Error::ModelsError)?;
 
     if let ZeroXApiResponse::GetQuoteResponse(res) = handle_zero_x_response(get_quote_response)? {
-        return Ok(res);
+        Ok(res)
     } else {
-        return Err(report!(Error::AggregatorError(
+        Err(report!(Error::AggregatorError(
             "Expected GetQuoteResponse variant from ZeroXApiResponse".to_string()
         ))
-        .attach_printable("Expected GetQuoteResponse variant from ZeroXApiResponse"));
+        .attach_printable("Expected GetQuoteResponse variant from ZeroXApiResponse"))
     }
 }
 
