@@ -15,9 +15,9 @@ const INIT_MULTIPLIER: u128 = 10_010;
 
 /// This is 100%
 const THRESHOLD_BASE: u128 = 10_000;
-/// If result is within 0.2% threshold - we count it as success
+/// If result is within 0.5% threshold - we count it as success
 /// The lower this value - the more attempts it may take
-const SUCCESS_THRESHOLD_BPS: u128 = 20;
+const SUCCESS_THRESHOLD_BPS: u128 = 50;
 
 /// If we could not adjust amounts in 3 attempts - something's very wrong
 const MAX_LOOP_ATTEMPTS: usize = 3;
@@ -243,7 +243,7 @@ where
         try_values.test_amount_in,
         target_amount_out,
         quote_response.get_amount_limit(),
-        true,
+        target_amount_out > quote_response.get_amount_limit(),
     )?;
     while attempt_number < MAX_LOOP_ATTEMPTS {
         attempt_number += 1;
@@ -258,7 +258,7 @@ where
             try_values.test_amount_in,
             target_amount_out,
             quote_response.get_amount_limit(),
-            true,
+            target_amount_out > quote_response.get_amount_limit(),
         )?;
     }
 
