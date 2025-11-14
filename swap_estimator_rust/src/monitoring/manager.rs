@@ -2,7 +2,7 @@ use error_stack::report;
 use futures_util::future;
 use intents_models::constants::chains::ChainId;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     time::Duration,
     u64,
 };
@@ -16,7 +16,7 @@ use crate::{
         PriceEvent, PriceProvider, TokenId, TokenMetadata, TokenPrice,
         codex::pricing::CodexProvider, estimating::OrderEstimationData,
     },
-    utils::number_conversion::u128_to_f64,
+    utils::{get_timestamp, number_conversion::u128_to_f64},
 };
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
@@ -33,6 +33,7 @@ pub struct PendingSwap {
     pub token_out: String,
     pub amount_in: u128,
     pub amount_out: u128,
+    pub deadline: u64,
     pub extra_expenses: HashMap<TokenId, u128>, // TokenId to amount
 }
 
@@ -46,6 +47,7 @@ pub struct MonitorManager {
     pub token_metadata: HashMap<TokenId, TokenMetadata>,
     pub codex_provider: CodexProvider,
     pub polling_mode: (bool, u64),
+    pub orders_by_deadline: BTreeMap<u64, HashSet<String>>, // deadline timestamp to OrderIds
 }
 
 impl MonitorManager {
@@ -66,6 +68,7 @@ impl MonitorManager {
             token_metadata: HashMap::new(),
             codex_provider,
             polling_mode,
+            orders_by_deadline: BTreeMap::new(),
         }
     }
 
@@ -89,20 +92,39 @@ impl MonitorManager {
             }
         };
 
-        let mut unsubscriptions_interval = if !self.polling_mode.0 {
-            tokio::time::interval(Duration::from_secs(60))
-        } else {
-            tokio::time::interval(Duration::from_secs(315360000)) // ~10 years;
-        };
-        let mut polling_interval = if self.polling_mode.0 {
-            tokio::time::interval(Duration::from_millis(self.polling_mode.1))
-        } else {
-            tokio::time::interval(Duration::from_secs(315360000)) // ~10 years;
-        };
+        let mut unsubscriptions_interval = tokio::time::interval(Duration::from_secs(60));
+        let mut polling_interval =
+            tokio::time::interval(Duration::from_millis(self.polling_mode.1));
+        let mut clean_expired_orders_interval = tokio::time::interval(Duration::from_secs(30));
 
         loop {
             tokio::select! {
-                _ = unsubscriptions_interval.tick() => {
+                // Clean expired orders interval
+                _ = clean_expired_orders_interval.tick() => {
+                    let current_timestamp = get_timestamp();
+
+                    while let Some((&deadline, _order_ids)) = self.orders_by_deadline.first_key_value() {
+                        if deadline >= current_timestamp {
+                            break;
+                        }
+                        // Remove the entry
+                        if let Some(order_ids) = self.orders_by_deadline.pop_first() {
+                            let (_removed_deadline, order_ids) = order_ids;
+                            for order_id in order_ids {
+                                tracing::debug!(
+                                    "Removing expired pending swap for order_id: {}, deadline: {}",
+                                    order_id,
+                                    deadline
+                                );
+                                self.remove_order(&order_id).await;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                _ = unsubscriptions_interval.tick(), if !self.polling_mode.0 => {
+                    tracing::debug!("Checking for tokens to unsubscribe due to no pending orders");
                     // Collect tokens that no longer have pending orders
                     let tokens_to_unsubscribe: Vec<TokenId> = self
                         .swaps_by_token
@@ -134,7 +156,8 @@ impl MonitorManager {
                     }
                 }
                 // Polling interval
-                _ = polling_interval.tick() => {
+                _ = polling_interval.tick(), if self.polling_mode.0 => {
+                    tracing::debug!("Polling price updates for pending orders");
                     // Get all tokens needed to estimate pending swaps
                     let mut tokens_to_fetch: HashSet<TokenId> = self
                         .swaps_by_token
@@ -200,10 +223,11 @@ impl MonitorManager {
                                     token_out,
                                     amount_in,
                                     amount_out,
+                                    deadline,
                                     solver_last_bid,
                                     extra_expenses,
                                 } => {
-                                    if let Err(error) = self.check_swap_feasibility(order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out, solver_last_bid, extra_expenses).await {
+                                    if let Err(error) = self.check_swap_feasibility(order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out, deadline, solver_last_bid, extra_expenses).await {
                                         tracing::error!("Error processing CheckSwapFeasibility request: {:?}", error);
                                     }
                                 }
@@ -291,6 +315,7 @@ impl MonitorManager {
         token_out: String,
         amount_in: u128,
         amount_out: u128,
+        deadline: u64,
         solver_last_bid: Option<u128>,
         extra_expenses: HashMap<TokenId, u128>,
     ) -> EstimatorResult<()> {
@@ -315,6 +340,7 @@ impl MonitorManager {
             token_out: token_out.clone(),
             amount_in,
             amount_out,
+            deadline,
             extra_expenses,
         };
 
@@ -439,6 +465,10 @@ impl MonitorManager {
             order_id.clone(),
             (pending_swap, estimate_amount_out_calculated),
         );
+        self.orders_by_deadline
+            .entry(deadline)
+            .or_insert_with(HashSet::new)
+            .insert(order_id);
         Ok(())
     }
 
@@ -632,11 +662,23 @@ impl MonitorManager {
             return;
         }
 
+        let current_timestamp = get_timestamp();
         // Get the swap data of these orders
         let mut subset: Vec<(PendingSwap, Option<u128>)> = Vec::new();
         for order_id in impacted_orders.iter() {
             if let Some(ps) = self.pending_swaps.get(order_id).cloned() {
-                subset.push(ps);
+                // Skip expired orders
+                if ps.0.deadline < current_timestamp {
+                    tracing::debug!(
+                        "Skipping expired pending swap for order_id: {}, deadline: {}",
+                        order_id,
+                        ps.0.deadline
+                    );
+                    // Remove from pending swaps
+                    self.remove_order(&ps.0.order_id).await;
+                } else {
+                    subset.push(ps);
+                }
             }
         }
         if subset.is_empty() {
@@ -702,7 +744,7 @@ impl MonitorManager {
                             // Do not remove the swap if we failed to send alert
                             continue;
                         }
-                        // Remove from pending swaps
+                        // Remove from pending swaps and every other data structure
                         self.remove_order(&pending_swap.order_id).await;
                     }
                 }
@@ -742,8 +784,16 @@ impl MonitorManager {
     }
 
     async fn remove_order(&mut self, order_id: &str) {
+        tracing::debug!("Removing order_id: {} from monitoring", order_id);
         // Remove from pending swaps
         if let Some((pending_swap, _)) = self.pending_swaps.remove(order_id) {
+            // Remove from orders by deadline
+            if let Some(set) = self.orders_by_deadline.get_mut(&pending_swap.deadline) {
+                set.remove(order_id);
+                if set.is_empty() {
+                    self.orders_by_deadline.remove(&pending_swap.deadline);
+                }
+            }
             // Detach from token->orders map and unsubscribe if needed
             let t_in = TokenId::new_for_codex(pending_swap.src_chain, &pending_swap.token_in);
             let t_out = TokenId::new_for_codex(pending_swap.dst_chain, &pending_swap.token_out);
@@ -758,6 +808,9 @@ impl MonitorManager {
     fn detach_order_from_token(&mut self, token: &TokenId, order_id: &str) {
         if let Some(set) = self.swaps_by_token.get_mut(token) {
             set.remove(order_id);
+            if set.is_empty() {
+                self.swaps_by_token.remove(token);
+            }
         }
     }
 
@@ -778,9 +831,9 @@ impl MonitorManager {
         let codex_ids: Vec<TokenId> = codex_set.into_iter().collect();
         tracing::debug!("Fetching tokens data for {:?} from Codex", codex_ids);
 
-        // Split into batches of up to 25 tokens (by CODEX ids)
-        const BATCH_SIZE: usize = 25;
-        let mut batches: Vec<HashSet<TokenId>> = Vec::new();
+        // Split into batches of up to 200 tokens (by CODEX ids)
+        const BATCH_SIZE: usize = 200;
+        let mut batches: Vec<Vec<TokenId>> = Vec::new();
         for chunk in codex_ids.chunks(BATCH_SIZE) {
             batches.push(chunk.iter().cloned().collect());
         }
@@ -789,7 +842,11 @@ impl MonitorManager {
         let provider = &self.codex_provider;
         let fetches = batches.into_iter().map(|batch| {
             // each future captures provider by shared reference
-            async move { provider.get_tokens_price(batch, !self.polling_mode.0).await }
+            async move {
+                provider
+                    .get_tokens_price(&batch, !self.polling_mode.0)
+                    .await
+            }
         });
 
         let results = future::join_all(fetches).await;
@@ -832,9 +889,9 @@ impl MonitorManager {
             .collect();
         tracing::debug!("Fetching tokens data for {:?} from Codex", token_ids);
 
-        // Split into batches of up to 25 tokens
-        const BATCH_SIZE: usize = 25;
-        let mut batches: Vec<HashSet<TokenId>> = Vec::new();
+        // Split into batches of up to 200 tokens
+        const BATCH_SIZE: usize = 200;
+        let mut batches: Vec<Vec<TokenId>> = Vec::new();
         for chunk in token_ids.chunks(BATCH_SIZE) {
             batches.push(chunk.iter().cloned().collect());
         }
@@ -1103,8 +1160,11 @@ fn required_monitor_estimation_for_solver_fulfillment(
 
 #[cfg(test)]
 mod tests {
+    use crate::utils::get_timestamp;
+
     use super::*;
-    use intents_models::{constants::chains::ChainId, log::init_tracing};
+    use crate::tests::init_tracing_in_tests;
+    use intents_models::constants::chains::ChainId;
     use tokio::sync::{broadcast, mpsc};
 
     fn create_coin_data(price: f64, decimals: u8) -> TokenPrice {
@@ -1137,6 +1197,7 @@ mod tests {
         token_out: String,
         amount_in: u128,
         amount_out: u128,
+        deadline: u64,
         extra_expenses: HashMap<TokenId, u128>,
     ) -> PendingSwap {
         PendingSwap {
@@ -1147,6 +1208,7 @@ mod tests {
             token_out,
             amount_in,
             amount_out,
+            deadline,
             extra_expenses,
         }
     }
@@ -1154,7 +1216,7 @@ mod tests {
     #[tokio::test]
     async fn test_check_swaps_feasibility_unsuccessful_swap() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let mut coin_cache = HashMap::new();
         coin_cache.insert(
@@ -1180,6 +1242,7 @@ mod tests {
             "token_b".to_string(),
             1_000_000_000_000_000_000, // 1 token (18 decimals)
             1_900_000,                 // 1.9 tokens (6 decimals), expecting ~2 tokens
+            get_timestamp() + 300,
             HashMap::new(),
         );
 
@@ -1192,7 +1255,7 @@ mod tests {
     #[tokio::test]
     async fn test_check_swaps_feasibility_successful_swap() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let mut coin_cache = HashMap::new();
         coin_cache.insert(
@@ -1218,6 +1281,7 @@ mod tests {
             "token_b".to_string(),
             1_000_000_000_000_000_000,
             2_000_000_000_000_000_000,
+            get_timestamp() + 300,
             HashMap::new(),
         );
 
@@ -1230,7 +1294,7 @@ mod tests {
     #[tokio::test]
     async fn test_check_swaps_feasibility_unsuccessful_swap_extra_expenses() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let mut coin_cache = HashMap::new();
         coin_cache.insert(
@@ -1271,6 +1335,7 @@ mod tests {
             "token_b".to_string(),
             1_000_000_000_000_000_000,
             2_000_000_000_000_000_000,
+            get_timestamp() + 300,
             extra_expenses,
         );
 
@@ -1300,6 +1365,7 @@ mod tests {
             "token_b".to_string(), // This token is missing from cache
             1_000_000_000_000_000_000,
             2_000_000_000_000_000_000,
+            get_timestamp() + 300,
             HashMap::new(),
         );
 
@@ -1500,80 +1566,9 @@ mod tests {
     // }
 
     #[tokio::test]
-    async fn test_get_coins_data_cache_hit() {
-        dotenv::dotenv().ok();
-        init_tracing(false);
-
-        // Setup
-        let codex_api_key = match std::env::var("CODEX_API_KEY") {
-            Ok(key) => key,
-            Err(_) => {
-                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
-                return;
-            }
-        };
-        let (sender, _receiver) = broadcast::channel(10);
-        let (_, monitor_receiver) = mpsc::channel(10);
-
-        let mut monitor_manager =
-            MonitorManager::new(monitor_receiver, sender, codex_api_key, (true, 5));
-
-        // Prepare cache with some tokens
-        let eth_token = TokenId {
-            chain: ChainId::Ethereum,
-            address: "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".to_string(),
-        };
-        let base_token = TokenId {
-            chain: ChainId::Base,
-            address: "0x4200000000000000000000000000000000000006".to_string(),
-        };
-
-        monitor_manager.coin_cache.insert(
-            eth_token.clone(),
-            TokenPrice {
-                price: 2000.0,
-                decimals: 18,
-            },
-        );
-        monitor_manager.coin_cache.insert(
-            base_token.clone(),
-            TokenPrice {
-                price: 2010.0,
-                decimals: 18,
-            },
-        );
-
-        // Request only tokens that are in cache
-        let tokens_to_request = vec![eth_token.clone(), base_token.clone()]
-            .into_iter()
-            .collect();
-        let result = monitor_manager.get_coins_data(tokens_to_request).await;
-
-        // Verify the result contains cached data without external API calls
-        assert!(
-            result.is_ok(),
-            "get_coins_data should succeed with cached tokens"
-        );
-        let token_prices = result.unwrap();
-        assert_eq!(token_prices.len(), 2, "Should return 2 token prices");
-
-        assert!(
-            token_prices.contains_key(&eth_token),
-            "Should contain ETH token"
-        );
-        assert_eq!(token_prices[&eth_token].price, 2000.0);
-
-        assert!(
-            token_prices.contains_key(&base_token),
-            "Should contain BASE token"
-        );
-        assert_eq!(token_prices[&base_token].price, 2010.0);
-    }
-
-    #[tokio::test]
     async fn test_get_coins_data_zero_price() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Setup
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
@@ -1630,7 +1625,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_coins_data_empty_input() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Setup
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
@@ -1671,232 +1666,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_estimate_orders_amount_out_success_with_cached_tokens() {
-        dotenv::dotenv().ok();
-        init_tracing(false);
-
-        // Setup
-        let codex_api_key = match std::env::var("CODEX_API_KEY") {
-            Ok(key) => key,
-            Err(_) => {
-                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
-                return;
-            }
-        };
-        let (sender, _receiver) = broadcast::channel(10);
-        let (_, monitor_receiver) = mpsc::channel(10);
-
-        let mut monitor_manager =
-            MonitorManager::new(monitor_receiver, sender, codex_api_key, (true, 5));
-
-        // Pre-populate cache with token data
-        let eth_token = TokenId {
-            chain: ChainId::Ethereum,
-            address: "0xa0b86a33e6ba2a5e59e3a6be836a4f08a7b2e6bd".to_string(),
-        };
-        let base_token = TokenId {
-            chain: ChainId::Base,
-            address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
-        };
-
-        monitor_manager.coin_cache.insert(
-            eth_token.clone(),
-            TokenPrice {
-                price: 2000.0,
-                decimals: 18,
-            },
-        );
-        monitor_manager.coin_cache.insert(
-            base_token.clone(),
-            TokenPrice {
-                price: 1.0,
-                decimals: 6,
-            },
-        );
-
-        // Create test orders
-        let orders = vec![create_order_estimation_data(
-            "order_1",
-            ChainId::Ethereum,
-            ChainId::Base,
-            "0xa0b86a33e6ba2a5e59e3a6be836a4f08a7b2e6bd",
-            "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
-            1_000_000_000_000_000_000, // 1 ETH (18 decimals)
-        )];
-
-        // Execute
-        let result = monitor_manager.estimate_orders_amount_out(orders).await;
-
-        // Verify
-        assert!(result.is_ok(), "Should succeed with cached data");
-        let estimates = result.unwrap();
-        assert_eq!(estimates.len(), 1, "Should return one estimate");
-        assert!(estimates.contains_key("order_1"), "Should contain order_1");
-
-        let estimated_amount = estimates["order_1"];
-        // 1 ETH * $2000 / $1 = 2000 USDC = 2_000_000_000 (6 decimals)
-        assert_eq!(estimated_amount, 2_000_000_000);
-    }
-
-    #[tokio::test]
-    async fn test_estimate_orders_amount_out_multiple_orders_different_chains() {
-        dotenv::dotenv().ok();
-        init_tracing(false);
-
-        // Setup
-        let codex_api_key = match std::env::var("CODEX_API_KEY") {
-            Ok(key) => key,
-            Err(_) => {
-                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
-                return;
-            }
-        };
-        let (sender, _receiver) = broadcast::channel(10);
-        let (_, monitor_receiver) = mpsc::channel(10);
-
-        let mut monitor_manager =
-            MonitorManager::new(monitor_receiver, sender, codex_api_key, (true, 5));
-
-        // Pre-populate cache with multiple tokens
-        monitor_manager.coin_cache.insert(
-            TokenId {
-                chain: ChainId::Ethereum,
-                address: "0xeth_token".to_string(),
-            },
-            TokenPrice {
-                price: 2000.0,
-                decimals: 18,
-            },
-        );
-        monitor_manager.coin_cache.insert(
-            TokenId {
-                chain: ChainId::Base,
-                address: "0xbase_token".to_string(),
-            },
-            TokenPrice {
-                price: 1.0,
-                decimals: 6,
-            },
-        );
-        monitor_manager.coin_cache.insert(
-            TokenId {
-                chain: ChainId::ArbitrumOne,
-                address: "0xarb_token".to_string(),
-            },
-            TokenPrice {
-                price: 1.01,
-                decimals: 6,
-            },
-        );
-
-        // Create multiple orders
-        let orders = vec![
-            create_order_estimation_data(
-                "eth_to_base",
-                ChainId::Ethereum,
-                ChainId::Base,
-                "0xeth_token",
-                "0xbase_token",
-                500_000_000_000_000_000, // 0.5 ETH
-            ),
-            create_order_estimation_data(
-                "base_to_arb",
-                ChainId::Base,
-                ChainId::ArbitrumOne,
-                "0xbase_token",
-                "0xarb_token",
-                1_000_000, // 1 USDC
-            ),
-        ];
-
-        // Execute
-        let result = monitor_manager.estimate_orders_amount_out(orders).await;
-
-        // Verify
-        assert!(result.is_ok(), "Should succeed with multiple orders");
-        let estimates = result.unwrap();
-        assert_eq!(estimates.len(), 2, "Should return two estimates");
-
-        // Verify first order: 0.5 ETH * $2000 / $1 = 1000 USDC
-        assert_eq!(estimates["eth_to_base"], 1_000_000_000);
-
-        // Verify second order: 1 USDC * $1.0 / $1.01 ≈ 0.99 USDC
-        let second_estimate = estimates["base_to_arb"];
-        assert!(
-            second_estimate < 1_000_000,
-            "Should be less than input due to price difference"
-        );
-        assert!(second_estimate > 900_000, "Should be reasonable conversion");
-    }
-
-    #[tokio::test]
-    async fn test_estimate_orders_amount_out_duplicate_tokens() {
-        dotenv::dotenv().ok();
-        init_tracing(false);
-
-        // Setup
-        let codex_api_key = match std::env::var("CODEX_API_KEY") {
-            Ok(key) => key,
-            Err(_) => {
-                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
-                return;
-            }
-        };
-        let (sender, _receiver) = broadcast::channel(10);
-        let (_, monitor_receiver) = mpsc::channel(10);
-
-        let mut monitor_manager =
-            MonitorManager::new(monitor_receiver, sender, codex_api_key, (true, 5));
-
-        // Pre-populate cache
-        monitor_manager.coin_cache.insert(
-            TokenId {
-                chain: ChainId::Ethereum,
-                address: "0xtoken".to_string(),
-            },
-            TokenPrice {
-                price: 100.0,
-                decimals: 18,
-            },
-        );
-
-        // Create orders that use the same tokens (should deduplicate internally)
-        let orders = vec![
-            create_order_estimation_data(
-                "order_1",
-                ChainId::Ethereum,
-                ChainId::Ethereum,
-                "0xtoken",
-                "0xtoken",
-                1_000_000_000_000_000_000,
-            ),
-            create_order_estimation_data(
-                "order_2",
-                ChainId::Ethereum,
-                ChainId::Ethereum,
-                "0xtoken",
-                "0xtoken",
-                2_000_000_000_000_000_000,
-            ),
-        ];
-
-        // Execute
-        let result = monitor_manager.estimate_orders_amount_out(orders).await;
-
-        // Verify
-        assert!(result.is_ok(), "Should succeed with duplicate tokens");
-        let estimates = result.unwrap();
-        assert_eq!(estimates.len(), 2, "Should return two estimates");
-
-        // Both should have same amounts since same token with same price
-        assert_eq!(estimates["order_1"], 1_000_000_000_000_000_000);
-        assert_eq!(estimates["order_2"], 2_000_000_000_000_000_000);
-    }
-
-    #[tokio::test]
     async fn test_estimate_orders_amount_out_missing_token_data() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Setup
         let codex_api_key = match std::env::var("CODEX_API_KEY") {

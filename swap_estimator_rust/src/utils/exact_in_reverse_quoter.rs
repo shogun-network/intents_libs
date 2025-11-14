@@ -6,6 +6,9 @@ use crate::routers::swap::{EvmSwapResponse, GenericSwapRequest};
 use crate::utils::limit_amount::get_limit_amount;
 use crate::utils::uint::mul_div;
 use error_stack::report;
+use serde::{Deserialize, Serialize};
+use serde_with::{DisplayFromStr, PickFirst, serde_as};
+use std::fmt::Debug;
 
 /// We'll be adding 0.1 % on the top of initial quote to try to compensate swap fees
 const INIT_MULTIPLIER_BASE: u128 = 10_000;
@@ -14,12 +17,21 @@ const INIT_MULTIPLIER: u128 = 10_010;
 
 /// This is 100%
 const THRESHOLD_BASE: u128 = 10_000;
-/// If result is within 0.2% threshold - we count it as success
+/// If result is within 0.5% threshold - we count it as success
 /// The lower this value - the more attempts it may take
-const SUCCESS_THRESHOLD_BPS: u128 = 20;
+const SUCCESS_THRESHOLD_BPS: u128 = 50;
 
 /// If we could not adjust amounts in 3 attempts - something's very wrong
 const MAX_LOOP_ATTEMPTS: usize = 3;
+
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Collected reverse quote result
+pub struct ReverseQuoteResult {
+    /// Amount to be used as amount IN
+    #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
+    pub amount_in: u128,
+}
 
 #[derive(Debug, Clone, Copy)]
 struct TryExactInValues {
@@ -124,6 +136,8 @@ impl ReverseQuoteResponse for GenericEstimateResponse {
     fn update_with_amount_in(&mut self, amount_in: u128) {
         self.amount_quote = amount_in;
         self.amount_limit = amount_in;
+        self.router_data =
+            serde_json::to_value(ReverseQuoteResult { amount_in }).expect("Should not fail");
     }
 }
 
@@ -148,6 +162,7 @@ impl ReverseQuoteResponse for EvmSwapResponse {
 ///
 /// * `request` - Exact OUT request
 /// * `quote_fn` - Function to use for exact IN quotes
+/// * `prev_result` - Previous reverse quote result
 ///
 /// ### Returns
 ///
@@ -156,10 +171,11 @@ impl ReverseQuoteResponse for EvmSwapResponse {
 pub async fn quote_exact_out_with_exact_in<F, Fut, Request, Response>(
     request: Request,
     quote_exact_in_fn: F,
+    prev_result: Option<ReverseQuoteResult>,
 ) -> EstimatorResult<(Response, usize)>
 where
-    Request: ReverseQuoteRequest,
-    Response: ReverseQuoteResponse,
+    Request: ReverseQuoteRequest + Debug,
+    Response: ReverseQuoteResponse + Debug,
     F: Fn(Request) -> Fut + Send + Sync,
     Fut: Future<Output = EstimatorResult<Response>> + Send,
 {
@@ -199,22 +215,29 @@ where
         target_min_amount_out,
         THRESHOLD_BASE + SUCCESS_THRESHOLD_BPS,
         THRESHOLD_BASE,
+        true,
     )?;
 
     let exact_in_request = request.get_reversed_exact_in_with_slippage(slippage_percent);
 
-    let quote_response = quote_exact_in_fn(exact_in_request).await?;
+    // Trying to reuse previous results to avoid unnecessary fetching
+    let test_amount_in = if let Some(prev_result) = prev_result {
+        prev_result.amount_in
+    } else {
+        let quote_response = quote_exact_in_fn(exact_in_request).await?;
 
-    let test_amount_in = get_limit_amount(
-        TradeType::ExactOut,
-        // Increasing quote amount in attempt to compensate swap fees
-        mul_div(
-            quote_response.get_amount_quote(),
-            INIT_MULTIPLIER,
-            INIT_MULTIPLIER_BASE,
-        )?,
-        Slippage::Percent(slippage_percent),
-    )?;
+        get_limit_amount(
+            TradeType::ExactOut,
+            // Increasing quote amount in attempt to compensate swap fees
+            mul_div(
+                quote_response.get_amount_quote(),
+                INIT_MULTIPLIER,
+                INIT_MULTIPLIER_BASE,
+                true,
+            )?,
+            Slippage::Percent(slippage_percent),
+        )?
+    };
 
     let mut try_values = TryExactInValues {
         test_amount_in,
@@ -233,12 +256,14 @@ where
     }
 
     let mut attempt_number = 0;
-    let target_amount_out = (target_min_amount_out + target_max_amount_out) / 2;
+    // Rounding up
+    let target_amount_out = (target_min_amount_out + target_max_amount_out + 1) / 2;
     // Adjusting amount IN proportionally to amount_out_min
     try_values.test_amount_in = mul_div(
         try_values.test_amount_in,
         target_amount_out,
         quote_response.get_amount_limit(),
+        target_amount_out > quote_response.get_amount_limit(),
     )?;
     while attempt_number < MAX_LOOP_ATTEMPTS {
         attempt_number += 1;
@@ -253,6 +278,7 @@ where
             try_values.test_amount_in,
             target_amount_out,
             quote_response.get_amount_limit(),
+            target_amount_out > quote_response.get_amount_limit(),
         )?;
     }
 
@@ -366,6 +392,7 @@ mod tests {
 
                 Ok(res)
             },
+            None,
         )
         .await;
         assert!(
@@ -401,6 +428,7 @@ mod tests {
 
                 Ok(res)
             },
+            None,
         )
         .await;
         assert!(
@@ -436,6 +464,7 @@ mod tests {
 
                 Ok(res)
             },
+            None,
         )
         .await;
         assert!(res.is_err());

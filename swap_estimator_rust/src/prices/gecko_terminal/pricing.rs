@@ -16,7 +16,7 @@ use dashmap::{DashMap, Entry};
 use error_stack::{ResultExt as _, report};
 use intents_models::{constants::chains::ChainId, network::http::handle_reqwest_response};
 use reqwest::Client;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::broadcast;
@@ -172,8 +172,8 @@ impl GeckoTerminalProvider {
 impl PriceProvider for GeckoTerminalProvider {
     async fn get_tokens_price(
         &self,
-        tokens: HashSet<TokenId>,
-        with_subscriptions: bool,
+        tokens: &[TokenId],
+        _with_subscriptions: bool,
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
         if tokens.is_empty() {
             return Ok(HashMap::new());
@@ -188,7 +188,7 @@ impl PriceProvider for GeckoTerminalProvider {
             tokens_by_chain
                 .entry(token.chain)
                 .or_default()
-                .push(token.address);
+                .push(token.address.clone());
         }
 
         // For all missing per chain, batch HTTP fetch and fill results
@@ -371,14 +371,14 @@ fn handle_gecko_terminal_response(
 
 #[cfg(test)]
 mod tests {
-    use intents_models::log::init_tracing;
-
+    use std::collections::HashSet;
     use super::*;
+    use crate::tests::init_tracing_in_tests;
 
     #[tokio::test]
     async fn test_gecko_terminal_get_tokens_price() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let gt_provider: GeckoTerminalProvider = GeckoTerminalProvider::new();
 
@@ -394,7 +394,7 @@ mod tests {
         ]);
 
         let tokens_info = gt_provider
-            .get_tokens_price(tokens, false)
+            .get_tokens_price(&tokens.iter().cloned().collect::<Vec<_>>(), false)
             .await
             .expect("Failed to get tokens price");
         println!("Tokens Info: {:?}", tokens_info);
@@ -428,7 +428,7 @@ mod tests {
     #[tokio::test]
     async fn test_gecko_terminal_subscription_broadcast_event() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Use a short refresh interval to speed up the test
         let gt_provider: GeckoTerminalProvider = GeckoTerminalProvider::new_with_subscriptions(3);
@@ -487,7 +487,7 @@ mod tests {
     #[tokio::test]
     async fn test_gecko_terminal_subscription_and_unsuscription() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Use a short refresh interval to speed up the test
         let gt_provider: GeckoTerminalProvider = GeckoTerminalProvider::new_with_subscriptions(3);

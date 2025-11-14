@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use intents_models::constants::chains::{ChainId, ChainType};
 use serde::{Deserialize, Serialize};
@@ -69,7 +69,7 @@ impl TokenPrice {
 pub trait PriceProvider {
     async fn get_tokens_price(
         &self,
-        tokens: HashSet<TokenId>,
+        tokens: &[TokenId],
         with_subscriptions: bool,
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>>;
 
