@@ -390,13 +390,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_jupiter_modifyed_transaction() {
+    async fn test_get_jupiter_modified_transaction() {
         dotenv::dotenv().ok();
         let request = GenericEstimateRequest {
             trade_type: TradeType::ExactIn,
             chain_id: ChainId::Solana,
             src_token: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
-            dest_token: "D9Rz6vFncqHo2J3zTnh2iwVGzWvPyoGP87xD8hCrbonk".to_string(),
+            dest_token: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
             amount_fixed: 1000000,
             slippage: Slippage::Percent(5.0),
         };
@@ -415,7 +415,7 @@ mod tests {
             spender: "7kDXEH3xPS5TvScR1czWvSCJMaeHHB9693mWTrdTRQVB".to_string(),
             dest_address: "G22xmTDQHKnn9TiVbqgLAiBhoVPdhL1A3NqMELWYBGXa".to_string(),
             src_token: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
-            dest_token: "D9Rz6vFncqHo2J3zTnh2iwVGzWvPyoGP87xD8hCrbonk".to_string(),
+            dest_token: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
             amount_fixed: 1000000,
             slippage: new_slippage,
         };
@@ -432,7 +432,7 @@ mod tests {
             * (100.0 - new_slippage)
             / 100.0) as u128;
         let out_amount = u128::from_str(&quote.outAmount).unwrap();
-        let amount_out_min = 49541325194;
+        let amount_out_min = out_amount * 90 / 100;
         quote.otherAmountThreshold = new_other_amount_threshold.to_string();
         quote.slippageBps = ((out_amount - amount_out_min) * 10_000 / out_amount - 1) as u64;
         println!("NEW QUOTE: {:#?}", quote);
@@ -443,7 +443,7 @@ mod tests {
             spender: "7kDXEH3xPS5TvScR1czWvSCJMaeHHB9693mWTrdTRQVB".to_string(),
             dest_address: "G22xmTDQHKnn9TiVbqgLAiBhoVPdhL1A3NqMELWYBGXa".to_string(),
             src_token: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
-            dest_token: "D9Rz6vFncqHo2J3zTnh2iwVGzWvPyoGP87xD8hCrbonk".to_string(),
+            dest_token: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
             amount_fixed: 1000000,
             slippage: Slippage::Percent(new_slippage),
         };

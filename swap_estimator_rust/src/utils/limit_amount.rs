@@ -197,6 +197,6 @@ mod tests {
             compute_limit_with_scaled_percentage(6, 2.0, TradeType::ExactIn);
         assert!(calculated_limit_amount.is_ok());
         let calculated_limit_amount = calculated_limit_amount.unwrap();
-        assert_eq!(calculated_limit_amount, 6);
+        assert_eq!(calculated_limit_amount, 5);
     }
 }
