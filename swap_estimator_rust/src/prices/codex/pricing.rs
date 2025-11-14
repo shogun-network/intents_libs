@@ -1222,7 +1222,7 @@ mod tests {
     #[tokio::test]
     async fn test_codex_get_tokens_metadata_success() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
             Ok(key) => key,
