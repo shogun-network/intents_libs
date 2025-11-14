@@ -70,6 +70,7 @@ pub async fn one_inch_swap(
         "amount": request.amount,
         "from": request.from,
         "origin": request.origin,
+        "receiver": request.receiver,
         "disableEstimate": true,
     });
 
