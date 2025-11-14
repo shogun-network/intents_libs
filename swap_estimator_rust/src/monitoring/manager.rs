@@ -1098,16 +1098,22 @@ fn required_monitor_estimation_for_solver_fulfillment(
     min_user: u128,
     fulfillment_expenses_in_tokens_out: u128,
 ) -> EstimatorResult<u128> {
+    //  required_monitor_est + expenses       est_monitor + expenses
+    // ---------------------------------- = ----------------------------
+    //        min_user + expenses             bid_solver + expenses
+
     if est_monitor == 0 {
         return Err(report!(Error::ParseError).attach_printable("Estimated monitor amount is zero"));
     }
 
-    Ok(mul_div(
-        min_user,
+    let required_monitor_est = mul_div(
+        min_user + fulfillment_expenses_in_tokens_out,
         est_monitor + fulfillment_expenses_in_tokens_out,
         bid_solver + fulfillment_expenses_in_tokens_out,
-        true,
-    )?)
+        false, // being optimistic
+    )? - fulfillment_expenses_in_tokens_out;
+
+    Ok(required_monitor_est)
 }
 
 #[cfg(test)]
