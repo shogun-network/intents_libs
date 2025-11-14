@@ -6,6 +6,7 @@ use crate::routers::swap::{EvmSwapResponse, GenericSwapRequest};
 use crate::utils::limit_amount::get_limit_amount;
 use crate::utils::uint::mul_div;
 use error_stack::report;
+use std::fmt::Debug;
 
 /// We'll be adding 0.1 % on the top of initial quote to try to compensate swap fees
 const INIT_MULTIPLIER_BASE: u128 = 10_000;
@@ -158,8 +159,8 @@ pub async fn quote_exact_out_with_exact_in<F, Fut, Request, Response>(
     quote_exact_in_fn: F,
 ) -> EstimatorResult<(Response, usize)>
 where
-    Request: ReverseQuoteRequest,
-    Response: ReverseQuoteResponse,
+    Request: ReverseQuoteRequest + Debug,
+    Response: ReverseQuoteResponse + Debug,
     F: Fn(Request) -> Fut + Send + Sync,
     Fut: Future<Output = EstimatorResult<Response>> + Send,
 {
