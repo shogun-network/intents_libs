@@ -234,7 +234,8 @@ where
     }
 
     let mut attempt_number = 0;
-    let target_amount_out = (target_min_amount_out + target_max_amount_out) / 2;
+    // Rounding up
+    let target_amount_out = (target_min_amount_out + target_max_amount_out + 1) / 2;
     // Adjusting amount IN proportionally to amount_out_min
     try_values.test_amount_in = mul_div(
         try_values.test_amount_in,
