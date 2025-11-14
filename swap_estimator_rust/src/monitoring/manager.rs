@@ -1104,7 +1104,8 @@ fn required_monitor_estimation_for_solver_fulfillment(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use intents_models::{constants::chains::ChainId, log::init_tracing};
+    use crate::tests::init_tracing_in_tests;
+    use intents_models::constants::chains::ChainId;
     use tokio::sync::{broadcast, mpsc};
 
     fn create_coin_data(price: f64, decimals: u8) -> TokenPrice {
@@ -1154,7 +1155,7 @@ mod tests {
     #[tokio::test]
     async fn test_check_swaps_feasibility_unsuccessful_swap() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let mut coin_cache = HashMap::new();
         coin_cache.insert(
@@ -1192,7 +1193,7 @@ mod tests {
     #[tokio::test]
     async fn test_check_swaps_feasibility_successful_swap() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let mut coin_cache = HashMap::new();
         coin_cache.insert(
@@ -1230,7 +1231,7 @@ mod tests {
     #[tokio::test]
     async fn test_check_swaps_feasibility_unsuccessful_swap_extra_expenses() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let mut coin_cache = HashMap::new();
         coin_cache.insert(
@@ -1502,7 +1503,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_coins_data_cache_hit() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Setup
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
@@ -1573,7 +1574,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_coins_data_zero_price() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Setup
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
@@ -1630,7 +1631,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_coins_data_empty_input() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Setup
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
@@ -1673,7 +1674,7 @@ mod tests {
     #[tokio::test]
     async fn test_estimate_orders_amount_out_success_with_cached_tokens() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Setup
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
@@ -1741,7 +1742,7 @@ mod tests {
     #[tokio::test]
     async fn test_estimate_orders_amount_out_multiple_orders_different_chains() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Setup
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
@@ -1832,7 +1833,7 @@ mod tests {
     #[tokio::test]
     async fn test_estimate_orders_amount_out_duplicate_tokens() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Setup
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
@@ -1896,7 +1897,7 @@ mod tests {
     #[tokio::test]
     async fn test_estimate_orders_amount_out_missing_token_data() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Setup
         let codex_api_key = match std::env::var("CODEX_API_KEY") {

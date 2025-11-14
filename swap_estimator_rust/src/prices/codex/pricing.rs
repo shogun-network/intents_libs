@@ -1232,14 +1232,14 @@ impl Drop for CodexSubscription {
 
 #[cfg(test)]
 mod tests {
-    use intents_models::{constants::chains::NATIVE_TOKEN_SUI_ADDRESS, log::init_tracing};
-
     use super::*;
+    use crate::tests::init_tracing_in_tests;
+    use intents_models::constants::chains::NATIVE_TOKEN_SUI_ADDRESS;
 
     #[tokio::test]
     async fn test_trending_tokens_fetch() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
             Ok(key) => key,
@@ -1267,7 +1267,7 @@ mod tests {
     #[tokio::test]
     async fn test_codex_get_tokens_price_success() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
             Ok(key) => key,
@@ -1327,7 +1327,7 @@ mod tests {
     #[tokio::test]
     async fn test_codex_get_tokens_price_and_metadata_success() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
             Ok(key) => key,
@@ -1394,7 +1394,7 @@ mod tests {
     #[tokio::test]
     async fn test_codex_get_tokens_price_unexisting_token() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
             Ok(key) => key,
@@ -1438,7 +1438,7 @@ mod tests {
     #[tokio::test]
     async fn test_codex_subscription_broadcast_event() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
             Ok(key) => key,
@@ -1504,7 +1504,7 @@ mod tests {
     #[tokio::test]
     async fn test_codex_subscription_and_unsuscription() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let codex_api_key = match std::env::var("CODEX_API_KEY") {
             Ok(key) => key,
@@ -1586,7 +1586,7 @@ mod tests {
     // #[tokio::test]
     // async fn test_codex_fake_token_subscription() {
     //     dotenv::dotenv().ok();
-    //     init_tracing(false);
+    //     init_tracing_in_tests();
 
     //     let codex_api_key = match std::env::var("CODEX_API_KEY") {
     //         Ok(key) => key,
