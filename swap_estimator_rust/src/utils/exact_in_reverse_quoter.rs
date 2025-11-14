@@ -220,12 +220,12 @@ where
 
     let exact_in_request = request.get_reversed_exact_in_with_slippage(slippage_percent);
 
-    let quote_response = quote_exact_in_fn(exact_in_request).await?;
-
     // Trying to reuse previous results to avoid unnecessary fetching
     let test_amount_in = if let Some(prev_result) = prev_result {
         prev_result.amount_in
     } else {
+        let quote_response = quote_exact_in_fn(exact_in_request).await?;
+
         get_limit_amount(
             TradeType::ExactOut,
             // Increasing quote amount in attempt to compensate swap fees
