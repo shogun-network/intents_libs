@@ -1,8 +1,3 @@
-use error_stack::{ResultExt as _, report};
-use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
-use reqwest::Client;
-use serde_json::json;
-use intents_models::constants::chains::is_native_token_evm_address;
 use crate::utils::exact_in_reverse_quoter::quote_exact_out_with_exact_in;
 use crate::{
     error::{Error, EstimatorResult},
@@ -18,6 +13,11 @@ use crate::{
     },
     utils::{limit_amount::get_limit_amount, number_conversion::decimal_string_to_u128},
 };
+use error_stack::{ResultExt as _, report};
+use intents_models::constants::chains::is_native_token_evm_address;
+use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
+use reqwest::Client;
+use serde_json::json;
 
 pub fn update_one_inch_native_token(token_address: String) -> String {
     if is_native_token_evm_address(&token_address) {
@@ -184,14 +184,23 @@ pub async fn prepare_swap_one_inch(
     client: &Client,
     api_key: &str,
     swap_request: GenericSwapRequest,
+    origin: String,
 ) -> EstimatorResult<EvmSwapResponse> {
     match swap_request.trade_type {
-        TradeType::ExactIn => prepare_exact_in_swap_one_inch(client, api_key, swap_request).await,
+        TradeType::ExactIn => {
+            prepare_exact_in_swap_one_inch(client, api_key, swap_request, origin).await
+        }
         TradeType::ExactOut => {
             let (response, _) = quote_exact_out_with_exact_in(
                 swap_request,
                 async |swap_request: GenericSwapRequest| {
-                    let res = prepare_exact_in_swap_one_inch(client, api_key, swap_request).await?;
+                    let res = prepare_exact_in_swap_one_inch(
+                        client,
+                        api_key,
+                        swap_request,
+                        origin.clone(),
+                    )
+                    .await?;
 
                     Ok(res)
                 },
@@ -207,6 +216,7 @@ async fn prepare_exact_in_swap_one_inch(
     client: &Client,
     api_key: &str,
     swap_request: GenericSwapRequest,
+    tx_origin: String,
 ) -> EstimatorResult<EvmSwapResponse> {
     let mut request = OneInchSwapRequest {
         chain: swap_request.chain_id as u32,
@@ -215,8 +225,9 @@ async fn prepare_exact_in_swap_one_inch(
         amount: swap_request.amount_fixed.to_string(),
         from: swap_request.spender,
         min_return: None,
-        origin: swap_request.dest_address,
+        origin: tx_origin,
         slippage: None,
+        receiver: Some(swap_request.dest_address),
     };
 
     match swap_request.slippage {
@@ -299,6 +310,7 @@ mod tests {
             min_return: None,
             origin: "0x9ecdc9af2a8254dde8bbce8778efae695044cc9f".to_string(),
             slippage: Some(0.5), // 0.5%
+            receiver: None,
         };
 
         let result = one_inch_swap(&client, &one_inch_api_key, request).await;
@@ -340,6 +352,7 @@ mod tests {
             amount_fixed: 10_000_000_000u128,
             slippage: Slippage::Percent(2.0),
         };
+        let origin = "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string();
 
         let client = Client::new();
 
@@ -351,7 +364,7 @@ mod tests {
             "Expected a successful estimate swap response"
         );
 
-        let result = prepare_swap_one_inch(&client, &one_inch_api_key, request).await;
+        let result = prepare_swap_one_inch(&client, &one_inch_api_key, request, origin).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -377,6 +390,7 @@ mod tests {
             amount_fixed: 10_000_000_000_000_000_000_000_000u128,
             slippage: Slippage::Percent(2.0),
         };
+        let origin = "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string();
 
         let client = Client::new();
 
@@ -388,7 +402,7 @@ mod tests {
             "Expected a successful estimate swap response"
         );
 
-        let result = prepare_swap_one_inch(&client, &one_inch_api_key, request).await;
+        let result = prepare_swap_one_inch(&client, &one_inch_api_key, request, origin).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
