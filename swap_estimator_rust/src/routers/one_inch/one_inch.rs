@@ -2,7 +2,7 @@ use error_stack::{ResultExt as _, report};
 use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
 use reqwest::Client;
 use serde_json::json;
-
+use intents_models::constants::chains::is_native_token_evm_address;
 use crate::utils::exact_in_reverse_quoter::quote_exact_out_with_exact_in;
 use crate::{
     error::{Error, EstimatorResult},
@@ -19,14 +19,22 @@ use crate::{
     utils::{limit_amount::get_limit_amount, number_conversion::decimal_string_to_u128},
 };
 
+pub fn update_one_inch_native_token(token_address: String) -> String {
+    if is_native_token_evm_address(&token_address) {
+        "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string()
+    } else {
+        token_address
+    }
+}
+
 pub async fn one_inch_get_quote(
     client: &Client,
     api_key: &str,
     request: OneInchGetQuoteRequest,
 ) -> EstimatorResult<u128> {
     let query = json!({
-        "src": request.src,
-        "dst": request.dst,
+        "src": update_one_inch_native_token(request.src),
+        "dst": update_one_inch_native_token(request.dst),
         "amount": request.amount,
     });
 
