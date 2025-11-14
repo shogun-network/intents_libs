@@ -14,11 +14,16 @@ pub fn mul_div(value: u128, multiplier: u128, divisor: u128) -> EstimatorResult<
     if divisor.is_zero() {
         return Err(report!(Error::Unknown).attach_printable("Dividing by zero"));
     }
-    let result = value * multiplier / divisor;
+    let mut result = value * multiplier / divisor;
 
     // Convert back to u128 safely
     if result.bits() > 128 {
         return Err(report!(Error::Unknown).attach_printable("Result too large to fit in u128"));
+    }
+
+    if result == value && (multiplier > divisor) {
+        // Rounding up
+        result += U256::from(1);
     }
 
     Ok(result.as_u128())
