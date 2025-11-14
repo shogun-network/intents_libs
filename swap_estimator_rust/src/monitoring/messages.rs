@@ -24,6 +24,7 @@ pub enum MonitorRequest {
         token_out: String,
         amount_in: u128,
         amount_out: u128,
+        deadline: u64,
         solver_last_bid: Option<u128>,
         extra_expenses: HashMap<TokenId, u128>,
     },

@@ -2,7 +2,7 @@ use error_stack::report;
 use futures_util::future;
 use intents_models::constants::chains::ChainId;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     time::Duration,
     u64,
 };
@@ -16,7 +16,7 @@ use crate::{
         PriceEvent, PriceProvider, TokenId, TokenMetadata, TokenPrice,
         codex::pricing::CodexProvider, estimating::OrderEstimationData,
     },
-    utils::number_conversion::u128_to_f64,
+    utils::{get_timestamp, number_conversion::u128_to_f64},
 };
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
@@ -33,6 +33,7 @@ pub struct PendingSwap {
     pub token_out: String,
     pub amount_in: u128,
     pub amount_out: u128,
+    pub deadline: u64,
     pub extra_expenses: HashMap<TokenId, u128>, // TokenId to amount
 }
 
@@ -46,6 +47,7 @@ pub struct MonitorManager {
     pub token_metadata: HashMap<TokenId, TokenMetadata>,
     pub codex_provider: CodexProvider,
     pub polling_mode: (bool, u64),
+    pub orders_by_deadline: BTreeMap<u64, HashSet<String>>, // deadline timestamp to OrderIds
 }
 
 impl MonitorManager {
@@ -66,6 +68,7 @@ impl MonitorManager {
             token_metadata: HashMap::new(),
             codex_provider,
             polling_mode,
+            orders_by_deadline: BTreeMap::new(),
         }
     }
 
@@ -89,20 +92,39 @@ impl MonitorManager {
             }
         };
 
-        let mut unsubscriptions_interval = if !self.polling_mode.0 {
-            tokio::time::interval(Duration::from_secs(60))
-        } else {
-            tokio::time::interval(Duration::from_secs(315360000)) // ~10 years;
-        };
-        let mut polling_interval = if self.polling_mode.0 {
-            tokio::time::interval(Duration::from_millis(self.polling_mode.1))
-        } else {
-            tokio::time::interval(Duration::from_secs(315360000)) // ~10 years;
-        };
+        let mut unsubscriptions_interval = tokio::time::interval(Duration::from_secs(60));
+        let mut polling_interval =
+            tokio::time::interval(Duration::from_millis(self.polling_mode.1));
+        let mut clean_expired_orders_interval = tokio::time::interval(Duration::from_secs(30));
 
         loop {
             tokio::select! {
-                _ = unsubscriptions_interval.tick() => {
+                // Clean expired orders interval
+                _ = clean_expired_orders_interval.tick() => {
+                    let current_timestamp = get_timestamp();
+
+                    while let Some((&deadline, _order_ids)) = self.orders_by_deadline.first_key_value() {
+                        if deadline >= current_timestamp {
+                            break;
+                        }
+                        // Remove the entry
+                        if let Some(order_ids) = self.orders_by_deadline.pop_first() {
+                            let (_removed_deadline, order_ids) = order_ids;
+                            for order_id in order_ids {
+                                tracing::debug!(
+                                    "Removing expired pending swap for order_id: {}, deadline: {}",
+                                    order_id,
+                                    deadline
+                                );
+                                self.remove_order(&order_id).await;
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                _ = unsubscriptions_interval.tick(), if !self.polling_mode.0 => {
+                    tracing::debug!("Checking for tokens to unsubscribe due to no pending orders");
                     // Collect tokens that no longer have pending orders
                     let tokens_to_unsubscribe: Vec<TokenId> = self
                         .swaps_by_token
@@ -134,7 +156,8 @@ impl MonitorManager {
                     }
                 }
                 // Polling interval
-                _ = polling_interval.tick() => {
+                _ = polling_interval.tick(), if self.polling_mode.0 => {
+                    tracing::debug!("Polling price updates for pending orders");
                     // Get all tokens needed to estimate pending swaps
                     let mut tokens_to_fetch: HashSet<TokenId> = self
                         .swaps_by_token
@@ -200,10 +223,11 @@ impl MonitorManager {
                                     token_out,
                                     amount_in,
                                     amount_out,
+                                    deadline,
                                     solver_last_bid,
                                     extra_expenses,
                                 } => {
-                                    if let Err(error) = self.check_swap_feasibility(order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out, solver_last_bid, extra_expenses).await {
+                                    if let Err(error) = self.check_swap_feasibility(order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out, deadline, solver_last_bid, extra_expenses).await {
                                         tracing::error!("Error processing CheckSwapFeasibility request: {:?}", error);
                                     }
                                 }
@@ -291,6 +315,7 @@ impl MonitorManager {
         token_out: String,
         amount_in: u128,
         amount_out: u128,
+        deadline: u64,
         solver_last_bid: Option<u128>,
         extra_expenses: HashMap<TokenId, u128>,
     ) -> EstimatorResult<()> {
@@ -315,6 +340,7 @@ impl MonitorManager {
             token_out: token_out.clone(),
             amount_in,
             amount_out,
+            deadline,
             extra_expenses,
         };
 
@@ -338,12 +364,12 @@ impl MonitorManager {
                             estimated_amount_out,
                             amount_out,
                         )?;
-                    // dbg!(
-                    //     &pending_swap.order_id,
-                    //     estimated_amount_out,
-                    //     solver_last_bid,
-                    //     req_monitor_estimation
-                    // );
+                    dbg!(
+                        &pending_swap.order_id,
+                        estimated_amount_out,
+                        solver_last_bid,
+                        req_monitor_estimation
+                    );
                     tracing::debug!(
                         "Required monitor estimation for order_id {}: {}",
                         order_id,
@@ -439,6 +465,10 @@ impl MonitorManager {
             order_id.clone(),
             (pending_swap, estimate_amount_out_calculated),
         );
+        self.orders_by_deadline
+            .entry(deadline)
+            .or_insert_with(HashSet::new)
+            .insert(order_id);
         Ok(())
     }
 
@@ -632,11 +662,23 @@ impl MonitorManager {
             return;
         }
 
+        let current_timestamp = get_timestamp();
         // Get the swap data of these orders
         let mut subset: Vec<(PendingSwap, Option<u128>)> = Vec::new();
         for order_id in impacted_orders.iter() {
             if let Some(ps) = self.pending_swaps.get(order_id).cloned() {
-                subset.push(ps);
+                // Skip expired orders
+                if ps.0.deadline < current_timestamp {
+                    tracing::debug!(
+                        "Skipping expired pending swap for order_id: {}, deadline: {}",
+                        order_id,
+                        ps.0.deadline
+                    );
+                    // Remove from pending swaps
+                    self.remove_order(&ps.0.order_id).await;
+                } else {
+                    subset.push(ps);
+                }
             }
         }
         if subset.is_empty() {
@@ -676,11 +718,11 @@ impl MonitorManager {
                     } else {
                         pending_swap.amount_out
                     };
-                    // dbg!(
-                    //     &pending_swap.order_id,
-                    //     estimated_amount_out,
-                    //     needed_amount_out
-                    // );
+                    dbg!(
+                        &pending_swap.order_id,
+                        estimated_amount_out,
+                        needed_amount_out
+                    );
                     tracing::debug!(
                         "Needed amount out for order_id {}: {}",
                         pending_swap.order_id,
@@ -702,7 +744,7 @@ impl MonitorManager {
                             // Do not remove the swap if we failed to send alert
                             continue;
                         }
-                        // Remove from pending swaps
+                        // Remove from pending swaps and every other data structure
                         self.remove_order(&pending_swap.order_id).await;
                     }
                 }
@@ -742,8 +784,16 @@ impl MonitorManager {
     }
 
     async fn remove_order(&mut self, order_id: &str) {
+        tracing::debug!("Removing order_id: {} from monitoring", order_id);
         // Remove from pending swaps
         if let Some((pending_swap, _)) = self.pending_swaps.remove(order_id) {
+            // Remove from orders by deadline
+            if let Some(set) = self.orders_by_deadline.get_mut(&pending_swap.deadline) {
+                set.remove(order_id);
+                if set.is_empty() {
+                    self.orders_by_deadline.remove(&pending_swap.deadline);
+                }
+            }
             // Detach from token->orders map and unsubscribe if needed
             let t_in = TokenId::new_for_codex(pending_swap.src_chain, &pending_swap.token_in);
             let t_out = TokenId::new_for_codex(pending_swap.dst_chain, &pending_swap.token_out);
@@ -758,6 +808,9 @@ impl MonitorManager {
     fn detach_order_from_token(&mut self, token: &TokenId, order_id: &str) {
         if let Some(set) = self.swaps_by_token.get_mut(token) {
             set.remove(order_id);
+            if set.is_empty() {
+                self.swaps_by_token.remove(token);
+            }
         }
     }
 
@@ -778,9 +831,9 @@ impl MonitorManager {
         let codex_ids: Vec<TokenId> = codex_set.into_iter().collect();
         tracing::debug!("Fetching tokens data for {:?} from Codex", codex_ids);
 
-        // Split into batches of up to 25 tokens (by CODEX ids)
-        const BATCH_SIZE: usize = 25;
-        let mut batches: Vec<HashSet<TokenId>> = Vec::new();
+        // Split into batches of up to 200 tokens (by CODEX ids)
+        const BATCH_SIZE: usize = 200;
+        let mut batches: Vec<Vec<TokenId>> = Vec::new();
         for chunk in codex_ids.chunks(BATCH_SIZE) {
             batches.push(chunk.iter().cloned().collect());
         }
@@ -789,7 +842,11 @@ impl MonitorManager {
         let provider = &self.codex_provider;
         let fetches = batches.into_iter().map(|batch| {
             // each future captures provider by shared reference
-            async move { provider.get_tokens_price(batch, !self.polling_mode.0).await }
+            async move {
+                provider
+                    .get_tokens_price(&batch, !self.polling_mode.0)
+                    .await
+            }
         });
 
         let results = future::join_all(fetches).await;
@@ -832,9 +889,9 @@ impl MonitorManager {
             .collect();
         tracing::debug!("Fetching tokens data for {:?} from Codex", token_ids);
 
-        // Split into batches of up to 25 tokens
-        const BATCH_SIZE: usize = 25;
-        let mut batches: Vec<HashSet<TokenId>> = Vec::new();
+        // Split into batches of up to 200 tokens
+        const BATCH_SIZE: usize = 200;
+        let mut batches: Vec<Vec<TokenId>> = Vec::new();
         for chunk in token_ids.chunks(BATCH_SIZE) {
             batches.push(chunk.iter().cloned().collect());
         }
@@ -1103,6 +1160,8 @@ fn required_monitor_estimation_for_solver_fulfillment(
 
 #[cfg(test)]
 mod tests {
+    use crate::utils::get_timestamp;
+
     use super::*;
     use crate::tests::init_tracing_in_tests;
     use intents_models::constants::chains::ChainId;
@@ -1138,6 +1197,7 @@ mod tests {
         token_out: String,
         amount_in: u128,
         amount_out: u128,
+        deadline: u64,
         extra_expenses: HashMap<TokenId, u128>,
     ) -> PendingSwap {
         PendingSwap {
@@ -1148,6 +1208,7 @@ mod tests {
             token_out,
             amount_in,
             amount_out,
+            deadline,
             extra_expenses,
         }
     }
@@ -1181,6 +1242,7 @@ mod tests {
             "token_b".to_string(),
             1_000_000_000_000_000_000, // 1 token (18 decimals)
             1_900_000,                 // 1.9 tokens (6 decimals), expecting ~2 tokens
+            get_timestamp() + 300,
             HashMap::new(),
         );
 
@@ -1219,6 +1281,7 @@ mod tests {
             "token_b".to_string(),
             1_000_000_000_000_000_000,
             2_000_000_000_000_000_000,
+            get_timestamp() + 300,
             HashMap::new(),
         );
 
@@ -1272,6 +1335,7 @@ mod tests {
             "token_b".to_string(),
             1_000_000_000_000_000_000,
             2_000_000_000_000_000_000,
+            get_timestamp() + 300,
             extra_expenses,
         );
 
@@ -1301,6 +1365,7 @@ mod tests {
             "token_b".to_string(), // This token is missing from cache
             1_000_000_000_000_000_000,
             2_000_000_000_000_000_000,
+            get_timestamp() + 300,
             HashMap::new(),
         );
 

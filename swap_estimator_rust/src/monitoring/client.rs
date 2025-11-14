@@ -87,6 +87,7 @@ impl MonitorClient {
         token_out: String,
         amount_in: u128,
         amount_out: u128,
+        deadline: u64,
         extra_expenses: HashMap<TokenId, u128>,
         solver_last_bid: Option<u128>,
     ) -> EstimatorResult<()> {
@@ -99,6 +100,7 @@ impl MonitorClient {
                 token_out,
                 amount_in,
                 amount_out,
+                deadline,
                 extra_expenses,
                 solver_last_bid,
             })
