@@ -67,7 +67,7 @@ fn compute_limit_with_scaled_percentage(
 
     let base = 100_000_000_000u128; // 100%
     let slippage_pbs = (sp * 1_000_000_000.0) as u128;
-    let diff = mul_div(amount_quote, slippage_pbs, base)?;
+    let diff = mul_div(amount_quote, slippage_pbs, base, true)?;
 
     match trade_type {
         TradeType::ExactIn => Ok(amount_quote - diff),

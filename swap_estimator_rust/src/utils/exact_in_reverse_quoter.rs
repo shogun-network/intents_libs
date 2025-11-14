@@ -200,6 +200,7 @@ where
         target_min_amount_out,
         THRESHOLD_BASE + SUCCESS_THRESHOLD_BPS,
         THRESHOLD_BASE,
+        true,
     )?;
 
     let exact_in_request = request.get_reversed_exact_in_with_slippage(slippage_percent);
@@ -213,6 +214,7 @@ where
             quote_response.get_amount_quote(),
             INIT_MULTIPLIER,
             INIT_MULTIPLIER_BASE,
+            true,
         )?,
         Slippage::Percent(slippage_percent),
     )?;
@@ -241,6 +243,7 @@ where
         try_values.test_amount_in,
         target_amount_out,
         quote_response.get_amount_limit(),
+        true,
     )?;
     while attempt_number < MAX_LOOP_ATTEMPTS {
         attempt_number += 1;
@@ -255,6 +258,7 @@ where
             try_values.test_amount_in,
             target_amount_out,
             quote_response.get_amount_limit(),
+            true,
         )?;
     }
 
