@@ -1,9 +1,4 @@
-use error_stack::{ResultExt as _, report};
-use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
-use reqwest::Client;
-use serde_json::json;
-use intents_models::constants::chains::is_native_token_evm_address;
-use crate::utils::exact_in_reverse_quoter::quote_exact_out_with_exact_in;
+use crate::utils::exact_in_reverse_quoter::{ReverseQuoteResult, quote_exact_out_with_exact_in};
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
@@ -21,6 +16,11 @@ use crate::{
         number_conversion::{decimal_string_to_u128, slippage_to_bps},
     },
 };
+use error_stack::{ResultExt as _, report};
+use intents_models::constants::chains::is_native_token_evm_address;
+use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
+use reqwest::Client;
+use serde_json::json;
 
 pub fn update_zero_x_native_token(token_address: String) -> String {
     if is_native_token_evm_address(&token_address) {
@@ -130,6 +130,7 @@ pub async fn estimate_swap_zero_x(
     client: &Client,
     api_key: &str,
     estimator_request: GenericEstimateRequest,
+    prev_result: Option<ReverseQuoteResult>,
 ) -> EstimatorResult<GenericEstimateResponse> {
     match estimator_request.trade_type {
         TradeType::ExactIn => {
@@ -145,6 +146,7 @@ pub async fn estimate_swap_zero_x(
 
                     Ok(res)
                 },
+                prev_result,
             )
             .await?;
 
@@ -201,6 +203,7 @@ pub async fn prepare_swap_zero_x(
     client: &Client,
     api_key: &str,
     swap_request: GenericSwapRequest,
+    prev_result: Option<ReverseQuoteResult>,
     amount_estimated: Option<u128>,
     tx_origin: Option<String>,
 ) -> EstimatorResult<EvmSwapResponse> {
@@ -224,6 +227,7 @@ pub async fn prepare_swap_zero_x(
 
                     Ok(res)
                 },
+                prev_result,
             )
             .await?;
 
@@ -367,14 +371,19 @@ mod tests {
         let client = Client::new();
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
-        let result = estimate_swap_zero_x(&client, &zero_x_api_key, generic_estimate_request).await;
+        let result =
+            estimate_swap_zero_x(&client, &zero_x_api_key, generic_estimate_request, None).await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
         );
         println!("Result: {:#?}", result);
+        let prev_res: Option<ReverseQuoteResult> =
+            serde_json::from_value(result.unwrap().router_data).unwrap();
+        assert!(prev_res.is_none());
 
-        let result = prepare_swap_zero_x(&client, &zero_x_api_key, request, None, None).await;
+        let result =
+            prepare_swap_zero_x(&client, &zero_x_api_key, request, prev_res, None, None).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -402,14 +411,17 @@ mod tests {
         let client = Client::new();
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
-        let result = estimate_swap_zero_x(&client, &zero_x_api_key, generic_estimate_request).await;
+        let result =
+            estimate_swap_zero_x(&client, &zero_x_api_key, generic_estimate_request, None).await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
         );
         println!("Result: {:#?}", result);
+        let prev_res = serde_json::from_value(result.unwrap().router_data).unwrap();
 
-        let result = prepare_swap_zero_x(&client, &zero_x_api_key, request, None, None).await;
+        let result =
+            prepare_swap_zero_x(&client, &zero_x_api_key, request, prev_res, None, None).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }

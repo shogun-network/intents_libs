@@ -6,6 +6,8 @@ use crate::routers::swap::{EvmSwapResponse, GenericSwapRequest};
 use crate::utils::limit_amount::get_limit_amount;
 use crate::utils::uint::mul_div;
 use error_stack::report;
+use serde::{Deserialize, Serialize};
+use serde_with::{DisplayFromStr, PickFirst, serde_as};
 use std::fmt::Debug;
 
 /// We'll be adding 0.1 % on the top of initial quote to try to compensate swap fees
@@ -21,6 +23,15 @@ const SUCCESS_THRESHOLD_BPS: u128 = 50;
 
 /// If we could not adjust amounts in 3 attempts - something's very wrong
 const MAX_LOOP_ATTEMPTS: usize = 3;
+
+#[serde_as]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+/// Collected reverse quote result
+pub struct ReverseQuoteResult {
+    /// Amount to be used as amount IN
+    #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
+    pub amount_in: u128,
+}
 
 #[derive(Debug, Clone, Copy)]
 struct TryExactInValues {
@@ -125,6 +136,8 @@ impl ReverseQuoteResponse for GenericEstimateResponse {
     fn update_with_amount_in(&mut self, amount_in: u128) {
         self.amount_quote = amount_in;
         self.amount_limit = amount_in;
+        self.router_data =
+            serde_json::to_value(ReverseQuoteResult { amount_in }).expect("Should not fail");
     }
 }
 
@@ -149,6 +162,7 @@ impl ReverseQuoteResponse for EvmSwapResponse {
 ///
 /// * `request` - Exact OUT request
 /// * `quote_fn` - Function to use for exact IN quotes
+/// * `prev_result` - Previous reverse quote result
 ///
 /// ### Returns
 ///
@@ -157,6 +171,7 @@ impl ReverseQuoteResponse for EvmSwapResponse {
 pub async fn quote_exact_out_with_exact_in<F, Fut, Request, Response>(
     request: Request,
     quote_exact_in_fn: F,
+    prev_result: Option<ReverseQuoteResult>,
 ) -> EstimatorResult<(Response, usize)>
 where
     Request: ReverseQuoteRequest + Debug,
@@ -207,17 +222,22 @@ where
 
     let quote_response = quote_exact_in_fn(exact_in_request).await?;
 
-    let test_amount_in = get_limit_amount(
-        TradeType::ExactOut,
-        // Increasing quote amount in attempt to compensate swap fees
-        mul_div(
-            quote_response.get_amount_quote(),
-            INIT_MULTIPLIER,
-            INIT_MULTIPLIER_BASE,
-            true,
-        )?,
-        Slippage::Percent(slippage_percent),
-    )?;
+    // Trying to reuse previous results to avoid unnecessary fetching
+    let test_amount_in = if let Some(prev_result) = prev_result {
+        prev_result.amount_in
+    } else {
+        get_limit_amount(
+            TradeType::ExactOut,
+            // Increasing quote amount in attempt to compensate swap fees
+            mul_div(
+                quote_response.get_amount_quote(),
+                INIT_MULTIPLIER,
+                INIT_MULTIPLIER_BASE,
+                true,
+            )?,
+            Slippage::Percent(slippage_percent),
+        )?
+    };
 
     let mut try_values = TryExactInValues {
         test_amount_in,
@@ -372,6 +392,7 @@ mod tests {
 
                 Ok(res)
             },
+            None,
         )
         .await;
         assert!(
@@ -407,6 +428,7 @@ mod tests {
 
                 Ok(res)
             },
+            None,
         )
         .await;
         assert!(
@@ -442,6 +464,7 @@ mod tests {
 
                 Ok(res)
             },
+            None,
         )
         .await;
         assert!(res.is_err());
