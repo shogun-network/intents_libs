@@ -364,12 +364,12 @@ impl MonitorManager {
                             estimated_amount_out,
                             amount_out,
                         )?;
-                    dbg!(
-                        &pending_swap.order_id,
-                        estimated_amount_out,
-                        solver_last_bid,
-                        req_monitor_estimation
-                    );
+                    // dbg!(
+                    //     &pending_swap.order_id,
+                    //     estimated_amount_out,
+                    //     solver_last_bid,
+                    //     req_monitor_estimation
+                    // );
                     tracing::debug!(
                         "Required monitor estimation for order_id {}: {}",
                         order_id,
@@ -718,11 +718,11 @@ impl MonitorManager {
                     } else {
                         pending_swap.amount_out
                     };
-                    dbg!(
-                        &pending_swap.order_id,
-                        estimated_amount_out,
-                        needed_amount_out
-                    );
+                    // dbg!(
+                    //     &pending_swap.order_id,
+                    //     estimated_amount_out,
+                    //     needed_amount_out
+                    // );
                     tracing::debug!(
                         "Needed amount out for order_id {}: {}",
                         pending_swap.order_id,
@@ -1664,7 +1664,6 @@ mod tests {
         let token_prices = result.unwrap();
         assert_eq!(token_prices.len(), 0, "Result should be empty");
     }
-
 
     #[tokio::test]
     async fn test_estimate_orders_amount_out_missing_token_data() {
