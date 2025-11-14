@@ -1,9 +1,4 @@
-use error_stack::{ResultExt as _, report};
-use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
-use reqwest::Client;
-use serde_json::json;
-
-use crate::utils::exact_in_reverse_quoter::quote_exact_out_with_exact_in;
+use crate::utils::exact_in_reverse_quoter::{ReverseQuoteResult, quote_exact_out_with_exact_in};
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
@@ -18,6 +13,19 @@ use crate::{
     },
     utils::{limit_amount::get_limit_amount, number_conversion::decimal_string_to_u128},
 };
+use error_stack::{ResultExt as _, report};
+use intents_models::constants::chains::is_native_token_evm_address;
+use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
+use reqwest::Client;
+use serde_json::json;
+
+pub fn update_one_inch_native_token(token_address: String) -> String {
+    if is_native_token_evm_address(&token_address) {
+        "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string()
+    } else {
+        token_address
+    }
+}
 
 pub async fn one_inch_get_quote(
     client: &Client,
@@ -25,8 +33,8 @@ pub async fn one_inch_get_quote(
     request: OneInchGetQuoteRequest,
 ) -> EstimatorResult<u128> {
     let query = json!({
-        "src": request.src,
-        "dst": request.dst,
+        "src": update_one_inch_native_token(request.src),
+        "dst": update_one_inch_native_token(request.dst),
         "amount": request.amount,
     });
 
@@ -62,6 +70,7 @@ pub async fn one_inch_swap(
         "amount": request.amount,
         "from": request.from,
         "origin": request.origin,
+        "receiver": request.receiver,
         "disableEstimate": true,
     });
 
@@ -121,6 +130,7 @@ pub async fn estimate_swap_one_inch(
     client: &Client,
     api_key: &str,
     estimator_request: GenericEstimateRequest,
+    prev_result: Option<ReverseQuoteResult>,
 ) -> EstimatorResult<GenericEstimateResponse> {
     match estimator_request.trade_type {
         TradeType::ExactIn => {
@@ -136,6 +146,7 @@ pub async fn estimate_swap_one_inch(
 
                     Ok(res)
                 },
+                prev_result,
             )
             .await?;
 
@@ -176,17 +187,28 @@ pub async fn prepare_swap_one_inch(
     client: &Client,
     api_key: &str,
     swap_request: GenericSwapRequest,
+    prev_result: Option<ReverseQuoteResult>,
+    origin: String,
 ) -> EstimatorResult<EvmSwapResponse> {
     match swap_request.trade_type {
-        TradeType::ExactIn => prepare_exact_in_swap_one_inch(client, api_key, swap_request).await,
+        TradeType::ExactIn => {
+            prepare_exact_in_swap_one_inch(client, api_key, swap_request, origin).await
+        }
         TradeType::ExactOut => {
             let (response, _) = quote_exact_out_with_exact_in(
                 swap_request,
                 async |swap_request: GenericSwapRequest| {
-                    let res = prepare_exact_in_swap_one_inch(client, api_key, swap_request).await?;
+                    let res = prepare_exact_in_swap_one_inch(
+                        client,
+                        api_key,
+                        swap_request,
+                        origin.clone(),
+                    )
+                    .await?;
 
                     Ok(res)
                 },
+                prev_result,
             )
             .await?;
 
@@ -199,6 +221,7 @@ async fn prepare_exact_in_swap_one_inch(
     client: &Client,
     api_key: &str,
     swap_request: GenericSwapRequest,
+    tx_origin: String,
 ) -> EstimatorResult<EvmSwapResponse> {
     let mut request = OneInchSwapRequest {
         chain: swap_request.chain_id as u32,
@@ -207,8 +230,9 @@ async fn prepare_exact_in_swap_one_inch(
         amount: swap_request.amount_fixed.to_string(),
         from: swap_request.spender,
         min_return: None,
-        origin: swap_request.dest_address,
+        origin: tx_origin,
         slippage: None,
+        receiver: Some(swap_request.dest_address),
     };
 
     match swap_request.slippage {
@@ -291,6 +315,7 @@ mod tests {
             min_return: None,
             origin: "0x9ecdc9af2a8254dde8bbce8778efae695044cc9f".to_string(),
             slippage: Some(0.5), // 0.5%
+            receiver: None,
         };
 
         let result = one_inch_swap(&client, &one_inch_api_key, request).await;
@@ -332,18 +357,24 @@ mod tests {
             amount_fixed: 10_000_000_000u128,
             slippage: Slippage::Percent(2.0),
         };
+        let origin = "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string();
 
         let client = Client::new();
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result =
-            estimate_swap_one_inch(&client, &one_inch_api_key, generic_estimate_request).await;
+            estimate_swap_one_inch(&client, &one_inch_api_key, generic_estimate_request, None)
+                .await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
         );
+        let prev_res: Option<ReverseQuoteResult> =
+            serde_json::from_value(result.unwrap().router_data).unwrap();
+        assert!(prev_res.is_none());
 
-        let result = prepare_swap_one_inch(&client, &one_inch_api_key, request).await;
+        let result =
+            prepare_swap_one_inch(&client, &one_inch_api_key, request, prev_res, origin).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
@@ -369,18 +400,22 @@ mod tests {
             amount_fixed: 10_000_000_000_000_000_000_000_000u128,
             slippage: Slippage::Percent(2.0),
         };
+        let origin = "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string();
 
         let client = Client::new();
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result =
-            estimate_swap_one_inch(&client, &one_inch_api_key, generic_estimate_request).await;
+            estimate_swap_one_inch(&client, &one_inch_api_key, generic_estimate_request, None)
+                .await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
         );
+        let prev_res = serde_json::from_value(result.unwrap().router_data).unwrap();
 
-        let result = prepare_swap_one_inch(&client, &one_inch_api_key, request).await;
+        let result =
+            prepare_swap_one_inch(&client, &one_inch_api_key, request, prev_res, origin).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }

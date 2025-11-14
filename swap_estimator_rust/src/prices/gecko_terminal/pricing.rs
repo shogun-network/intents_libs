@@ -372,15 +372,13 @@ fn handle_gecko_terminal_response(
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
-
-    use intents_models::log::init_tracing;
-
     use super::*;
+    use crate::tests::init_tracing_in_tests;
 
     #[tokio::test]
     async fn test_gecko_terminal_get_tokens_price() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         let gt_provider: GeckoTerminalProvider = GeckoTerminalProvider::new();
 
@@ -430,7 +428,7 @@ mod tests {
     #[tokio::test]
     async fn test_gecko_terminal_subscription_broadcast_event() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Use a short refresh interval to speed up the test
         let gt_provider: GeckoTerminalProvider = GeckoTerminalProvider::new_with_subscriptions(3);
@@ -489,7 +487,7 @@ mod tests {
     #[tokio::test]
     async fn test_gecko_terminal_subscription_and_unsuscription() {
         dotenv::dotenv().ok();
-        init_tracing(false);
+        init_tracing_in_tests();
 
         // Use a short refresh interval to speed up the test
         let gt_provider: GeckoTerminalProvider = GeckoTerminalProvider::new_with_subscriptions(3);

@@ -3,6 +3,7 @@ use crate::error::EstimatorResult;
 use crate::routers::Slippage;
 use crate::routers::estimate::TradeType;
 use crate::utils::number_conversion::u128_to_u64;
+use crate::utils::uint::mul_div;
 use error_stack::report;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
@@ -64,58 +65,14 @@ fn compute_limit_with_scaled_percentage(
         slippage_percent
     };
 
-    // For ExactIn, 100%+ slippage means min out is below zero
-    if matches!(trade_type, TradeType::ExactIn) && sp > 100.0 {
-        return Err(report!(Error::ParseError)
-            .attach_printable("Slippage percentage too high, results in zero limit amount"));
+    let base = 100_000_000_000u128; // 100%
+    let slippage_pbs = (sp * 1_000_000_000.0) as u128;
+    let diff = mul_div(amount_quote, slippage_pbs, base, true)?;
+
+    match trade_type {
+        TradeType::ExactIn => Ok(amount_quote - diff),
+        TradeType::ExactOut => Ok(amount_quote + diff),
     }
-
-    // Try high-precision scales first, then degrade to avoid overflow
-    const SCALES: [u128; 5] = [1_000_000_000, 1_000_000, 10_000, 100, 1];
-
-    for scale in SCALES {
-        // Convert percentage to integer with chosen scale, rounded
-        let p_scaled = (sp * scale as f64).round() as u128;
-
-        // Build fraction: numerator/denominator = (100 ± p)/100 using the scale
-        // ExactIn: amount_out_min = amount_quote * (100 - p)/100
-        // ExactOut: amount_in_max = amount_quote * (100 + p)/100
-        let hundred_scaled = 100u128.checked_mul(scale).unwrap_or(u128::MAX); // safe cap
-
-        let (num, den) = match trade_type {
-            TradeType::ExactIn => (hundred_scaled.saturating_sub(p_scaled), hundred_scaled),
-            TradeType::ExactOut => (hundred_scaled.saturating_add(p_scaled), hundred_scaled),
-        };
-
-        // Reduce fraction to minimize overflow
-        let g = gcd_u128(num, den);
-        let n = num / g;
-        let d = den / g;
-
-        // Prefer dividing first to reduce magnitude, then multiply
-        let a_div = amount_quote / d;
-        if let Some(res) = a_div.checked_mul(n) {
-            return Ok(res);
-        }
-
-        // If dividing first loses too much precision (a_div == 0), try mul then div
-        if let Some(tmp) = amount_quote.checked_mul(n) {
-            return Ok(tmp / d);
-        }
-    }
-
-    Err(report!(Error::ParseError)
-        .attach_printable("Unable to compute limit amount without overflow"))
-}
-
-#[inline]
-fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
-    while b != 0 {
-        let r = a % b;
-        a = b;
-        b = r;
-    }
-    a
 }
 
 pub fn get_slippage_percentage(
@@ -232,5 +189,14 @@ mod tests {
             }
         }
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_compute_limit_with_scaled_percentage_for_low_amount() {
+        let calculated_limit_amount =
+            compute_limit_with_scaled_percentage(6, 2.0, TradeType::ExactIn);
+        assert!(calculated_limit_amount.is_ok());
+        let calculated_limit_amount = calculated_limit_amount.unwrap();
+        assert_eq!(calculated_limit_amount, 5);
     }
 }
