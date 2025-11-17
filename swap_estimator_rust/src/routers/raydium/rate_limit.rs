@@ -1,4 +1,5 @@
-use intents_models::network::rate_limit::RateLimitedRequest;
+use intents_models::network::rate_limit::{ApiRequest, RateLimitedRequest, ThrottledApiClient};
+use tokio::sync::mpsc;
 
 use crate::{
     error::Error,
@@ -12,10 +13,15 @@ use crate::{
     },
 };
 
+pub type ThrottledRaydiumClient =
+    ThrottledApiClient<RaydiumThrottledRequest, RaydiumThrottledResponse, Error>;
+pub type ThrottledRaydiumSender =
+    mpsc::Sender<ApiRequest<RaydiumThrottledRequest, RaydiumThrottledResponse, Error>>;
+
 // TODO: Ideally we should have generic requests and a trait for handler fn based on router, but some router need different
 // data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add now fields to
 // generic requests to cover all routers needs.
-pub enum RaydiumRequest {
+pub enum RaydiumThrottledRequest {
     Estimate {
         request: RaydiumGetQuoteRequest,
         trade_type: TradeType,
@@ -25,15 +31,15 @@ pub enum RaydiumRequest {
         trade_type: TradeType,
     },
 }
-impl RateLimitedRequest for RaydiumRequest {
+impl RateLimitedRequest for RaydiumThrottledRequest {
     fn cost(&self) -> std::num::NonZeroU32 {
         // In this case both request types have the same cost.
         match self {
-            RaydiumRequest::Estimate { .. } => {
+            RaydiumThrottledRequest::Estimate { .. } => {
                 // Safe: 1 is non-zero
                 std::num::NonZeroU32::new(1).unwrap()
             }
-            RaydiumRequest::Swap { .. } => {
+            RaydiumThrottledRequest::Swap { .. } => {
                 // Safe: 1 is non-zero
                 std::num::NonZeroU32::new(1).unwrap()
             }
@@ -41,25 +47,27 @@ impl RateLimitedRequest for RaydiumRequest {
     }
 }
 
-pub enum RaydiumResponse {
+pub enum RaydiumThrottledResponse {
     Estimate(crate::routers::raydium::responses::RaydiumResponse),
     Swap(Vec<Transaction>),
 }
 
-pub async fn handle_jupiter_request(request: RaydiumRequest) -> Result<RaydiumResponse, Error> {
+pub async fn handle_raydium_throttled_request(
+    request: RaydiumThrottledRequest,
+) -> Result<RaydiumThrottledResponse, Error> {
     match request {
-        RaydiumRequest::Estimate {
+        RaydiumThrottledRequest::Estimate {
             request,
             trade_type,
         } => match raydium_get_price_route(request, trade_type).await {
-            Ok(estimate_response) => Ok(RaydiumResponse::Estimate(estimate_response)),
+            Ok(estimate_response) => Ok(RaydiumThrottledResponse::Estimate(estimate_response)),
             Err(e) => Err(e.current_context().to_owned()),
         },
-        RaydiumRequest::Swap {
+        RaydiumThrottledRequest::Swap {
             request,
             trade_type,
         } => match raydium_create_transaction(request, trade_type).await {
-            Ok(swap_response) => Ok(RaydiumResponse::Swap(swap_response)),
+            Ok(swap_response) => Ok(RaydiumThrottledResponse::Swap(swap_response)),
             Err(e) => Err(e.current_context().to_owned()),
         },
     }

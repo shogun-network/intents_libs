@@ -1,4 +1,5 @@
-use intents_models::network::rate_limit::RateLimitedRequest;
+use intents_models::network::rate_limit::{ApiRequest, RateLimitedRequest, ThrottledApiClient};
+use tokio::sync::mpsc;
 
 use crate::{
     error::Error,
@@ -11,10 +12,17 @@ use crate::{
     },
 };
 
+// TODO: This might actually not be needed (https://docs.liqd.ag/liquidswap-integration/open-access-philosophy#no-rate-limits)
+
+pub type ThrottledLiquidswapClient =
+    ThrottledApiClient<LiquidswapThrottledRequest, LiquidswapThrottledResponse, Error>;
+pub type ThrottledLiquidswapSender =
+    mpsc::Sender<ApiRequest<LiquidswapThrottledRequest, LiquidswapThrottledResponse, Error>>;
+
 // TODO: Ideally we should have generic requests and a trait for handler fn based on router, but some router need different
 // data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add now fields to
 // generic requests to cover all routers needs.
-pub enum LiquidswapRequest {
+pub enum LiquidswapThrottledRequest {
     Estimate {
         request: GenericEstimateRequest,
     },
@@ -24,14 +32,14 @@ pub enum LiquidswapRequest {
     },
 }
 
-impl RateLimitedRequest for LiquidswapRequest {
+impl RateLimitedRequest for LiquidswapThrottledRequest {
     fn cost(&self) -> std::num::NonZeroU32 {
         match self {
-            LiquidswapRequest::Estimate { .. } => {
+            LiquidswapThrottledRequest::Estimate { .. } => {
                 // Safe: 1 is non-zero
                 std::num::NonZeroU32::new(1).unwrap()
             }
-            LiquidswapRequest::Swap {
+            LiquidswapThrottledRequest::Swap {
                 estimate_response, ..
             } => {
                 if estimate_response.is_some() {
@@ -46,26 +54,28 @@ impl RateLimitedRequest for LiquidswapRequest {
     }
 }
 
-pub enum LiquidswapResponse {
+pub enum LiquidswapThrottledResponse {
     Estimate(GenericEstimateResponse),
     Swap(EvmSwapResponse),
 }
 
-pub async fn handle_one_inch_request(
-    request: LiquidswapRequest,
-) -> Result<LiquidswapResponse, Error> {
+pub async fn handle_liquidswap_throttled_request(
+    request: LiquidswapThrottledRequest,
+) -> Result<LiquidswapThrottledResponse, Error> {
     match request {
-        LiquidswapRequest::Estimate { request } => {
+        LiquidswapThrottledRequest::Estimate { request } => {
             match estimate_swap_liquidswap_generic(request).await {
-                Ok(estimate_response) => Ok(LiquidswapResponse::Estimate(estimate_response)),
+                Ok(estimate_response) => {
+                    Ok(LiquidswapThrottledResponse::Estimate(estimate_response))
+                }
                 Err(e) => Err(e.current_context().to_owned()),
             }
         }
-        LiquidswapRequest::Swap {
+        LiquidswapThrottledRequest::Swap {
             generic_swap_request,
             estimate_response,
         } => match prepare_swap_liquidswap_generic(generic_swap_request, estimate_response).await {
-            Ok(swap_response) => Ok(LiquidswapResponse::Swap(swap_response)),
+            Ok(swap_response) => Ok(LiquidswapThrottledResponse::Swap(swap_response)),
             Err(e) => Err(e.current_context().to_owned()),
         },
     }

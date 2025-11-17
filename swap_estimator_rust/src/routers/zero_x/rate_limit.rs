@@ -1,5 +1,6 @@
-use intents_models::network::rate_limit::RateLimitedRequest;
+use intents_models::network::rate_limit::{ApiRequest, RateLimitedRequest, ThrottledApiClient};
 use reqwest::Client;
+use tokio::sync::mpsc;
 
 use crate::{
     error::Error,
@@ -11,10 +12,15 @@ use crate::{
     utils::exact_in_reverse_quoter::ReverseQuoteResult,
 };
 
+pub type ThrottledZeroXClient =
+    ThrottledApiClient<ZeroXThrottledRequest, ZeroXThrottledResponse, Error>;
+pub type ThrottledZeroXSender =
+    mpsc::Sender<ApiRequest<ZeroXThrottledRequest, ZeroXThrottledResponse, Error>>;
+
 // TODO: Ideally we should have generic requests and a trait for handler fn based on router, but some router need different
 // data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add now fields to
 // generic requests to cover all routers needs.
-pub enum ZeroXRequest {
+pub enum ZeroXThrottledRequest {
     Estimate {
         client: Client,
         api_key: String,
@@ -31,15 +37,15 @@ pub enum ZeroXRequest {
     },
 }
 
-impl RateLimitedRequest for ZeroXRequest {
+impl RateLimitedRequest for ZeroXThrottledRequest {
     fn cost(&self) -> std::num::NonZeroU32 {
         // In this case both request types have the same cost.
         match self {
-            ZeroXRequest::Estimate { .. } => {
+            ZeroXThrottledRequest::Estimate { .. } => {
                 // Safe: 1 is non-zero
                 std::num::NonZeroU32::new(1).unwrap()
             }
-            ZeroXRequest::Swap { .. } => {
+            ZeroXThrottledRequest::Swap { .. } => {
                 // Safe: 1 is non-zero
                 std::num::NonZeroU32::new(1).unwrap()
             }
@@ -47,23 +53,25 @@ impl RateLimitedRequest for ZeroXRequest {
     }
 }
 
-pub enum ZeroXResponse {
+pub enum ZeroXThrottledResponse {
     Estimate(GenericEstimateResponse),
     Swap(EvmSwapResponse),
 }
 
-pub async fn handle_one_inch_request(request: ZeroXRequest) -> Result<ZeroXResponse, Error> {
+pub async fn handle_zero_x_throttled_request(
+    request: ZeroXThrottledRequest,
+) -> Result<ZeroXThrottledResponse, Error> {
     match request {
-        ZeroXRequest::Estimate {
+        ZeroXThrottledRequest::Estimate {
             client,
             api_key,
             estimator_request,
             prev_result,
         } => match estimate_swap_zero_x(&client, &api_key, estimator_request, prev_result).await {
-            Ok(estimate_response) => Ok(ZeroXResponse::Estimate(estimate_response)),
+            Ok(estimate_response) => Ok(ZeroXThrottledResponse::Estimate(estimate_response)),
             Err(e) => Err(e.current_context().to_owned()),
         },
-        ZeroXRequest::Swap {
+        ZeroXThrottledRequest::Swap {
             client,
             api_key,
             swap_request,
@@ -81,7 +89,7 @@ pub async fn handle_one_inch_request(request: ZeroXRequest) -> Result<ZeroXRespo
             )
             .await
             {
-                Ok(swap_response) => Ok(ZeroXResponse::Swap(swap_response)),
+                Ok(swap_response) => Ok(ZeroXThrottledResponse::Swap(swap_response)),
                 Err(e) => Err(e.current_context().to_owned()),
             }
         }

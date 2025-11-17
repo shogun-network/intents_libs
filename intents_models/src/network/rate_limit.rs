@@ -48,7 +48,8 @@ pub struct ApiRequest<Req, Resp, E> {
 
 /// Generic API client with throttling
 pub struct ThrottledApiClient<Req, Resp, E> {
-    sender: mpsc::Sender<ApiRequest<Req, Resp, E>>,
+    pub sender: mpsc::Sender<ApiRequest<Req, Resp, E>>,
+    /// Background worker processing queued requests. Kept so that we can await a graceful shutdown and detect panics.
     handle: JoinHandle<()>,
 }
 

@@ -1,4 +1,5 @@
-use intents_models::network::rate_limit::RateLimitedRequest;
+use intents_models::network::rate_limit::{ApiRequest, RateLimitedRequest, ThrottledApiClient};
+use tokio::sync::mpsc;
 
 use crate::{
     error::Error,
@@ -11,10 +12,15 @@ use crate::{
     },
 };
 
+pub type ThrottledJupiterClient =
+    ThrottledApiClient<JupiterThrottledRequest, JupiterThrottledResponse, Error>;
+pub type ThrottledJupiterSender =
+    mpsc::Sender<ApiRequest<JupiterThrottledRequest, JupiterThrottledResponse, Error>>;
+
 // TODO: Ideally we should have generic requests and a trait for handler fn based on router, but some router need different
 // data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add now fields to
 // generic requests to cover all routers needs.
-pub enum JupiterRequest {
+pub enum JupiterThrottledRequest {
     Estimate {
         estimator_request: GenericEstimateRequest,
         jupiter_url: String,
@@ -29,15 +35,15 @@ pub enum JupiterRequest {
         destination_token_account: Option<String>,
     },
 }
-impl RateLimitedRequest for JupiterRequest {
+impl RateLimitedRequest for JupiterThrottledRequest {
     fn cost(&self) -> std::num::NonZeroU32 {
         // In this case both request types have the same cost.
         match self {
-            JupiterRequest::Estimate { .. } => {
+            JupiterThrottledRequest::Estimate { .. } => {
                 // Safe: 1 is non-zero
                 std::num::NonZeroU32::new(1).unwrap()
             }
-            JupiterRequest::Swap { .. } => {
+            JupiterThrottledRequest::Swap { .. } => {
                 // Safe: 1 is non-zero
                 std::num::NonZeroU32::new(1).unwrap()
             }
@@ -45,24 +51,27 @@ impl RateLimitedRequest for JupiterRequest {
     }
 }
 
-pub enum JupiterResponse {
+pub enum JupiterThrottledResponse {
     Estimate(GenericEstimateResponse, QuoteResponse),
     Swap(JupiterSwapResponse),
 }
 
-pub async fn handle_jupiter_request(request: JupiterRequest) -> Result<JupiterResponse, Error> {
+pub async fn handle_jupiter_throttled_request(
+    request: JupiterThrottledRequest,
+) -> Result<JupiterThrottledResponse, Error> {
     match request {
-        JupiterRequest::Estimate {
+        JupiterThrottledRequest::Estimate {
             estimator_request,
             jupiter_url,
             jupiter_api_key,
         } => match get_jupiter_quote(&estimator_request, &jupiter_url, jupiter_api_key).await {
-            Ok((estimate_response, quote_response)) => {
-                Ok(JupiterResponse::Estimate(estimate_response, quote_response))
-            }
+            Ok((estimate_response, quote_response)) => Ok(JupiterThrottledResponse::Estimate(
+                estimate_response,
+                quote_response,
+            )),
             Err(e) => Err(e.current_context().to_owned()),
         },
-        JupiterRequest::Swap {
+        JupiterThrottledRequest::Swap {
             generic_swap_request,
             quote,
             jupiter_url,
@@ -80,7 +89,7 @@ pub async fn handle_jupiter_request(request: JupiterRequest) -> Result<JupiterRe
             )
             .await
             {
-                Ok(swap_response) => Ok(JupiterResponse::Swap(swap_response)),
+                Ok(swap_response) => Ok(JupiterThrottledResponse::Swap(swap_response)),
                 Err(e) => Err(e.current_context().to_owned()),
             }
         }

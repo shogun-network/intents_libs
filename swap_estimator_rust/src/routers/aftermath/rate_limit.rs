@@ -1,5 +1,6 @@
-use intents_models::network::rate_limit::RateLimitedRequest;
+use intents_models::network::rate_limit::{ApiRequest, RateLimitedRequest, ThrottledApiClient};
 use serde_json::Value;
+use tokio::sync::mpsc;
 
 use crate::{
     error::Error,
@@ -10,10 +11,15 @@ use crate::{
     },
 };
 
+pub type ThrottledAftermathClient =
+    ThrottledApiClient<AftermathThrottledRequest, AftermathThrottledResponse, Error>;
+pub type ThrottledAftermathSender =
+    mpsc::Sender<ApiRequest<AftermathThrottledRequest, AftermathThrottledResponse, Error>>;
+
 // TODO: Ideally we should have generic requests and a trait for handler fn based on router, but some router need different
 // data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add now fields to
 // generic requests to cover all routers needs.
-pub enum AftermathRequest {
+pub enum AftermathThrottledRequest {
     Estimate {
         generic_estimate_request: GenericEstimateRequest,
     },
@@ -24,15 +30,15 @@ pub enum AftermathRequest {
         amount_estimated: Option<u128>,
     },
 }
-impl RateLimitedRequest for AftermathRequest {
+impl RateLimitedRequest for AftermathThrottledRequest {
     fn cost(&self) -> std::num::NonZeroU32 {
         // In this case both request types have the same cost.
         match self {
-            AftermathRequest::Estimate { .. } => {
+            AftermathThrottledRequest::Estimate { .. } => {
                 // Safe: 1 is non-zero
                 std::num::NonZeroU32::new(1).unwrap()
             }
-            AftermathRequest::Swap { .. } => {
+            AftermathThrottledRequest::Swap { .. } => {
                 // Safe: 1 is non-zero
                 std::num::NonZeroU32::new(1).unwrap()
             }
@@ -40,20 +46,22 @@ impl RateLimitedRequest for AftermathRequest {
     }
 }
 
-pub enum AftermathResponse {
+pub enum AftermathThrottledResponse {
     Estimate(GenericEstimateResponse),
     Swap(Value),
 }
 
-pub async fn handle_jupiter_request(request: AftermathRequest) -> Result<AftermathResponse, Error> {
+pub async fn handle_aftermath_throttled_request(
+    request: AftermathThrottledRequest,
+) -> Result<AftermathThrottledResponse, Error> {
     match request {
-        AftermathRequest::Estimate {
+        AftermathThrottledRequest::Estimate {
             generic_estimate_request,
         } => match quote_aftermath_swap(generic_estimate_request).await {
-            Ok(estimate_response) => Ok(AftermathResponse::Estimate(estimate_response)),
+            Ok(estimate_response) => Ok(AftermathThrottledResponse::Estimate(estimate_response)),
             Err(e) => Err(e.current_context().to_owned()),
         },
-        AftermathRequest::Swap {
+        AftermathThrottledRequest::Swap {
             amount_estimated,
             generic_swap_request,
             routes_value,
@@ -67,7 +75,7 @@ pub async fn handle_jupiter_request(request: AftermathRequest) -> Result<Afterma
             )
             .await
             {
-                Ok(swap_response) => Ok(AftermathResponse::Swap(swap_response)),
+                Ok(swap_response) => Ok(AftermathThrottledResponse::Swap(swap_response)),
                 Err(e) => Err(e.current_context().to_owned()),
             }
         }

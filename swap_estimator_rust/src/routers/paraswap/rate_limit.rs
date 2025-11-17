@@ -1,4 +1,5 @@
-use intents_models::network::rate_limit::RateLimitedRequest;
+use intents_models::network::rate_limit::{ApiRequest, RateLimitedRequest, ThrottledApiClient};
+use tokio::sync::mpsc;
 
 use crate::{
     error::Error,
@@ -9,10 +10,15 @@ use crate::{
     },
 };
 
+pub type ThrottledParaswapClient =
+    ThrottledApiClient<ParaswapThrottledRequest, ParaswapThrottledResponse, Error>;
+pub type ThrottledParaswapSender =
+    mpsc::Sender<ApiRequest<ParaswapThrottledRequest, ParaswapThrottledResponse, Error>>;
+
 // TODO: Ideally we should have generic requests and a trait for handler fn based on router, but some router need different
 // data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add now fields to
 // generic requests to cover all routers needs.
-pub enum ParaswapRequest {
+pub enum ParaswapThrottledRequest {
     Estimate {
         request: GenericEstimateRequest,
         src_token_decimals: u8,
@@ -26,15 +32,15 @@ pub enum ParaswapRequest {
     },
 }
 
-impl RateLimitedRequest for ParaswapRequest {
+impl RateLimitedRequest for ParaswapThrottledRequest {
     fn cost(&self) -> std::num::NonZeroU32 {
         // In this case both request types have the same cost.
         match self {
-            ParaswapRequest::Estimate { .. } => {
+            ParaswapThrottledRequest::Estimate { .. } => {
                 // Safe: 1 is non-zero
                 std::num::NonZeroU32::new(1).unwrap()
             }
-            ParaswapRequest::Swap {
+            ParaswapThrottledRequest::Swap {
                 estimate_response, ..
             } => {
                 if estimate_response.is_some() {
@@ -49,14 +55,16 @@ impl RateLimitedRequest for ParaswapRequest {
     }
 }
 
-pub enum ParaswapResponse {
+pub enum ParaswapThrottledResponse {
     Estimate(GenericEstimateResponse),
     Swap(EvmSwapResponse),
 }
 
-pub async fn handle_one_inch_request(request: ParaswapRequest) -> Result<ParaswapResponse, Error> {
+pub async fn handle_paraswap_throttled_request(
+    request: ParaswapThrottledRequest,
+) -> Result<ParaswapThrottledResponse, Error> {
     match request {
-        ParaswapRequest::Estimate {
+        ParaswapThrottledRequest::Estimate {
             request,
             src_token_decimals,
             dst_token_decimals,
@@ -64,11 +72,11 @@ pub async fn handle_one_inch_request(request: ParaswapRequest) -> Result<Paraswa
             match estimate_swap_paraswap_generic(request, src_token_decimals, dst_token_decimals)
                 .await
             {
-                Ok(estimate_response) => Ok(ParaswapResponse::Estimate(estimate_response)),
+                Ok(estimate_response) => Ok(ParaswapThrottledResponse::Estimate(estimate_response)),
                 Err(e) => Err(e.current_context().to_owned()),
             }
         }
-        ParaswapRequest::Swap {
+        ParaswapThrottledRequest::Swap {
             generic_swap_request,
             src_decimals,
             dest_decimals,
@@ -82,7 +90,7 @@ pub async fn handle_one_inch_request(request: ParaswapRequest) -> Result<Paraswa
             )
             .await
             {
-                Ok(swap_response) => Ok(ParaswapResponse::Swap(swap_response)),
+                Ok(swap_response) => Ok(ParaswapThrottledResponse::Swap(swap_response)),
                 Err(e) => Err(e.current_context().to_owned()),
             }
         }
