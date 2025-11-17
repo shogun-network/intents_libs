@@ -1,5 +1,7 @@
 pub mod http;
 pub mod nats;
+pub mod rate_limit;
+
 use crate::error::{Error, ModelResult};
 use error_stack::report;
 use serde::de::DeserializeOwned;
