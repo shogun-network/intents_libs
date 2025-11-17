@@ -371,9 +371,9 @@ fn handle_gecko_terminal_response(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
     use super::*;
     use crate::tests::init_tracing_in_tests;
+    use std::collections::HashSet;
 
     #[tokio::test]
     async fn test_gecko_terminal_get_tokens_price() {

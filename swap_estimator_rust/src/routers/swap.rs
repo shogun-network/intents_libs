@@ -1,5 +1,6 @@
 use crate::routers::{Slippage, estimate::TradeType};
 use intents_models::constants::chains::ChainId;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericSwapRequest {
@@ -21,7 +22,7 @@ pub struct GenericSwapRequest {
     pub slippage: Slippage,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct EvmSwapResponse {
     /// Amount IN for exact OUT trade or amount OUT for exact IN trade
