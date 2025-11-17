@@ -20,6 +20,8 @@ use thiserror::Error;
 /// Errores posibles del cliente genérico
 #[derive(Debug, Error)]
 pub enum ApiClientError<E> {
+    #[error("Insufficient capacity in rate limiter")]
+    InsufficientCapacity,
     #[error("Request queue closed")]
     QueueClosed,
     #[error("Worker task cancelled")]
@@ -28,13 +30,23 @@ pub enum ApiClientError<E> {
     Custom(E),
 }
 
-/// Petición genérica con respuesta, para encolar
+/// Defines how many rate-limit "tokens" a request should consume.
+pub trait RateLimitedRequest {
+    /// Cost in "tokens" of this request.
+    /// Default is 1.
+    fn cost(&self) -> NonZeroU32 {
+        // Safe: 1 is non-zero
+        NonZeroU32::new(1).unwrap()
+    }
+}
+
+/// Generic API request with a responder channel
 pub struct ApiRequest<Req, Resp, E> {
     pub req: Req,
     pub responder: oneshot::Sender<Result<Resp, ApiClientError<E>>>,
 }
 
-/// Cliente genérico con throttling
+/// Generic API client with throttling
 pub struct ThrottledApiClient<Req, Resp, E> {
     sender: mpsc::Sender<ApiRequest<Req, Resp, E>>,
     handle: JoinHandle<()>,
@@ -42,7 +54,7 @@ pub struct ThrottledApiClient<Req, Resp, E> {
 
 impl<Req, Resp, E> ThrottledApiClient<Req, Resp, E>
 where
-    Req: Send + 'static,
+    Req: RateLimitedRequest + Send + 'static,
     Resp: Send + 'static,
     E: Send + 'static,
 {
@@ -91,7 +103,12 @@ where
         let handle = tokio::spawn(async move {
             while let Some(api_req) = rx.recv().await {
                 // Wait for rate-limit permit
-                limiter_clone.until_ready().await;
+                if let Err(_) = limiter_clone.until_n_ready(api_req.req.cost()).await {
+                    let _ = api_req
+                        .responder
+                        .send(Err(ApiClientError::InsufficientCapacity));
+                    continue;
+                };
 
                 let handler_fn = Arc::clone(&handler_fn);
                 let req = api_req.req;
@@ -135,6 +152,10 @@ mod tests {
     // Simple handler that just echoes the request as response
     async fn echo_handler(req: u32) -> Result<u32, ()> {
         Ok(req)
+    }
+    impl RateLimitedRequest for u32 {
+        // Opcional: puedes sobreescribir `cost` si quieres un coste distinto
+        // fn cost(&self) -> NonZeroU32 { NonZeroU32::new(1).unwrap() }
     }
 
     #[tokio::test]
