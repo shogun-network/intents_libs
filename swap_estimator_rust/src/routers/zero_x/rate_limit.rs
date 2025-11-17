@@ -41,13 +41,21 @@ impl RateLimitedRequest for ZeroXThrottledRequest {
     fn cost(&self) -> std::num::NonZeroU32 {
         // In this case both request types have the same cost.
         match self {
-            ZeroXThrottledRequest::Estimate { .. } => {
-                // Safe: 1 is non-zero
-                std::num::NonZeroU32::new(1).unwrap()
+            ZeroXThrottledRequest::Estimate { prev_result, .. } => {
+                // Safe: 1 and 2 are non-zero
+                if prev_result.is_some() {
+                    std::num::NonZeroU32::new(1).unwrap()
+                } else {
+                    std::num::NonZeroU32::new(2).unwrap()
+                }
             }
-            ZeroXThrottledRequest::Swap { .. } => {
-                // Safe: 1 is non-zero
-                std::num::NonZeroU32::new(1).unwrap()
+            ZeroXThrottledRequest::Swap { prev_result, .. } => {
+                // Safe: 1 and 2 are non-zero
+                if prev_result.is_some() {
+                    std::num::NonZeroU32::new(1).unwrap()
+                } else {
+                    std::num::NonZeroU32::new(2).unwrap()
+                }
             }
         }
     }

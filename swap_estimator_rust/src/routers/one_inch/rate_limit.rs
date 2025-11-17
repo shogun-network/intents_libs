@@ -40,13 +40,21 @@ impl RateLimitedRequest for OneInchThrottledRequest {
     fn cost(&self) -> std::num::NonZeroU32 {
         // In this case both request types have the same cost.
         match self {
-            OneInchThrottledRequest::Estimate { .. } => {
-                // Safe: 1 is non-zero
-                std::num::NonZeroU32::new(1).unwrap()
+            OneInchThrottledRequest::Estimate { prev_result, .. } => {
+                // Safe: 1 and 2 are non-zero
+                if prev_result.is_some() {
+                    std::num::NonZeroU32::new(1).unwrap()
+                } else {
+                    std::num::NonZeroU32::new(2).unwrap()
+                }
             }
-            OneInchThrottledRequest::Swap { .. } => {
-                // Safe: 1 is non-zero
-                std::num::NonZeroU32::new(1).unwrap()
+            OneInchThrottledRequest::Swap { prev_result, .. } => {
+                // Safe: 1 and 2 are non-zero
+                if prev_result.is_some() {
+                    std::num::NonZeroU32::new(1).unwrap()
+                } else {
+                    std::num::NonZeroU32::new(2).unwrap()
+                }
             }
         }
     }
