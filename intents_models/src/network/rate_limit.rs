@@ -41,14 +41,21 @@ pub trait RateLimitedRequest {
 }
 
 /// Generic API request with a responder channel
-pub struct ApiRequest<Req, Resp, E> {
+pub struct ThrottlingApiRequest<Req, Resp, E> {
     pub req: Req,
     pub responder: oneshot::Sender<Result<Resp, ApiClientError<E>>>,
 }
 
+impl<Req, Resp, E> ThrottlingApiRequest<Req, Resp, E> {
+    pub fn new(req: Req) -> (Self, oneshot::Receiver<Result<Resp, ApiClientError<E>>>) {
+        let (responder, receiver) = tokio::sync::oneshot::channel();
+        (ThrottlingApiRequest { req, responder }, receiver)
+    }
+}
+
 /// Generic API client with throttling
 pub struct ThrottledApiClient<Req, Resp, E> {
-    pub sender: mpsc::Sender<ApiRequest<Req, Resp, E>>,
+    pub sender: mpsc::Sender<ThrottlingApiRequest<Req, Resp, E>>,
     /// Background worker processing queued requests. Kept so that we can await a graceful shutdown and detect panics.
     handle: JoinHandle<()>,
 }
@@ -96,7 +103,7 @@ where
             NoOpMiddleware,
         >::direct(quota));
 
-        let (tx, mut rx) = mpsc::channel::<ApiRequest<Req, Resp, E>>(queue_capacity);
+        let (tx, mut rx) = mpsc::channel::<ThrottlingApiRequest<Req, Resp, E>>(queue_capacity);
 
         let limiter_clone = Arc::clone(&limiter);
         let handler_fn = Arc::new(handler_fn);
@@ -128,7 +135,7 @@ where
 
     pub async fn send(&self, req: Req) -> Result<Resp, ApiClientError<E>> {
         let (resp_tx, resp_rx) = oneshot::channel();
-        let api_req = ApiRequest {
+        let api_req = ThrottlingApiRequest {
             req,
             responder: resp_tx,
         };
