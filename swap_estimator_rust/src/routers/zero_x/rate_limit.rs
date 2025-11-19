@@ -123,7 +123,8 @@ mod tests {
     use crate::routers::estimate::GenericEstimateRequest;
     use crate::routers::estimate::TradeType;
     use intents_models::constants::chains::ChainId;
-    use intents_models::network::rate_limit::{ApiClientError, RateLimitWindow};
+    use intents_models::network::RateLimitWindow;
+    use intents_models::network::rate_limit::ApiClientError;
     use std::num::NonZeroU32;
     use std::sync::Arc;
     use tokio::task::JoinSet;

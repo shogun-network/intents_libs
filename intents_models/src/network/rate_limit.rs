@@ -1,6 +1,5 @@
 use std::num::NonZeroU32;
 use std::sync::Arc;
-use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -10,6 +9,8 @@ use governor::state::{InMemoryState, NotKeyed};
 use governor::{Quota, RateLimiter, clock::DefaultClock};
 
 use thiserror::Error;
+
+use crate::network::RateLimitWindow;
 
 #[derive(Debug, Error)]
 pub enum ApiClientError<E> {
@@ -43,53 +44,6 @@ impl<Req, Resp, E> ThrottlingApiRequest<Req, Resp, E> {
     pub fn new(req: Req) -> (Self, oneshot::Receiver<Result<Resp, ApiClientError<E>>>) {
         let (responder, receiver) = tokio::sync::oneshot::channel();
         (ThrottlingApiRequest { req, responder }, receiver)
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum RateLimitWindow {
-    PerSecond(NonZeroU32),
-    PerMinute(NonZeroU32),
-    Custom { period: Duration },
-}
-
-impl RateLimitWindow {
-    /// - `<n>s` → PerSecond(n)
-    /// - `<n>m` → PerMinute(n)
-    /// - `<n>h` → Custom { period = Duration::from_secs(n * 3600) }
-    /// - `<n>d` → Custom { period = Duration::from_secs(n * 86400) }
-    pub fn from_string(s: &str) -> Option<Self> {
-        if s.is_empty() {
-            return None;
-        }
-
-        let (num_str, unit) = s.split_at(s.len() - 1);
-        let number: u32 = match num_str.parse() {
-            Ok(n) if n > 0 => n,
-            _ => return None,
-        };
-        let nonzero = match NonZeroU32::new(number) {
-            Some(nz) => nz,
-            None => return None,
-        };
-
-        match unit {
-            "s" => Some(RateLimitWindow::PerSecond(nonzero)),
-            "m" => Some(RateLimitWindow::PerMinute(nonzero)),
-            "h" => {
-                let secs = number as u64 * 3600;
-                Some(RateLimitWindow::Custom {
-                    period: Duration::from_secs(secs),
-                })
-            }
-            "d" => {
-                let secs = number as u64 * 86400;
-                Some(RateLimitWindow::Custom {
-                    period: Duration::from_secs(secs),
-                })
-            }
-            _ => None,
-        }
     }
 }
 
