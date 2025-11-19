@@ -1,12 +1,6 @@
-// Cargo.toml
-// [dependencies]
-// governor = "0.10"
-// tokio = { version = "1", features = ["full"] }
-// reqwest = { version = "0.11", features = ["json","tls"] }
-// thiserror = "1.0"
-
 use std::num::NonZeroU32;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -53,6 +47,52 @@ impl<Req, Resp, E> ThrottlingApiRequest<Req, Resp, E> {
     }
 }
 
+pub enum RateLimitWindow {
+    PerSecond(NonZeroU32),
+    PerMinute(NonZeroU32),
+    Custom { period: Duration },
+}
+
+impl RateLimitWindow {
+    /// - `<n>s` → PerSecond(n)
+    /// - `<n>m` → PerMinute(n)
+    /// - `<n>h` → Custom { period = Duration::from_secs(n * 3600) }
+    /// - `<n>d` → Custom { period = Duration::from_secs(n * 86400) }
+    pub fn from_string(s: &str) -> Option<Self> {
+        if s.is_empty() {
+            return None;
+        }
+
+        let (num_str, unit) = s.split_at(s.len() - 1);
+        let number: u32 = match num_str.parse() {
+            Ok(n) if n > 0 => n,
+            _ => return None,
+        };
+        let nonzero = match NonZeroU32::new(number) {
+            Some(nz) => nz,
+            None => return None,
+        };
+
+        match unit {
+            "s" => Some(RateLimitWindow::PerSecond(nonzero)),
+            "m" => Some(RateLimitWindow::PerMinute(nonzero)),
+            "h" => {
+                let secs = number as u64 * 3600;
+                Some(RateLimitWindow::Custom {
+                    period: Duration::from_secs(secs),
+                })
+            }
+            "d" => {
+                let secs = number as u64 * 86400;
+                Some(RateLimitWindow::Custom {
+                    period: Duration::from_secs(secs),
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Generic API client with throttling
 pub struct ThrottledApiClient<Req, Resp, E> {
     pub sender: mpsc::Sender<ThrottlingApiRequest<Req, Resp, E>>,
@@ -85,7 +125,7 @@ where
     /// 1. Throttled by the shared rate limiter.
     /// 2. Processed in its own Tokio task using `handler_fn`.
     pub fn new<F, Fut>(
-        limit_per_sec: NonZeroU32,
+        limit: RateLimitWindow,
         burst: NonZeroU32,
         queue_capacity: usize,
         handler_fn: F,
@@ -95,7 +135,13 @@ where
         Fut: std::future::Future<Output = Result<Resp, E>> + Send + 'static,
     {
         // Build the rate limiter
-        let quota = Quota::per_second(limit_per_sec).allow_burst(burst);
+        let quota = match limit {
+            RateLimitWindow::PerSecond(allowed) => Quota::per_second(allowed).allow_burst(burst),
+            RateLimitWindow::PerMinute(allowed) => Quota::per_minute(allowed).allow_burst(burst),
+            RateLimitWindow::Custom { period } => {
+                Quota::with_period(period).unwrap().allow_burst(burst)
+            }
+        };
         let limiter = Arc::new(RateLimiter::<
             NotKeyed,
             InMemoryState,
@@ -169,9 +215,9 @@ mod tests {
     #[tokio::test]
     async fn test_basic_request_success() {
         let client = ThrottledApiClient::new(
-            NonZeroU32::new(10).unwrap(), // 10 req/s
-            NonZeroU32::new(10).unwrap(), // burst 10
-            10,                           // queue capacity
+            RateLimitWindow::PerSecond(NonZeroU32::new(10).unwrap()), // 10 req/s
+            NonZeroU32::new(10).unwrap(),                             // burst 10
+            10,                                                       // queue capacity
             echo_handler,
         );
 
@@ -186,7 +232,7 @@ mod tests {
     async fn test_rate_limit_is_respected() {
         // 2 req/s, burst 1 ⇒ second request has to wait ~0.5s at least
         let client = ThrottledApiClient::new(
-            NonZeroU32::new(2).unwrap(),
+            RateLimitWindow::PerSecond(NonZeroU32::new(2).unwrap()),
             NonZeroU32::new(1).unwrap(),
             10,
             echo_handler,
