@@ -1,4 +1,6 @@
-use intents_models::network::rate_limit::{ThrottlingApiRequest, RateLimitedRequest, ThrottledApiClient};
+use intents_models::network::rate_limit::{
+    RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest,
+};
 use tokio::sync::mpsc;
 
 use crate::{
@@ -18,6 +20,7 @@ pub type ThrottledParaswapSender =
 // TODO: Ideally we should have generic requests and a trait for handler fn based on router, but some router need different
 // data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add now fields to
 // generic requests to cover all routers needs.
+#[derive(Debug)]
 pub enum ParaswapThrottledRequest {
     Estimate {
         request: GenericEstimateRequest,
@@ -55,6 +58,7 @@ impl RateLimitedRequest for ParaswapThrottledRequest {
     }
 }
 
+#[derive(Debug)]
 pub enum ParaswapThrottledResponse {
     Estimate(GenericEstimateResponse),
     Swap(EvmSwapResponse),

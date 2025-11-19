@@ -1,4 +1,6 @@
-use intents_models::network::rate_limit::{ThrottlingApiRequest, RateLimitedRequest, ThrottledApiClient};
+use intents_models::network::rate_limit::{
+    RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest,
+};
 use tokio::sync::mpsc;
 
 use crate::{
@@ -21,6 +23,7 @@ pub type ThrottledRaydiumSender =
 // TODO: Ideally we should have generic requests and a trait for handler fn based on router, but some router need different
 // data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add now fields to
 // generic requests to cover all routers needs.
+#[derive(Debug)]
 pub enum RaydiumThrottledRequest {
     Estimate {
         request: RaydiumGetQuoteRequest,
@@ -47,6 +50,7 @@ impl RateLimitedRequest for RaydiumThrottledRequest {
     }
 }
 
+#[derive(Debug)]
 pub enum RaydiumThrottledResponse {
     Estimate(crate::routers::raydium::responses::RaydiumResponse),
     Swap(Vec<Transaction>),

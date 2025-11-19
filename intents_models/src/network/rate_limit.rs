@@ -47,6 +47,7 @@ impl<Req, Resp, E> ThrottlingApiRequest<Req, Resp, E> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum RateLimitWindow {
     PerSecond(NonZeroU32),
     PerMinute(NonZeroU32),
@@ -94,6 +95,7 @@ impl RateLimitWindow {
 }
 
 /// Generic API client with throttling
+#[derive(Debug)]
 pub struct ThrottledApiClient<Req, Resp, E> {
     pub sender: mpsc::Sender<ThrottlingApiRequest<Req, Resp, E>>,
     /// Background worker processing queued requests. Kept so that we can await a graceful shutdown and detect panics.
@@ -126,7 +128,7 @@ where
     /// 2. Processed in its own Tokio task using `handler_fn`.
     pub fn new<F, Fut>(
         limit: RateLimitWindow,
-        burst: NonZeroU32,
+        burst: Option<NonZeroU32>,
         queue_capacity: usize,
         handler_fn: F,
     ) -> Self
@@ -135,12 +137,17 @@ where
         Fut: std::future::Future<Output = Result<Resp, E>> + Send + 'static,
     {
         // Build the rate limiter
-        let quota = match limit {
-            RateLimitWindow::PerSecond(allowed) => Quota::per_second(allowed).allow_burst(burst),
-            RateLimitWindow::PerMinute(allowed) => Quota::per_minute(allowed).allow_burst(burst),
-            RateLimitWindow::Custom { period } => {
-                Quota::with_period(period).unwrap().allow_burst(burst)
+        let quota = {
+            let mut quota = match limit {
+                RateLimitWindow::PerSecond(allowed) => Quota::per_second(allowed),
+                RateLimitWindow::PerMinute(allowed) => Quota::per_minute(allowed),
+                RateLimitWindow::Custom { period } => Quota::with_period(period).unwrap(),
+            };
+            match burst {
+                Some(b) => quota = quota.allow_burst(b),
+                None => {}
             }
+            quota
         };
         let limiter = Arc::new(RateLimiter::<
             NotKeyed,
@@ -216,7 +223,7 @@ mod tests {
     async fn test_basic_request_success() {
         let client = ThrottledApiClient::new(
             RateLimitWindow::PerSecond(NonZeroU32::new(10).unwrap()), // 10 req/s
-            NonZeroU32::new(10).unwrap(),                             // burst 10
+            None,                                                     // burst 10
             10,                                                       // queue capacity
             echo_handler,
         );
@@ -233,7 +240,7 @@ mod tests {
         // 2 req/s, burst 1 ⇒ second request has to wait ~0.5s at least
         let client = ThrottledApiClient::new(
             RateLimitWindow::PerSecond(NonZeroU32::new(2).unwrap()),
-            NonZeroU32::new(1).unwrap(),
+            None,
             10,
             echo_handler,
         );

@@ -1,4 +1,6 @@
-use intents_models::network::rate_limit::{ThrottlingApiRequest, RateLimitedRequest, ThrottledApiClient};
+use intents_models::network::rate_limit::{
+    RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest,
+};
 use serde_json::Value;
 use tokio::sync::mpsc;
 
@@ -13,12 +15,14 @@ use crate::{
 
 pub type ThrottledAftermathClient =
     ThrottledApiClient<AftermathThrottledRequest, AftermathThrottledResponse, Error>;
-pub type ThrottledAftermathSender =
-    mpsc::Sender<ThrottlingApiRequest<AftermathThrottledRequest, AftermathThrottledResponse, Error>>;
+pub type ThrottledAftermathSender = mpsc::Sender<
+    ThrottlingApiRequest<AftermathThrottledRequest, AftermathThrottledResponse, Error>,
+>;
 
 // TODO: Ideally we should have generic requests and a trait for handler fn based on router, but some router need different
 // data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add now fields to
 // generic requests to cover all routers needs.
+#[derive(Debug)]
 pub enum AftermathThrottledRequest {
     Estimate {
         generic_estimate_request: GenericEstimateRequest,
@@ -46,6 +50,7 @@ impl RateLimitedRequest for AftermathThrottledRequest {
     }
 }
 
+#[derive(Debug)]
 pub enum AftermathThrottledResponse {
     Estimate(GenericEstimateResponse),
     Swap(Value),

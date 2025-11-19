@@ -22,6 +22,7 @@ pub type ThrottledJupiterSender =
 // TODO: Ideally we should have generic requests and a trait for handler fn based on router, but some router need different
 // data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add now fields to
 // generic requests to cover all routers needs.
+#[derive(Debug)]
 pub enum JupiterThrottledRequest {
     Estimate {
         estimator_request: GenericEstimateRequest,
@@ -53,6 +54,7 @@ impl RateLimitedRequest for JupiterThrottledRequest {
     }
 }
 
+#[derive(Debug)]
 pub enum JupiterThrottledResponse {
     Estimate(GenericEstimateResponse, QuoteResponse),
     Swap(JupiterSwapResponse),
