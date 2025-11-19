@@ -365,12 +365,12 @@ impl MonitorManager {
                             amount_out,
                             fulfillment_expenses_in_tokens_out,
                         )?;
-                    dbg!(
-                        &pending_swap.order_id,
-                        estimated_amount_out,
-                        solver_last_bid,
-                        req_monitor_estimation
-                    );
+                    // dbg!(
+                    //     &pending_swap.order_id,
+                    //     estimated_amount_out,
+                    //     solver_last_bid,
+                    //     req_monitor_estimation
+                    // );
                     tracing::debug!(
                         "Required monitor estimation for order_id {}: {}",
                         order_id,
@@ -719,11 +719,11 @@ impl MonitorManager {
                     } else {
                         pending_swap.amount_out
                     };
-                    dbg!(
-                        &pending_swap.order_id,
-                        estimated_amount_out,
-                        needed_amount_out
-                    );
+                    // dbg!(
+                    //     &pending_swap.order_id,
+                    //     estimated_amount_out,
+                    //     needed_amount_out
+                    // );
                     tracing::debug!(
                         "Needed amount out for order_id {}: {}",
                         pending_swap.order_id,

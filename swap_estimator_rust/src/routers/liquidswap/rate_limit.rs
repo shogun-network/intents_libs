@@ -23,8 +23,9 @@ pub type ThrottledLiquidswapSender = mpsc::Sender<
 >;
 
 // TODO: Ideally we should have generic requests and a trait for handler fn based on router, but some router need different
-// data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add now fields to
+// data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add new fields to
 // generic requests to cover all routers needs.
+#[derive(Debug)]
 pub enum LiquidswapThrottledRequest {
     Estimate {
         request: GenericEstimateRequest,
@@ -57,6 +58,7 @@ impl RateLimitedRequest for LiquidswapThrottledRequest {
     }
 }
 
+#[derive(Debug)]
 pub enum LiquidswapThrottledResponse {
     Estimate(GenericEstimateResponse),
     Swap(EvmSwapResponse),

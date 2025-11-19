@@ -20,8 +20,9 @@ pub type ThrottledZeroXSender =
     mpsc::Sender<ThrottlingApiRequest<ZeroXThrottledRequest, ZeroXThrottledResponse, Error>>;
 
 // TODO: Ideally we should have generic requests and a trait for handler fn based on router, but some router need different
-// data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add now fields to
+// data in, so for now we keep it simple. But it will be a nice refactor for the future. We will need to add new fields to
 // generic requests to cover all routers needs.
+// This can be done creating father enum with every router request as variants. But is it worth it? Will just mix all on the same file, I think that is even worse.
 #[derive(Debug)]
 pub enum ZeroXThrottledRequest {
     Estimate {
@@ -273,7 +274,7 @@ mod tests {
     async fn test_zero_x_rate_limit_single_client_twenty_requests_limit_fifteen() {
         dotenv::dotenv().ok();
 
-        let rl_window = RateLimitWindow::PerSecond(NonZeroU32::new(300).unwrap());
+        let rl_window = RateLimitWindow::PerSecond(NonZeroU32::new(100).unwrap());
         let queue_capacity = 10000;
 
         let client = Arc::new(ThrottledZeroXClient::new(
@@ -319,7 +320,7 @@ mod tests {
         }
 
         println!(
-            "ZeroX throttling 20-req test: success={}, insufficient_capacity={}, other_errors={}",
+            "ZeroX throttling 300-req test: success={}, insufficient_capacity={}, other_errors={}",
             success, insufficient_capacity, other_errors
         );
     }

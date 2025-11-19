@@ -41,7 +41,6 @@ pub enum OneInchThrottledRequest {
 
 impl RateLimitedRequest for OneInchThrottledRequest {
     fn cost(&self) -> std::num::NonZeroU32 {
-        // In this case both request types have the same cost.
         match self {
             OneInchThrottledRequest::Estimate {
                 prev_result,

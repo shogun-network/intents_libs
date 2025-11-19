@@ -11,7 +11,6 @@ use governor::{Quota, RateLimiter, clock::DefaultClock};
 
 use thiserror::Error;
 
-/// Errores posibles del cliente genérico
 #[derive(Debug, Error)]
 pub enum ApiClientError<E> {
     #[error("Insufficient capacity in rate limiter")]
@@ -214,10 +213,7 @@ mod tests {
     async fn echo_handler(req: u32) -> Result<u32, ()> {
         Ok(req)
     }
-    impl RateLimitedRequest for u32 {
-        // Opcional: puedes sobreescribir `cost` si quieres un coste distinto
-        // fn cost(&self) -> NonZeroU32 { NonZeroU32::new(1).unwrap() }
-    }
+    impl RateLimitedRequest for u32 {}
 
     #[tokio::test]
     async fn test_basic_request_success() {
