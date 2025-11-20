@@ -18,8 +18,8 @@ use crate::{
 };
 use error_stack::{ResultExt as _, report};
 use intents_models::constants::chains::is_native_token_evm_address;
+use intents_models::network::client_rate_limit::Client;
 use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
-use reqwest::Client;
 use serde_json::json;
 
 pub fn update_zero_x_native_token(token_address: String) -> String {
@@ -55,11 +55,17 @@ pub async fn zero_x_get_price(
     let query_string = value_to_sorted_querystring(&query).change_context(Error::ParseError)?;
     let url = format!("{BASE_ZERO_X_API_URL}/allowance-holder/price?{query_string}",);
 
-    let response = client
+    let request = client
+        .inner_client()
         .get(&url)
         .header("0x-api-key", api_key)
         .header("0x-version", "v2")
-        .send()
+        .build()
+        .change_context(Error::ReqwestError)
+        .attach_printable("Error building 0x request")?;
+
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)
         .attach_printable("Error in 0x request")?;
@@ -103,11 +109,17 @@ pub async fn zero_x_get_quote(
     let query_string = value_to_sorted_querystring(&query).change_context(Error::ParseError)?;
     let url = format!("{BASE_ZERO_X_API_URL}/allowance-holder/quote?{query_string}",);
 
-    let response = client
+    let request = client
+        .inner_client()
         .get(&url)
         .header("0x-api-key", api_key)
         .header("0x-version", "v2")
-        .send()
+        .build()
+        .change_context(Error::ReqwestError)
+        .attach_printable("Error building 0x request")?;
+
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)
         .attach_printable("Error in 0x request")?;
@@ -313,7 +325,7 @@ mod tests {
         dotenv::dotenv().ok();
 
         let zero_x_api_key = std::env::var("ZERO_X_API_KEY").expect("ZERO_X_API_KEY must be set");
-        let client = Client::new();
+        let client = Client::Unrestricted(reqwest::Client::new());
         let request = ZeroXGetPriceRequest {
             chain_id: ChainId::Base as u32,
             sell_token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
@@ -332,7 +344,7 @@ mod tests {
         dotenv::dotenv().ok();
 
         let zero_x_api_key = std::env::var("ZERO_X_API_KEY").expect("ZERO_X_API_KEY must be set");
-        let client = Client::new();
+        let client = Client::Unrestricted(reqwest::Client::new());
         let request = ZeroXGetQuoteRequest {
             chain_id: ChainId::Base as u32,
             sell_token: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
@@ -368,7 +380,7 @@ mod tests {
             slippage: Slippage::Percent(2.0),
         };
 
-        let client = Client::new();
+        let client = Client::Unrestricted(reqwest::Client::new());
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result =
@@ -408,7 +420,7 @@ mod tests {
             slippage: Slippage::Percent(2.0),
         };
 
-        let client = Client::new();
+        let client = Client::Unrestricted(reqwest::Client::new());
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result =

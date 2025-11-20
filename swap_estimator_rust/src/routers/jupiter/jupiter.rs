@@ -2,12 +2,13 @@ use crate::error::{Error, EstimatorResult};
 use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType};
 use crate::routers::jupiter::get_jupiter_max_slippage;
 use crate::routers::swap::{GenericSwapRequest, SolanaPriorityFeeType};
-use crate::routers::{HTTP_CLIENT, RouterType, Slippage};
+use crate::routers::{RouterType, Slippage};
 use crate::utils::number_conversion::slippage_to_bps;
 use error_stack::{ResultExt, report};
 use intents_models::constants::chains::{
     WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS, is_native_token_solana_address,
 };
+use intents_models::network::client_rate_limit::Client;
 use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -128,6 +129,7 @@ pub fn get_jupiter_token_mint(token_mint: &str) -> String {
 ///
 /// * `generic_solana_estimate_request` - Generic Solana estimate request data
 pub async fn get_jupiter_quote(
+    client: &Client,
     generic_solana_estimate_request: &GenericEstimateRequest,
     jupiter_url: &str,
     jupiter_api_key: Option<String>,
@@ -155,13 +157,20 @@ pub async fn get_jupiter_quote(
         value_to_sorted_querystring(&query_value).change_context(Error::ModelsError)?;
     let url = format!("{jupiter_url}quote?{query_string}");
 
-    let mut request = HTTP_CLIENT.get(&url);
-    if let Some(ref key) = jupiter_api_key {
-        request = request.header("x-api-key", key.as_str());
-    }
+    let request = {
+        let client = client.inner_client();
+        let mut request = client.get(&url);
+        if let Some(ref key) = jupiter_api_key {
+            request = request.header("x-api-key", key.as_str());
+        }
+        request
+            .build()
+            .change_context(Error::ReqwestError)
+            .attach_printable("Error building Jupiter request")?
+    };
 
-    let response = request
-        .send()
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)?
         .text()
@@ -205,6 +214,7 @@ pub async fn get_jupiter_quote(
 }
 
 pub async fn get_jupiter_transaction(
+    client: &Client,
     generic_swap_request: GenericSwapRequest,
     quote: QuoteResponse,
     jupiter_url: &str,
@@ -245,14 +255,21 @@ pub async fn get_jupiter_transaction(
 
     let url = format!("{jupiter_url}swap");
 
-    let mut request = HTTP_CLIENT.post(&url);
-    if let Some(ref key) = jupiter_api_key {
-        request = request.header("x-api-key", key.as_str());
-    }
+    let request = {
+        let client = client.inner_client();
+        let mut request = client.post(&url);
+        if let Some(ref key) = jupiter_api_key {
+            request = request.header("x-api-key", key.as_str());
+        }
+        request
+            .json(&swap_request_body)
+            .build()
+            .change_context(Error::ReqwestError)
+            .attach_printable("Error building Jupiter swap request")?
+    };
 
-    let response = request
-        .json(&swap_request_body)
-        .send()
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)?;
 
@@ -285,7 +302,8 @@ mod tests {
 
         let jupiter_url = std::env::var("JUPITER_URL").unwrap();
 
-        let (response, quote) = get_jupiter_quote(&request, &jupiter_url, None)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let (response, quote) = get_jupiter_quote(&client, &request, &jupiter_url, None)
             .await
             .unwrap();
         println!("Generic Response: {:?}", response);
@@ -306,7 +324,8 @@ mod tests {
 
         let jupiter_url = std::env::var("JUPITER_URL").unwrap();
 
-        let (response, quote) = get_jupiter_quote(&request, &jupiter_url, None)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let (response, quote) = get_jupiter_quote(&client, &request, &jupiter_url, None)
             .await
             .unwrap();
         println!("Generic Response: {:?}", response);
@@ -327,7 +346,8 @@ mod tests {
 
         let jupiter_url = std::env::var("JUPITER_URL").unwrap();
 
-        let (response, quote) = get_jupiter_quote(&request, &jupiter_url, None)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let (response, quote) = get_jupiter_quote(&client, &request, &jupiter_url, None)
             .await
             .unwrap();
         println!("Generic Response: {:?}", response);
@@ -344,8 +364,9 @@ mod tests {
             slippage: Slippage::Percent(0.005),
         };
 
+        let client = Client::Unrestricted(reqwest::Client::new());
         let jupiter_tx =
-            get_jupiter_transaction(swap_request, quote, &jupiter_url, None, None, None)
+            get_jupiter_transaction(&client, swap_request, quote, &jupiter_url, None, None, None)
                 .await
                 .expect("Jupiter swap transaction failed");
         println!("Jupiter Swap Transaction: {:?}", jupiter_tx);
@@ -365,7 +386,8 @@ mod tests {
 
         let jupiter_url = std::env::var("JUPITER_URL").unwrap();
 
-        let (response, quote) = get_jupiter_quote(&request, &jupiter_url, None)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let (response, quote) = get_jupiter_quote(&client, &request, &jupiter_url, None)
             .await
             .unwrap();
         println!("Generic Response: {:?}", response);
@@ -382,8 +404,9 @@ mod tests {
             slippage: Slippage::MaxSlippage,
         };
 
+        let client = Client::Unrestricted(reqwest::Client::new());
         let jupiter_tx =
-            get_jupiter_transaction(swap_request, quote, &jupiter_url, None, None, None)
+            get_jupiter_transaction(&client, swap_request, quote, &jupiter_url, None, None, None)
                 .await
                 .expect("Jupiter swap transaction failed");
         println!("Jupiter Swap Transaction: {:?}", jupiter_tx);
@@ -401,9 +424,10 @@ mod tests {
             slippage: Slippage::Percent(5.0),
         };
 
+        let client = Client::Unrestricted(reqwest::Client::new());
         let jupiter_url = std::env::var("JUPITER_URL").unwrap();
 
-        let (response, mut quote) = get_jupiter_quote(&request, &jupiter_url, None)
+        let (response, mut quote) = get_jupiter_quote(&client, &request, &jupiter_url, None)
             .await
             .unwrap();
         println!("Generic Response: {:#?}", response);
@@ -419,10 +443,18 @@ mod tests {
             amount_fixed: 1000000,
             slippage: new_slippage,
         };
-        let jupiter_tx =
-            get_jupiter_transaction(swap_request, quote.clone(), &jupiter_url, None, None, None)
-                .await
-                .expect("Jupiter swap transaction failed");
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let jupiter_tx = get_jupiter_transaction(
+            &client,
+            swap_request,
+            quote.clone(),
+            &jupiter_url,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("Jupiter swap transaction failed");
         println!("Jupiter Swap Transaction: {:#?}", jupiter_tx);
 
         // Calculate a new otherAmountThreshold with 25% more slippage
@@ -448,8 +480,9 @@ mod tests {
             slippage: Slippage::Percent(new_slippage),
         };
 
+        let client = Client::Unrestricted(reqwest::Client::new());
         let jupiter_tx =
-            get_jupiter_transaction(swap_request, quote, &jupiter_url, None, None, None)
+            get_jupiter_transaction(&client, swap_request, quote, &jupiter_url, None, None, None)
                 .await
                 .expect("Jupiter swap transaction failed");
         println!("Jupiter Swap Transaction MODIFIED: {:#?}", jupiter_tx);

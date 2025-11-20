@@ -12,8 +12,8 @@ use crate::{
     utils::limit_amount::get_limit_amount_u64,
 };
 use error_stack::{ResultExt, report};
+use intents_models::network::client_rate_limit::Client;
 use intents_models::network::http::handle_reqwest_response;
-use reqwest::Client;
 use serde_json::{Value, json};
 
 /// Quotes trade with Aftermath API
@@ -27,6 +27,7 @@ use serde_json::{Value, json};
 /// * Generic estimate response
 /// * Response value
 pub async fn quote_aftermath_swap(
+    client: &Client,
     generic_estimate_request: GenericEstimateRequest,
 ) -> EstimatorResult<GenericEstimateResponse> {
     let GenericEstimateRequest {
@@ -62,7 +63,7 @@ pub async fn quote_aftermath_swap(
         }),
     };
 
-    let response = send_aftermath_request("/router/trade-route", &body).await?;
+    let response = send_aftermath_request(client, "/router/trade-route", &body).await?;
     let decoded_response: AftermathQuoteResponse = serde_json::from_value(response.clone())
         .change_context(Error::SerdeSerialize(
             "Failed to deserialize Aftermath quote response".to_string(),
@@ -108,6 +109,7 @@ pub async fn quote_aftermath_swap(
 }
 
 pub async fn prepare_swap_ptb_with_aftermath(
+    client: &Client,
     generic_swap_request: GenericSwapRequest,
     mut routes_value: Value,
     serialized_tx_and_coin_id: Option<(Value, Value)>,
@@ -166,16 +168,26 @@ pub async fn prepare_swap_ptb_with_aftermath(
         }
     };
 
-    send_aftermath_request(&uri_path, &body).await
+    send_aftermath_request(client, &uri_path, &body).await
 }
 
-pub async fn send_aftermath_request(uri_path: &str, body: &Value) -> EstimatorResult<Value> {
-    let client = Client::new();
+pub async fn send_aftermath_request(
+    client: &Client,
+    uri_path: &str,
+    body: &Value,
+) -> EstimatorResult<Value> {
     let request = client
+        .inner_client()
         .post(format!("{AFTERMATH_BASE_API_URL}{uri_path}"))
-        .json(body);
+        .json(body)
+        .build()
+        .change_context(Error::ReqwestError)
+        .attach_printable("Error building aftermath request")?;
 
-    let response = request.send().await.change_context(Error::ReqwestError)?;
+    let response = client
+        .execute(request)
+        .await
+        .change_context(Error::ReqwestError)?;
 
     let aftermath_response: Value = handle_reqwest_response(response)
         .await
@@ -212,7 +224,8 @@ mod tests {
             slippage: Slippage::Percent(1.0),
         };
 
-        let routes = quote_aftermath_swap(request)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let routes = quote_aftermath_swap(&client, request)
             .await
             .expect("Should not fail")
             .router_data;
@@ -238,7 +251,8 @@ mod tests {
             slippage: Slippage::MaxSlippage,
         };
 
-        let routes = quote_aftermath_swap(request)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let routes = quote_aftermath_swap(&client, request)
             .await
             .expect("Should not fail")
             .router_data;
@@ -263,7 +277,8 @@ mod tests {
             amount_fixed: 1_000_000_000, // 1 SUI
             slippage: Slippage::Percent(1.0),
         };
-        let routes = quote_aftermath_swap(request)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let routes = quote_aftermath_swap(&client, request)
             .await
             .expect("Should not fail")
             .router_data;
@@ -300,12 +315,13 @@ mod tests {
         };
 
         let quote_request = GenericEstimateRequest::from(swap_request.clone());
-        let routes = quote_aftermath_swap(quote_request)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let routes = quote_aftermath_swap(&client, quote_request)
             .await
             .expect("Should not fail")
             .router_data;
 
-        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None, None)
+        let res = prepare_swap_ptb_with_aftermath(&client, swap_request, routes, None, None)
             .await
             .expect("Should not fail");
         println!("RES: {:#?}", res);
@@ -334,12 +350,13 @@ mod tests {
         };
 
         let quote_request = GenericEstimateRequest::from(swap_request.clone());
-        let routes = quote_aftermath_swap(quote_request)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let routes = quote_aftermath_swap(&client, quote_request)
             .await
             .expect("Should not fail")
             .router_data;
 
-        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None, None)
+        let res = prepare_swap_ptb_with_aftermath(&client, swap_request, routes, None, None)
             .await
             .expect("Should not fail");
         println!("RES: {:#?}", res);
@@ -369,12 +386,13 @@ mod tests {
 
         let mut quote_request = GenericEstimateRequest::from(swap_request.clone());
         quote_request.slippage = Slippage::Percent(2.0);
-        let routes = quote_aftermath_swap(quote_request)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let routes = quote_aftermath_swap(&client, quote_request)
             .await
             .expect("Should not fail")
             .router_data;
 
-        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None, None)
+        let res = prepare_swap_ptb_with_aftermath(&client, swap_request, routes, None, None)
             .await
             .expect("Should not fail");
         println!("RES: {:#?}", res);
@@ -403,12 +421,13 @@ mod tests {
         };
 
         let quote_request = GenericEstimateRequest::from(swap_request.clone());
-        let routes = quote_aftermath_swap(quote_request)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let routes = quote_aftermath_swap(&client, quote_request)
             .await
             .expect("Should not fail")
             .router_data;
 
-        let res = prepare_swap_ptb_with_aftermath(swap_request, routes, None, None)
+        let res = prepare_swap_ptb_with_aftermath(&client, swap_request, routes, None, None)
             .await
             .expect("Should not fail");
 

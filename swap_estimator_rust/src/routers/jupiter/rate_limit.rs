@@ -1,5 +1,6 @@
-use intents_models::network::rate_limit::{
-    RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest,
+use intents_models::network::{
+    client_rate_limit::Client,
+    rate_limit::{RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest},
 };
 use tokio::sync::mpsc;
 
@@ -25,11 +26,13 @@ pub type ThrottledJupiterSender =
 #[derive(Debug)]
 pub enum JupiterThrottledRequest {
     Estimate {
+        client: reqwest::Client,
         estimator_request: GenericEstimateRequest,
         jupiter_url: String,
         jupiter_api_key: Option<String>,
     },
     Swap {
+        client: reqwest::Client,
         generic_swap_request: GenericSwapRequest,
         quote: QuoteResponse,
         jupiter_url: String,
@@ -65,10 +68,18 @@ pub async fn handle_jupiter_throttled_request(
 ) -> Result<JupiterThrottledResponse, Error> {
     match request {
         JupiterThrottledRequest::Estimate {
+            client,
             estimator_request,
             jupiter_url,
             jupiter_api_key,
-        } => match get_jupiter_quote(&estimator_request, &jupiter_url, jupiter_api_key).await {
+        } => match get_jupiter_quote(
+            &Client::Unrestricted(client),
+            &estimator_request,
+            &jupiter_url,
+            jupiter_api_key,
+        )
+        .await
+        {
             Ok((estimate_response, quote_response)) => Ok(JupiterThrottledResponse::Estimate(
                 estimate_response,
                 quote_response,
@@ -76,6 +87,7 @@ pub async fn handle_jupiter_throttled_request(
             Err(e) => Err(e.current_context().to_owned()),
         },
         JupiterThrottledRequest::Swap {
+            client,
             generic_swap_request,
             quote,
             jupiter_url,
@@ -84,6 +96,7 @@ pub async fn handle_jupiter_throttled_request(
             destination_token_account,
         } => {
             match get_jupiter_transaction(
+                &Client::Unrestricted(client),
                 generic_swap_request,
                 quote,
                 &jupiter_url,

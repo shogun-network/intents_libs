@@ -15,8 +15,8 @@ use crate::{
 };
 use error_stack::{ResultExt as _, report};
 use intents_models::constants::chains::is_native_token_evm_address;
+use intents_models::network::client_rate_limit::Client;
 use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
-use reqwest::Client;
 use serde_json::json;
 
 pub fn update_one_inch_native_token(token_address: String) -> String {
@@ -44,10 +44,16 @@ pub async fn one_inch_get_quote(
 
     let url = format!("{BASE_1INCH_API_URL}/{chain}/quote?{query_string}",);
 
-    let response = client
+    let request = client
+        .inner_client()
         .get(&url)
         .bearer_auth(api_key)
-        .send()
+        .build()
+        .change_context(Error::ReqwestError)
+        .attach_printable("Error building 1inch request")?;
+
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)
         .attach_printable("Error in 1inch request")?;
@@ -89,10 +95,16 @@ pub async fn one_inch_swap(
 
     let url = format!("{BASE_1INCH_API_URL}/{chain}/swap?{query_string}",);
 
-    let response = client
+    let request = client
+        .inner_client()
         .get(&url)
         .bearer_auth(api_key)
-        .send()
+        .build()
+        .change_context(Error::ReqwestError)
+        .attach_printable("Error building 1inch request")?;
+
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)
         .attach_printable("Error in 1inch request")?;
@@ -111,10 +123,16 @@ pub async fn one_inch_get_approve_address(
 ) -> EstimatorResult<String> {
     let url = format!("{BASE_1INCH_API_URL}/{chain}/approve/spender");
 
-    let response = client
+    let request = client
+        .inner_client()
         .get(&url)
         .bearer_auth(api_key)
-        .send()
+        .build()
+        .change_context(Error::ReqwestError)
+        .attach_printable("Error building 1inch request")?;
+
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)
         .attach_printable("Error in 1inch request")?;
@@ -285,7 +303,7 @@ mod tests {
         let one_inch_api_key =
             std::env::var("ONE_INCH_API_KEY").expect("ONE_INCH_API_KEY must be set");
 
-        let client = Client::new();
+        let client = Client::Unrestricted(reqwest::Client::new());
         let request = OneInchGetQuoteRequest {
             chain: ChainId::Base as u32,
             src: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
@@ -305,7 +323,7 @@ mod tests {
         let one_inch_api_key =
             std::env::var("ONE_INCH_API_KEY").expect("ONE_INCH_API_KEY must be set");
 
-        let client = Client::new();
+        let client = Client::Unrestricted(reqwest::Client::new());
         let request = OneInchSwapRequest {
             chain: ChainId::Base as u32,
             src: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
@@ -329,7 +347,7 @@ mod tests {
 
         let one_inch_api_key =
             std::env::var("ONE_INCH_API_KEY").expect("ONE_INCH_API_KEY must be set");
-        let client = Client::new();
+        let client = Client::Unrestricted(reqwest::Client::new());
 
         let result =
             one_inch_get_approve_address(&client, &one_inch_api_key, ChainId::Base as u32).await;
@@ -359,7 +377,7 @@ mod tests {
         };
         let origin = "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string();
 
-        let client = Client::new();
+        let client = Client::Unrestricted(reqwest::Client::new());
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result =
@@ -402,7 +420,7 @@ mod tests {
         };
         let origin = "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string();
 
-        let client = Client::new();
+        let client = Client::Unrestricted(reqwest::Client::new());
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result =

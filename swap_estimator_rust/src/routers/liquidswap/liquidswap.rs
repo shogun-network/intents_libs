@@ -3,7 +3,7 @@ use std::time::Duration;
 use crate::{
     error::{Error, EstimatorResult},
     routers::{
-        HTTP_CLIENT, RouterType, Slippage,
+        RouterType, Slippage,
         constants::LIQUIDSWAP_BASE_API_URL,
         estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType},
         liquidswap::{
@@ -20,11 +20,15 @@ use crate::{
 use error_stack::{ResultExt, report};
 use intents_models::{
     constants::chains::{WRAPPED_NATIVE_TOKEN_HYPE_ADDRESS, is_native_token_evm_address},
-    network::http::{handle_reqwest_response, value_to_sorted_querystring},
+    network::{
+        client_rate_limit::Client,
+        http::{handle_reqwest_response, value_to_sorted_querystring},
+    },
 };
 use tokio::time::timeout;
 
 pub async fn send_liquidswap_request(
+    client: &Client,
     uri_path: &str,
     query: LiquidswapRequest,
 ) -> EstimatorResult<LiquidswapResponse> {
@@ -34,9 +38,15 @@ pub async fn send_liquidswap_request(
     .change_context(Error::ModelsError)?;
     let url = format!("{}{}?{}", LIQUIDSWAP_BASE_API_URL, uri_path, query);
 
-    let response = HTTP_CLIENT
+    let request = client
+        .inner_client()
         .get(url)
-        .send()
+        .build()
+        .change_context(Error::ReqwestError)
+        .attach_printable("Error building Liquidswap request")?;
+
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)
         .attach_printable("Error in liquidswap request")?;
@@ -66,6 +76,7 @@ fn handle_liquidswap_response(response: LiquidswapResponse) -> EstimatorResult<L
 }
 
 pub async fn liquidswap_get_token_list(
+    client: &Client,
     mut request: GetTokenListRequest,
 ) -> EstimatorResult<GetTokenListResponse> {
     if let Some(address) = request.search.as_ref() {
@@ -77,7 +88,8 @@ pub async fn liquidswap_get_token_list(
     let uri_path = "/tokens";
 
     let response =
-        send_liquidswap_request(uri_path, LiquidswapRequest::GetTokenList(request)).await?;
+        send_liquidswap_request(&client, uri_path, LiquidswapRequest::GetTokenList(request))
+            .await?;
     let LiquidswapResponse::GetTokenList(response) = handle_liquidswap_response(response)? else {
         return Err(report!(Error::ResponseError)
             .attach_printable("Unexpected response type from Liquidswap"));
@@ -86,14 +98,16 @@ pub async fn liquidswap_get_token_list(
 }
 
 pub async fn liquidswap_get_price_route(
+    client: &Client,
     request: GetPriceRouteRequest,
 ) -> EstimatorResult<GetPriceRouteResponse> {
     let uri_path = "/v2/route";
 
-    let response = send_liquidswap_request(uri_path, LiquidswapRequest::GetPriceRoute(request))
-        .await
-        .change_context(Error::ResponseError)
-        .attach_printable("Error getting price route from Liquidswap")?;
+    let response =
+        send_liquidswap_request(&client, uri_path, LiquidswapRequest::GetPriceRoute(request))
+            .await
+            .change_context(Error::ResponseError)
+            .attach_printable("Error getting price route from Liquidswap")?;
     let LiquidswapResponse::GetPriceRoute(response) = handle_liquidswap_response(response)? else {
         return Err(report!(Error::ResponseError)
             .attach_printable("Unexpected response type from Liquidswap"));
@@ -112,21 +126,28 @@ pub fn get_token_decimals(token_info: GetTokenListResponse) -> EstimatorResult<u
 }
 
 pub async fn get_in_out_token_decimals(
+    client: &Client,
     token_in: String,
     token_out: String,
 ) -> EstimatorResult<(u8, u8)> {
     // Get information for the input and output tokens
-    let token_in_info = liquidswap_get_token_list(GetTokenListRequest {
-        search: Some(token_in),
-        limit: Some(1),
-        metadata: Some(true),
-    });
+    let token_in_info = liquidswap_get_token_list(
+        &client,
+        GetTokenListRequest {
+            search: Some(token_in),
+            limit: Some(1),
+            metadata: Some(true),
+        },
+    );
 
-    let token_out_info = liquidswap_get_token_list(GetTokenListRequest {
-        search: Some(token_out),
-        limit: Some(1),
-        metadata: Some(true),
-    });
+    let token_out_info = liquidswap_get_token_list(
+        &client,
+        GetTokenListRequest {
+            search: Some(token_out),
+            limit: Some(1),
+            metadata: Some(true),
+        },
+    );
     let (token_in_info, token_out_info) = tokio::try_join!(token_in_info, token_out_info)?;
 
     let token_in_decimals = get_token_decimals(token_in_info)?;
@@ -156,9 +177,11 @@ fn get_amount_quote_and_fixed(
 }
 
 pub async fn estimate_swap_liquidswap_generic(
+    client: &Client,
     request: GenericEstimateRequest,
 ) -> EstimatorResult<GenericEstimateResponse> {
     let (token_in_decimals, token_out_decimals) = get_in_out_token_decimals(
+        &client,
         request.src_token.to_string(),
         request.dest_token.to_string(),
     )
@@ -181,7 +204,7 @@ pub async fn estimate_swap_liquidswap_generic(
         }
     }
 
-    let route_response = liquidswap_get_price_route(liquidswap_route_request)
+    let route_response = liquidswap_get_price_route(&client, liquidswap_route_request)
         .await
         .change_context(Error::ResponseError)
         .attach_printable("Error getting price route from Liquidswap")?;
@@ -206,10 +229,12 @@ pub async fn estimate_swap_liquidswap_generic(
 }
 
 pub async fn prepare_swap_liquidswap_generic(
+    client: &Client,
     generic_swap_request: GenericSwapRequest,
     estimate_response: Option<GenericEstimateResponse>,
 ) -> EstimatorResult<EvmSwapResponse> {
     let (token_in_decimals, token_out_decimals) = get_in_out_token_decimals(
+        &client,
         generic_swap_request.src_token.to_string(),
         generic_swap_request.dest_token.to_string(),
     )
@@ -248,7 +273,7 @@ pub async fn prepare_swap_liquidswap_generic(
             }
             let use_native_hype = router_request.use_native_hype.is_some()
                 && router_request.use_native_hype.clone().unwrap();
-            let route_response = get_price_route_with_fallback(router_request).await?;
+            let route_response = get_price_route_with_fallback(&client, router_request).await?;
 
             let (amount_quote, amount_limit) = get_amount_quote_and_fixed(
                 &route_response,
@@ -275,12 +300,13 @@ pub async fn prepare_swap_liquidswap_generic(
 }
 
 async fn get_price_route_with_fallback(
+    client: &Client,
     mut router_request: GetPriceRouteRequest,
 ) -> EstimatorResult<GetPriceRouteResponse> {
     // First attempt with multi_hop enabled
     match timeout(
         Duration::from_secs(10),
-        liquidswap_get_price_route(router_request.clone()),
+        liquidswap_get_price_route(&client, router_request.clone()),
     )
     .await
     {
@@ -299,7 +325,7 @@ async fn get_price_route_with_fallback(
     router_request.multi_hop = Some(false);
     tracing::info!("Retrying price route with multi_hop disabled");
 
-    liquidswap_get_price_route(router_request)
+    liquidswap_get_price_route(&client, router_request)
         .await
         .change_context(Error::ResponseError)
         .attach_printable(
@@ -422,7 +448,8 @@ mod tests {
             metadata: None,
         };
 
-        let response = liquidswap_get_token_list(request)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let response = liquidswap_get_token_list(&client, request)
             .await
             .expect("Failed to get token list from Liquidswap");
         assert!(response.success);
@@ -446,7 +473,8 @@ mod tests {
             use_native_hype: None,
         };
 
-        let response = liquidswap_get_price_route(request)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let response = liquidswap_get_price_route(&client, request)
             .await
             .expect("Failed to get price route from Liquidswap");
         assert!(response.success);
@@ -467,7 +495,8 @@ mod tests {
             use_native_hype: None,
         };
 
-        let response = liquidswap_get_price_route(request)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let response = liquidswap_get_price_route(&client, request)
             .await
             .expect("Failed to get price route from Liquidswap");
         assert!(response.success);
@@ -486,7 +515,8 @@ mod tests {
             10_000_000_000_000_000_000,
         );
 
-        let result = estimate_swap_liquidswap_generic(request).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = estimate_swap_liquidswap_generic(&client, request).await;
 
         assert!(
             result.is_ok(),
@@ -507,7 +537,8 @@ mod tests {
             380_000_000,                                  // 380 USDT0 (6 decimals)
         );
 
-        let result = estimate_swap_liquidswap_generic(request).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = estimate_swap_liquidswap_generic(&client, request).await;
 
         assert!(result.is_ok());
 
@@ -524,7 +555,8 @@ mod tests {
             10_000_000_000_000_000_000,                   // 10 WHYPE (18 decimals)
         );
 
-        let result = prepare_swap_liquidswap_generic(request, None).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = prepare_swap_liquidswap_generic(&client, request, None).await;
 
         // This will likely fail due to the smart contract integration issues
         assert!(
@@ -559,7 +591,8 @@ mod tests {
             10_000_000,                                   // 10 USDT0 (6 decimals)
         );
 
-        let result = prepare_swap_liquidswap_generic(request, None).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = prepare_swap_liquidswap_generic(&client, request, None).await;
 
         // This will likely fail due to the smart contract integration issues
         assert!(
@@ -595,7 +628,8 @@ mod tests {
             4674186744772283,                             // 1 USDT0 (6 decimals)
         );
 
-        let result = prepare_swap_liquidswap_generic(request, None).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = prepare_swap_liquidswap_generic(&client, request, None).await;
 
         // This will likely fail due to the smart contract integration issues
         assert!(
@@ -653,11 +687,13 @@ mod tests {
 
         let estimate_request = GenericEstimateRequest::from(request.clone());
 
-        let estimate_response = estimate_swap_liquidswap_generic(estimate_request).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let estimate_response = estimate_swap_liquidswap_generic(&client, estimate_request).await;
         println!("Estimate Response: {:?}", estimate_response);
         assert!(estimate_response.is_ok());
         let estimate_response = estimate_response.unwrap();
-        let result = prepare_swap_liquidswap_generic(request, Some(estimate_response)).await;
+        let result =
+            prepare_swap_liquidswap_generic(&client, request, Some(estimate_response)).await;
         println!("Result: {:?}", result);
         assert!(result.is_ok());
     }

@@ -1,5 +1,6 @@
-use intents_models::network::rate_limit::{
-    RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest,
+use intents_models::network::{
+    client_rate_limit::Client,
+    rate_limit::{RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest},
 };
 use tokio::sync::mpsc;
 
@@ -23,11 +24,13 @@ pub type ThrottledParaswapSender =
 #[derive(Debug)]
 pub enum ParaswapThrottledRequest {
     Estimate {
+        client: reqwest::Client,
         request: GenericEstimateRequest,
         src_token_decimals: u8,
         dst_token_decimals: u8,
     },
     Swap {
+        client: reqwest::Client,
         generic_swap_request: GenericSwapRequest,
         src_decimals: u8,
         dest_decimals: u8,
@@ -69,24 +72,32 @@ pub async fn handle_paraswap_throttled_request(
 ) -> Result<ParaswapThrottledResponse, Error> {
     match request {
         ParaswapThrottledRequest::Estimate {
+            client,
             request,
             src_token_decimals,
             dst_token_decimals,
         } => {
-            match estimate_swap_paraswap_generic(request, src_token_decimals, dst_token_decimals)
-                .await
+            match estimate_swap_paraswap_generic(
+                &Client::Unrestricted(client),
+                request,
+                src_token_decimals,
+                dst_token_decimals,
+            )
+            .await
             {
                 Ok(estimate_response) => Ok(ParaswapThrottledResponse::Estimate(estimate_response)),
                 Err(e) => Err(e.current_context().to_owned()),
             }
         }
         ParaswapThrottledRequest::Swap {
+            client,
             generic_swap_request,
             src_decimals,
             dest_decimals,
             estimate_response,
         } => {
             match prepare_swap_paraswap_generic(
+                &Client::Unrestricted(client),
                 generic_swap_request,
                 src_decimals,
                 dest_decimals,

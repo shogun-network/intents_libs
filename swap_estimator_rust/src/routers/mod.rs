@@ -11,14 +11,7 @@ pub mod zero_x;
 
 use crate::error::EstimatorResult;
 use intents_models::constants::chains::ChainId;
-use lazy_static::lazy_static;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-
-lazy_static! {
-    static ref HTTP_CLIENT: Arc<Client> = Arc::new(Client::new());
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Slippage {

@@ -1,5 +1,6 @@
-use intents_models::network::rate_limit::{
-    RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest,
+use intents_models::network::{
+    client_rate_limit::Client,
+    rate_limit::{RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest},
 };
 use tokio::sync::mpsc;
 
@@ -26,10 +27,12 @@ pub type ThrottledRaydiumSender =
 #[derive(Debug)]
 pub enum RaydiumThrottledRequest {
     Estimate {
+        client: reqwest::Client,
         request: RaydiumGetQuoteRequest,
         trade_type: TradeType,
     },
     Swap {
+        client: reqwest::Client,
         request: RaydiumCreateTransactionRequest,
         trade_type: TradeType,
     },
@@ -61,16 +64,23 @@ pub async fn handle_raydium_throttled_request(
 ) -> Result<RaydiumThrottledResponse, Error> {
     match request {
         RaydiumThrottledRequest::Estimate {
+            client,
             request,
             trade_type,
-        } => match raydium_get_price_route(request, trade_type).await {
-            Ok(estimate_response) => Ok(RaydiumThrottledResponse::Estimate(estimate_response)),
-            Err(e) => Err(e.current_context().to_owned()),
-        },
+        } => {
+            match raydium_get_price_route(&Client::Unrestricted(client), request, trade_type).await
+            {
+                Ok(estimate_response) => Ok(RaydiumThrottledResponse::Estimate(estimate_response)),
+                Err(e) => Err(e.current_context().to_owned()),
+            }
+        }
         RaydiumThrottledRequest::Swap {
+            client,
             request,
             trade_type,
-        } => match raydium_create_transaction(request, trade_type).await {
+        } => match raydium_create_transaction(&Client::Unrestricted(client), request, trade_type)
+            .await
+        {
             Ok(swap_response) => Ok(RaydiumThrottledResponse::Swap(swap_response)),
             Err(e) => Err(e.current_context().to_owned()),
         },

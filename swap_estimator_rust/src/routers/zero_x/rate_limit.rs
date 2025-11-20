@@ -1,7 +1,7 @@
-use intents_models::network::rate_limit::{
-    RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest,
+use intents_models::network::{
+    client_rate_limit::Client,
+    rate_limit::{RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest},
 };
-use reqwest::Client;
 use tokio::sync::mpsc;
 
 use crate::{
@@ -26,13 +26,13 @@ pub type ThrottledZeroXSender =
 #[derive(Debug)]
 pub enum ZeroXThrottledRequest {
     Estimate {
-        client: Client,
+        client: reqwest::Client,
         api_key: String,
         estimator_request: GenericEstimateRequest,
         prev_result: Option<ReverseQuoteResult>,
     },
     Swap {
-        client: Client,
+        client: reqwest::Client,
         api_key: String,
         swap_request: GenericSwapRequest,
         prev_result: Option<ReverseQuoteResult>,
@@ -88,7 +88,14 @@ pub async fn handle_zero_x_throttled_request(
             api_key,
             estimator_request,
             prev_result,
-        } => match estimate_swap_zero_x(&client, &api_key, estimator_request, prev_result).await {
+        } => match estimate_swap_zero_x(
+            &Client::Unrestricted(client),
+            &api_key,
+            estimator_request,
+            prev_result,
+        )
+        .await
+        {
             Ok(estimate_response) => Ok(ZeroXThrottledResponse::Estimate(estimate_response)),
             Err(e) => Err(e.current_context().to_owned()),
         },
@@ -101,7 +108,7 @@ pub async fn handle_zero_x_throttled_request(
             tx_origin,
         } => {
             match prepare_swap_zero_x(
-                &client,
+                &Client::Unrestricted(client),
                 &api_key,
                 swap_request,
                 prev_result,
@@ -130,7 +137,7 @@ mod tests {
     use tokio::task::JoinSet;
 
     fn build_estimate_request(chain_id: ChainId, amount: u128) -> ZeroXThrottledRequest {
-        let client = Client::new();
+        let client = reqwest::Client::new();
         let src_token = match chain_id {
             ChainId::Base => "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // USDC Base
             ChainId::Ethereum => "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", // USDC Mainnet
@@ -164,7 +171,7 @@ mod tests {
     }
 
     fn build_swap_request(chain_id: ChainId, amount: u128) -> ZeroXThrottledRequest {
-        let client = Client::new();
+        let client = reqwest::Client::new();
         let src_token = match chain_id {
             ChainId::Base => "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // USDC Base
             ChainId::Ethereum => "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", // USDC Mainnet
