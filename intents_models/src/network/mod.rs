@@ -1,8 +1,60 @@
+pub mod client_rate_limit;
 pub mod http;
 pub mod nats;
+pub mod rate_limit;
+
+use std::{num::NonZeroU32, time::Duration};
+
 use crate::error::{Error, ModelResult};
 use error_stack::report;
 use serde::de::DeserializeOwned;
+
+#[derive(Debug, Clone, Copy)]
+pub enum RateLimitWindow {
+    PerSecond(NonZeroU32),
+    PerMinute(NonZeroU32),
+    Custom { period: Duration },
+}
+
+impl RateLimitWindow {
+    /// - `<n>s` → PerSecond(n)
+    /// - `<n>m` → PerMinute(n)
+    /// - `<n>h` → Custom { period = Duration::from_secs(n * 3600) }
+    /// - `<n>d` → Custom { period = Duration::from_secs(n * 86400) }
+    pub fn from_string(s: &str) -> Option<Self> {
+        if s.is_empty() {
+            return None;
+        }
+
+        let (num_str, unit) = s.split_at(s.len() - 1);
+        let number: u32 = match num_str.parse() {
+            Ok(n) if n > 0 => n,
+            _ => return None,
+        };
+        let nonzero = match NonZeroU32::new(number) {
+            Some(nz) => nz,
+            None => return None,
+        };
+
+        match unit {
+            "s" => Some(RateLimitWindow::PerSecond(nonzero)),
+            "m" => Some(RateLimitWindow::PerMinute(nonzero)),
+            "h" => {
+                let secs = number as u64 * 3600;
+                Some(RateLimitWindow::Custom {
+                    period: Duration::from_secs(secs),
+                })
+            }
+            "d" => {
+                let secs = number as u64 * 86400;
+                Some(RateLimitWindow::Custom {
+                    period: Duration::from_secs(secs),
+                })
+            }
+            _ => None,
+        }
+    }
+}
 
 fn calculate_json_depth(
     data: &[u8],

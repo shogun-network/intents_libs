@@ -16,7 +16,7 @@ use crate::{
         PriceEvent, PriceProvider, TokenId, TokenMetadata, TokenPrice,
         codex::pricing::CodexProvider, estimating::OrderEstimationData,
     },
-    utils::{get_timestamp, number_conversion::u128_to_f64},
+    utils::{get_timestamp, number_conversion::u128_to_f64, uint::mul_div},
 };
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
@@ -350,7 +350,7 @@ impl MonitorManager {
         // Check immediate feasibility
         let estimate_amount_out_calculated = match estimate_amount_out(&pending_swap, &tokens_data)
         {
-            Ok(estimated_amount_out) => {
+            Ok((estimated_amount_out, fulfillment_expenses_in_tokens_out)) => {
                 if let Some(solver_last_bid) = solver_last_bid {
                     // In this case calculate estimated amount out with margin
                     if solver_last_bid >= amount_out {
@@ -363,6 +363,7 @@ impl MonitorManager {
                             solver_last_bid,
                             estimated_amount_out,
                             amount_out,
+                            fulfillment_expenses_in_tokens_out,
                         )?;
                     // dbg!(
                     //     &pending_swap.order_id,
@@ -705,7 +706,7 @@ impl MonitorManager {
                 }
             };
             match estimate_amount_out(&pending_swap, &tokens_data) {
-                Ok(estimated_amount_out) => {
+                Ok((estimated_amount_out, _)) => {
                     tracing::debug!(
                         "Estimated amount out for order_id {}: {}",
                         pending_swap.order_id,
@@ -784,7 +785,7 @@ impl MonitorManager {
     }
 
     async fn remove_order(&mut self, order_id: &str) {
-        tracing::debug!("Removing order_id: {} from monitoring", order_id);
+        // dbg!("Removing order_id: {} from monitoring", order_id);
         // Remove from pending swaps
         if let Some((pending_swap, _)) = self.pending_swaps.remove(order_id) {
             // Remove from orders by deadline
@@ -977,7 +978,7 @@ impl MonitorManager {
 fn estimate_amount_out(
     pending_swap: &PendingSwap,
     coin_cache: &HashMap<TokenId, TokenPrice>,
-) -> EstimatorResult<u128> {
+) -> EstimatorResult<(u128, u128)> {
     let src_chain_data = coin_cache.get(&TokenId::new_for_codex(
         pending_swap.src_chain,
         &pending_swap.token_in,
@@ -1052,9 +1053,12 @@ fn estimate_amount_out(
         // Calculate how many dst tokens can be bought with remaining value
         let total_value = in_usd_value - expenses_usd_value;
         let dst_token_amount_dec = total_value / dst_price;
+        let expenses_in_dest_tokens = expenses_usd_value / dst_price;
 
         // Convert it back to u128 with proper decimals
         let estimated_amount_out = decimal_to_raw(dst_token_amount_dec, dst_data.decimals as i64)?;
+        let fulfillment_expenses_in_tokens_out =
+            decimal_to_raw(expenses_in_dest_tokens, dst_data.decimals as i64)?;
 
         tracing::debug!(
             "Estimated amount out for pending swap {:?}: {}",
@@ -1064,7 +1068,7 @@ fn estimate_amount_out(
 
         // dbg!(&pending_swap.order_id, estimated_amount_out);
 
-        Ok(estimated_amount_out)
+        Ok((estimated_amount_out, fulfillment_expenses_in_tokens_out))
     } else {
         Err(report!(Error::TokenNotFound(format!(
             "Missing token data on monitor for swap: {:?}",
@@ -1103,59 +1107,24 @@ fn required_monitor_estimation_for_solver_fulfillment(
     bid_solver: u128,
     est_monitor: u128,
     min_user: u128,
+    fulfillment_expenses_in_tokens_out: u128,
 ) -> EstimatorResult<u128> {
-    let bid_solver = Decimal::from_u128(bid_solver).ok_or(Error::ParseError)?;
-    let est_monitor = Decimal::from_u128(est_monitor).ok_or(Error::ParseError)?;
-    let min_user = Decimal::from_u128(min_user).ok_or(Error::ParseError)?;
-    // dbg!(min_user, bid_solver, est_monitor);
+    //  required_monitor_est + expenses       est_monitor + expenses
+    // ---------------------------------- = ----------------------------
+    //        min_user + expenses             bid_solver + expenses
 
-    if est_monitor.is_zero() {
+    if est_monitor == 0 {
         return Err(report!(Error::ParseError).attach_printable("Estimated monitor amount is zero"));
     }
 
-    // Observed solver/monitor ratio from the failed bid:
-    // let a_obs = bid_solver / est_monitor;
+    let required_monitor_est = mul_div(
+        min_user + fulfillment_expenses_in_tokens_out,
+        est_monitor + fulfillment_expenses_in_tokens_out,
+        bid_solver + fulfillment_expenses_in_tokens_out,
+        false, // being optimistic
+    )? - fulfillment_expenses_in_tokens_out;
 
-    // if a_obs <= Decimal::ZERO {
-    //     return Err(report!(Error::ParseError)
-    //         .attach_printable("Observed solver/monitor ratio is non-positive"));
-    // }
-
-    // let threshold_low = Decimal::from_str("0.95").change_context(Error::ParseError)?;
-    // let candidate_dec = if a_obs < threshold_low {
-    //     // Simple average method
-    //     let solver_diff = min_user - bid_solver;
-    //     est_monitor + (solver_diff / Decimal::from(5u8))
-    // } else {
-    //     // Porcentage method
-    //     // Lower a_obs margin with 1.0 to get less false negatives
-    //     let lower_a_obs_margin = {
-    //         let diff = (Decimal::ONE - a_obs) / Decimal::from(3u8);
-    //         Decimal::ONE - diff
-    //     };
-    //     let mut m_req = min_user / lower_a_obs_margin;
-    //     if m_req < est_monitor {
-    //         m_req = est_monitor / lower_a_obs_margin;
-    //     }
-    //     m_req
-    // };
-
-    // Doing simpler method for now:
-    // let candidate_dec = {
-    //     // Simple average method
-    //     let solver_diff = min_user - bid_solver;
-    //     est_monitor + (solver_diff / Decimal::from(5u8));
-    // };
-
-    // // More complex method with benevolent margin:
-    let candidate_dec = {
-        let estimated_deviation = (est_monitor - bid_solver) / bid_solver;
-        min_user * (Decimal::ONE + estimated_deviation)
-    };
-
-    // dbg!(candidate_dec);
-
-    Ok(candidate_dec.to_u128().ok_or(Error::ParseError)?)
+    Ok(required_monitor_est)
 }
 
 #[cfg(test)]
@@ -1249,7 +1218,7 @@ mod tests {
         let result = estimate_amount_out(&pending_swap, &coin_cache);
 
         // The swap should be feasible: real_price = 100/50 = 2, expected = 1.9/1 = 1.9
-        assert!(result.unwrap() > 1_900_000);
+        assert!(result.unwrap().0 > 1_900_000);
     }
 
     #[tokio::test]
@@ -1288,7 +1257,7 @@ mod tests {
         let result = estimate_amount_out(&pending_swap, &coin_cache);
 
         // real_price_limit = 50/100 = 0.5
-        assert!(result.unwrap() > 2_000_000_000_000_000_000);
+        assert!(result.unwrap().0 > 2_000_000_000_000_000_000);
     }
 
     #[tokio::test]
@@ -1342,7 +1311,7 @@ mod tests {
         let result = estimate_amount_out(&pending_swap, &coin_cache);
 
         // real_price_limit = 50/100 = 0.5
-        assert!(result.unwrap() < 2_000_000_000_000_000_000);
+        assert!(result.unwrap().0 < 2_000_000_000_000_000_000);
     }
 
     #[tokio::test]
