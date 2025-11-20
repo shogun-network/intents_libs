@@ -1,6 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub mod exact_in_reverse_quoter;
+pub mod json;
 pub mod limit_amount;
 pub mod number_conversion;
 pub mod uint;

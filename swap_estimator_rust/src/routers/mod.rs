@@ -7,6 +7,7 @@ pub mod one_inch;
 pub mod paraswap;
 pub mod raydium;
 pub mod swap;
+pub mod uniswap;
 pub mod zero_x;
 
 use crate::error::EstimatorResult;
@@ -42,6 +43,7 @@ pub enum RouterType {
     Paraswap,
     OneInch,
     ZeroX,
+    Uniswap,
     Liquidswap,
     Jupiter,
     Aftermath,
