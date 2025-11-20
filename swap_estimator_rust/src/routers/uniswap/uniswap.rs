@@ -1,3 +1,4 @@
+use crate::routers::swap::EvmTxData;
 use crate::routers::uniswap::requests::{
     SWAPPER_PLACEHOLDER, UniswapQuoteRequest, UniswapSwapRequest,
 };
@@ -164,11 +165,6 @@ pub async fn quote_uniswap_generic(
     })
 }
 
-// todo test::::
-// todo uniswap: set swapper
-// todo uniswap: set output.recipient
-// todo uniswap: set aggregatedOutputs: recipient
-
 // todo uniswap: set limit amount slippage
 
 pub async fn swap_uniswap_generic(
@@ -236,9 +232,23 @@ pub async fn swap_uniswap_generic(
         generic_swap_request.slippage,
     )?;
 
+    let pre_transactions = if let Some(permit_tx) = quote_response.permit_transaction {
+        Some(vec![EvmTxData {
+            tx_to: permit_tx.to,
+            tx_data: permit_tx.data,
+            tx_value: u128::from_str_radix(permit_tx.value.trim_start_matches("0x"), 16)
+                .change_context(Error::AggregatorError(
+                    "Parsing Uniswap Permit tx msg.value".to_string(),
+                ))?,
+        }])
+    } else {
+        None
+    };
+
     Ok(EvmSwapResponse {
         amount_quote,
         amount_limit,
+        pre_transactions,
         tx_to: swap_response.swap.to,
         tx_data: swap_response.swap.data,
         tx_value: u128::from_str_radix(swap_response.swap.value.trim_start_matches("0x"), 16)

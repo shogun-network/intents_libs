@@ -264,8 +264,9 @@ pub async fn prepare_swap_liquidswap_generic(
     };
 
     Ok(EvmSwapResponse {
-        amount_quote: amount_quote,
-        amount_limit: amount_limit,
+        amount_quote,
+        amount_limit,
+        pre_transactions: None,
         tx_to: route_response.execution.to.clone(),
         tx_data: route_response.execution.calldata,
         tx_value: if use_native_hype { amount_limit } else { 0 },

@@ -30,12 +30,22 @@ pub struct EvmSwapResponse {
     /// Amount IN MAX for exact OUT trade or amount OUT MIN for exact IN trade
     pub amount_limit: u128,
 
+    /// Custom transactions that must be executed before the swap
+    pub pre_transactions: Option<Vec<EvmTxData>>,
     pub tx_to: String,
     pub tx_data: String,
     pub tx_value: u128,
     pub approve_address: Option<String>,
     /// Does not send tokens to required destination. Requires additional transfer
     pub require_transfer: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
+pub struct EvmTxData {
+    pub tx_to: String,
+    pub tx_data: String,
+    pub tx_value: u128,
 }
 
 #[derive(Debug, Copy, Clone)]

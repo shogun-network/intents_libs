@@ -294,6 +294,7 @@ async fn prepare_exact_in_swap_zero_x(
     Ok(EvmSwapResponse {
         amount_quote: amount_out,
         amount_limit,
+        pre_transactions: None,
         tx_to: quote_response.transaction.to.clone(),
         tx_data: quote_response.transaction.data,
         tx_value: decimal_string_to_u128(&quote_response.transaction.value, 0)?,
