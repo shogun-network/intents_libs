@@ -24,6 +24,7 @@ impl CodexChain for ChainId {
             ChainId::Bsc => self as i64,
             ChainId::ArbitrumOne => self as i64,
             ChainId::Optimism => self as i64,
+            ChainId::Monad => self as i64,
             ChainId::Solana => 1399811149,
             ChainId::Sui => self as i64,
             ChainId::HyperEVM => self as i64,

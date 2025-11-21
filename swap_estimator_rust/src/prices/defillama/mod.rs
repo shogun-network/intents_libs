@@ -23,6 +23,7 @@ impl DefiLlamaChain for ChainId {
             ChainId::Bsc => "bsc",
             ChainId::ArbitrumOne => "arbitrum",
             ChainId::Optimism => "optimism",
+            ChainId::Monad => "monad",
             ChainId::Solana => "solana",
             ChainId::Sui => "sui",
             ChainId::HyperEVM => "hyperliquid",
