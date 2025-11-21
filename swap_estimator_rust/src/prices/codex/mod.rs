@@ -38,6 +38,7 @@ impl CodexChain for ChainId {
             56 => Some(ChainId::Bsc),
             42161 => Some(ChainId::ArbitrumOne),
             10 => Some(ChainId::Optimism),
+            143 => Some(ChainId::Monad),
             1399811149 => Some(ChainId::Solana),
             101 => Some(ChainId::Sui),
             999 => Some(ChainId::HyperEVM),
