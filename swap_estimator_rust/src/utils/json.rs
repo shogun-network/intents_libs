@@ -1,4 +1,4 @@
-use serde_json::{Value, Map};
+use serde_json::{Map, Value};
 
 /// Recursively replace all string values equal to `from` with `to`.
 pub fn replace_strings_in_json(mut value: Value, from: &str, to: &str) -> Value {

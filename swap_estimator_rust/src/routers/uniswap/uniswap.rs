@@ -217,8 +217,6 @@ pub async fn swap_uniswap_generic(
 
     let approve_address = quote_response.permit_transaction.clone().map(|tx| tx.to);
 
-    // todo permitApprovalTx
-
     // todo slippage
     // todo uniswap: set limit amount slippage
 
@@ -351,7 +349,7 @@ mod tests {
         let result = swap_result.unwrap();
         assert!(result.approve_address.is_none());
         assert!(result.require_transfer);
-        // todo uniswap: test pre_transactions
+        assert!(result.pre_transactions.is_none());
     }
 
     #[tokio::test]
@@ -377,7 +375,9 @@ mod tests {
         let swap_result = swap_result.unwrap();
         assert!(swap_result.approve_address.is_some());
         assert!(swap_result.require_transfer);
-        // todo uniswap: test pre_transactions
+        assert!(swap_result.pre_transactions.is_some());
+        let pre_transactions = swap_result.pre_transactions.unwrap();
+        assert_eq!(pre_transactions.len(), 1);
     }
 
     #[tokio::test]
@@ -409,7 +409,7 @@ mod tests {
         let result = swap_result.unwrap();
         assert!(result.approve_address.is_none());
         assert!(result.require_transfer);
-        // todo uniswap: test pre_transactions
+        assert!(result.pre_transactions.is_none());
     }
 
     //     #[tokio::test]

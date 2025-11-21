@@ -1,9 +1,9 @@
 use intents_models::constants::chains::is_native_token_evm_address;
 
-pub mod uniswap;
+pub mod rate_limit;
 pub mod requests;
 pub mod responses;
-pub mod rate_limit;
+pub mod uniswap;
 
 pub fn update_uniswap_native_token(token_address: String) -> String {
     if is_native_token_evm_address(&token_address) {
