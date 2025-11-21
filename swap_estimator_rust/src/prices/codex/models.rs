@@ -33,7 +33,7 @@ pub struct TrendingTokenData {
     #[serde(rename = "marketCap")]
     pub market_cap: String,
     pub liquidity: String, // Quoted number
-    pub holders: u64,
+    pub holders: i64,
     #[serde(rename = "volume24")]
     pub volume_24: String, // Quoted number
     #[serde(rename = "walletAgeAvg")]

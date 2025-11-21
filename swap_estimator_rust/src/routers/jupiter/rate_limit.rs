@@ -2,14 +2,16 @@ use intents_models::network::{
     client_rate_limit::Client,
     rate_limit::{RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest},
 };
+use serde_json::Value;
 use tokio::sync::mpsc;
 
 use crate::{
     error::Error,
     routers::{
         estimate::{GenericEstimateRequest, GenericEstimateResponse},
-        jupiter::jupiter::{
-            JupiterSwapResponse, QuoteResponse, get_jupiter_quote, get_jupiter_transaction,
+        jupiter::{
+            jupiter::{get_jupiter_quote, get_jupiter_transaction},
+            models::JupiterSwapResponse,
         },
         swap::{GenericSwapRequest, SolanaPriorityFeeType},
     },
@@ -34,7 +36,7 @@ pub enum JupiterThrottledRequest {
     Swap {
         client: reqwest::Client,
         generic_swap_request: GenericSwapRequest,
-        quote: QuoteResponse,
+        quote: Value,
         jupiter_url: String,
         jupiter_api_key: Option<String>,
         priority_fee: Option<SolanaPriorityFeeType>,
@@ -59,7 +61,7 @@ impl RateLimitedRequest for JupiterThrottledRequest {
 
 #[derive(Debug)]
 pub enum JupiterThrottledResponse {
-    Estimate(GenericEstimateResponse, QuoteResponse),
+    Estimate(GenericEstimateResponse, Value),
     Swap(JupiterSwapResponse),
 }
 

@@ -282,7 +282,7 @@ mod tests {
     async fn test_zero_x_rate_limit_single_client_twenty_requests_limit_fifteen() {
         dotenv::dotenv().ok();
 
-        let rl_window = RateLimitWindow::PerSecond(NonZeroU32::new(100).unwrap());
+        let rl_window = RateLimitWindow::PerSecond(NonZeroU32::new(25).unwrap());
         let queue_capacity = 10000;
 
         let client = Arc::new(ThrottledZeroXClient::new(
@@ -295,7 +295,7 @@ mod tests {
         let mut join_set = JoinSet::new();
 
         // 20 concurrent requests on a single client
-        for i in 0..300 {
+        for i in 0..1000 {
             let client = Arc::clone(&client);
             let req = build_swap_request(ChainId::Base, 1_000_000u128 + i);
             join_set.spawn(async move { client.send(req).await });

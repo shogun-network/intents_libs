@@ -1,6 +1,7 @@
 use crate::error::{Error, EstimatorResult};
 use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType};
 use crate::routers::jupiter::get_jupiter_max_slippage;
+use crate::routers::jupiter::models::{JupiterSwapResponse, QuoteResponse, SwapMode};
 use crate::routers::swap::{GenericSwapRequest, SolanaPriorityFeeType};
 use crate::routers::{RouterType, Slippage};
 use crate::utils::number_conversion::slippage_to_bps;
@@ -10,109 +11,8 @@ use intents_models::constants::chains::{
 };
 use intents_models::network::client_rate_limit::Client;
 use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::collections::HashMap;
+use serde_json::{Value, json};
 use std::str::FromStr;
-
-// QUOTE
-#[allow(non_snake_case)]
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct SwapInfo {
-    ammKey: String,
-    label: String,
-    inputMint: String,
-    outputMint: String,
-    inAmount: String,
-    outAmount: String,
-    feeAmount: String,
-    feeMint: String,
-}
-
-#[allow(non_snake_case)]
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct RoutePlan {
-    swapInfo: SwapInfo,
-    percent: u64,
-    bps: Option<u64>,
-}
-
-#[allow(non_snake_case)]
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct QuoteResponse {
-    pub inputMint: String,
-    pub inAmount: String,
-    pub outputMint: String,
-    pub outAmount: String,
-    pub otherAmountThreshold: String,
-    pub swapMode: String,
-    pub slippageBps: u64,
-    pub platformFee: Option<String>,
-    pub priceImpactPct: String,
-    pub routePlan: Vec<RoutePlan>,
-    pub contextSlot: u64,
-    pub timeTaken: f64,
-    pub swapUsdValue: Option<String>,
-    pub simplerRouteUsed: Option<bool>,
-    pub mostReliableAmmsQuoteReport: Option<MostReliableAmmsQuoteReportInfo>,
-    pub useIncurredSlippageForQuoting: Option<bool>,
-    pub otherRoutePlans: Option<Vec<RoutePlan>>,
-    pub loadedLongtailToken: Option<bool>,
-    pub instructionVersion: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MostReliableAmmsQuoteReportInfo {
-    pub info: HashMap<String, String>,
-}
-
-impl Default for QuoteResponse {
-    fn default() -> Self {
-        QuoteResponse {
-            inputMint: String::new(),
-            inAmount: String::new(),
-            outputMint: String::new(),
-            outAmount: String::new(),
-            otherAmountThreshold: String::new(),
-            swapMode: String::new(),
-            slippageBps: 0,
-            platformFee: None,
-            priceImpactPct: String::new(),
-            routePlan: Vec::new(),
-            contextSlot: 0,
-            timeTaken: 0.0,
-            swapUsdValue: None,
-            simplerRouteUsed: None,
-            mostReliableAmmsQuoteReport: None,
-            useIncurredSlippageForQuoting: None,
-            otherRoutePlans: None,
-            loadedLongtailToken: None,
-            instructionVersion: None,
-        }
-    }
-}
-
-#[allow(non_snake_case)]
-#[derive(Deserialize, Debug)]
-pub struct JupiterSwapResponse {
-    pub swapTransaction: String,
-    pub computeUnitLimit: u32,
-}
-
-#[derive(Debug)]
-pub enum SwapMode {
-    ExactIn,
-    ExactOut,
-}
-
-impl SwapMode {
-    fn as_str(&self) -> &'static str {
-        match self {
-            SwapMode::ExactIn => "ExactIn",
-            SwapMode::ExactOut => "ExactOut",
-        }
-    }
-}
 
 /// Replaces native Sol with wSol address
 pub fn get_jupiter_token_mint(token_mint: &str) -> String {
@@ -133,7 +33,7 @@ pub async fn get_jupiter_quote(
     generic_solana_estimate_request: &GenericEstimateRequest,
     jupiter_url: &str,
     jupiter_api_key: Option<String>,
-) -> EstimatorResult<(GenericEstimateResponse, QuoteResponse)> {
+) -> EstimatorResult<(GenericEstimateResponse, Value)> {
     let slippage_bps = match generic_solana_estimate_request.slippage {
         Slippage::Percent(percent) => slippage_to_bps(percent)?,
         Slippage::AmountLimit {
@@ -169,16 +69,16 @@ pub async fn get_jupiter_quote(
             .attach_printable("Error building Jupiter request")?
     };
 
-    let response = client
+    let response: Value = client
         .execute(request)
         .await
         .change_context(Error::ReqwestError)?
-        .text()
+        .json()
         .await
         .change_context(Error::Unknown)
         .attach_printable("Failed to get text from Jupiter quote response")?;
 
-    let quote: QuoteResponse = match serde_json::from_str(&response) {
+    let quote: QuoteResponse = match serde_json::from_value(response.clone()) {
         Ok(quote) => quote,
         Err(error) => {
             tracing::error!(
@@ -205,18 +105,16 @@ pub async fn get_jupiter_quote(
             Error::SerdeSerialize("Error serializing Jupiter quote response".to_string()),
         )?,
         router: RouterType::Jupiter,
-        router_data: serde_json::to_value(&quote).change_context(Error::SerdeSerialize(
-            "Error serializing Jupiter quote response".to_string(),
-        ))?,
+        router_data: response.clone(),
     };
 
-    Ok((generic_response, quote))
+    Ok((generic_response, response))
 }
 
 pub async fn get_jupiter_transaction(
     client: &Client,
     generic_swap_request: GenericSwapRequest,
-    quote: QuoteResponse,
+    quote: Value,
     jupiter_url: &str,
     jupiter_api_key: Option<String>,
     priority_fee: Option<SolanaPriorityFeeType>,
@@ -285,6 +183,7 @@ pub async fn get_jupiter_transaction(
 #[cfg(test)]
 mod tests {
     use intents_models::constants::chains::ChainId;
+    use serde_json::Number;
 
     use super::*;
 
@@ -412,6 +311,58 @@ mod tests {
         println!("Jupiter Swap Transaction: {:?}", jupiter_tx);
     }
 
+    fn increase_jupiter_quote_slippage(
+        quote: &mut Value,
+        extra_slippage_percent: f64,
+    ) -> EstimatorResult<()> {
+        if extra_slippage_percent < 0.0 {
+            return Err(report!(Error::Unknown)
+                .attach_printable("extra_slippage_percent cannot be negative"));
+        }
+        let out_amount_str = quote
+            .get("outAmount")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                report!(Error::SerdeDeserialize(
+                    "outAmount missing or not string".to_string()
+                ))
+            })?;
+        let threshold_str = quote
+            .get("otherAmountThreshold")
+            .and_then(Value::as_str)
+            .ok_or_else(|| {
+                report!(Error::SerdeDeserialize(
+                    "otherAmountThreshold missing or not string".to_string()
+                ))
+            })?;
+        let out_amount = u128::from_str(out_amount_str).change_context(Error::SerdeDeserialize(
+            "Failed parsing outAmount".to_string(),
+        ))?;
+        let current_threshold = u128::from_str(threshold_str).change_context(
+            Error::SerdeDeserialize("Failed parsing otherAmountThreshold".to_string()),
+        )?;
+
+        if out_amount == 0 {
+            return Err(report!(Error::Unknown).attach_printable("outAmount must be > 0"));
+        }
+
+        let current_slippage = 100.0 - (current_threshold as f64 * 100.0 / out_amount as f64);
+        let mut new_slippage = current_slippage + extra_slippage_percent;
+        if new_slippage >= 99.999 {
+            // Clamp to avoid degenerate threshold
+            new_slippage = 99.999;
+        }
+
+        let new_threshold = ((out_amount as f64) * (100.0 - new_slippage) / 100.0).round() as u128;
+
+        let slippage_bps = ((out_amount - new_threshold) as u128 * 10_000 / out_amount) as u64;
+
+        quote["otherAmountThreshold"] = Value::String(new_threshold.to_string());
+        quote["slippageBps"] = Value::Number(Number::from(slippage_bps));
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_get_jupiter_modified_transaction() {
         dotenv::dotenv().ok();
@@ -420,19 +371,31 @@ mod tests {
             chain_id: ChainId::Solana,
             src_token: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
             dest_token: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
-            amount_fixed: 1000000,
+            amount_fixed: 1_000_000,
             slippage: Slippage::Percent(5.0),
         };
-
         let client = Client::Unrestricted(reqwest::Client::new());
         let jupiter_url = std::env::var("JUPITER_URL").unwrap();
 
-        let (response, mut quote) = get_jupiter_quote(&client, &request, &jupiter_url, None)
+        let (_est, mut quote) = get_jupiter_quote(&client, &request, &jupiter_url, None)
             .await
-            .unwrap();
-        println!("Generic Response: {:#?}", response);
-        println!("Jupiter Quote: {:#?}", quote);
-        let new_slippage = request.slippage;
+            .expect("Initial quote failed");
+        // Increase slippage by +25%
+        increase_jupiter_quote_slippage(&mut quote, 25.0).expect("Failed to increase slippage");
+
+        // Basic sanity checks after modification
+        let out_amount = u128::from_str(quote.get("outAmount").unwrap().as_str().unwrap()).unwrap();
+        let new_threshold =
+            u128::from_str(quote.get("otherAmountThreshold").unwrap().as_str().unwrap()).unwrap();
+        let new_slippage_bps = quote.get("slippageBps").unwrap().as_u64().unwrap();
+        assert!(new_threshold < out_amount, "Threshold must be < outAmount");
+        let computed_bps = (out_amount - new_threshold) * 10_000 / out_amount;
+        assert_eq!(
+            computed_bps as u64, new_slippage_bps,
+            "slippageBps mismatch"
+        );
+
+        // Use modified quote for transaction
         let swap_request = GenericSwapRequest {
             trade_type: TradeType::ExactIn,
             chain_id: ChainId::Solana,
@@ -440,51 +403,13 @@ mod tests {
             dest_address: "G22xmTDQHKnn9TiVbqgLAiBhoVPdhL1A3NqMELWYBGXa".to_string(),
             src_token: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
             dest_token: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
-            amount_fixed: 1000000,
-            slippage: new_slippage,
+            amount_fixed: 1_000_000,
+            slippage: Slippage::Percent(30.0), // 5% original + 25% extra
         };
-        let client = Client::Unrestricted(reqwest::Client::new());
-        let jupiter_tx = get_jupiter_transaction(
-            &client,
-            swap_request,
-            quote.clone(),
-            &jupiter_url,
-            None,
-            None,
-            None,
-        )
-        .await
-        .expect("Jupiter swap transaction failed");
-        println!("Jupiter Swap Transaction: {:#?}", jupiter_tx);
-
-        // Calculate a new otherAmountThreshold with 25% more slippage
-        println!("PREVIOUS QUOTE: {:#?}", quote);
-        let new_slippage = 5.0 + 25.0;
-        let new_other_amount_threshold = (u128::from_str(&quote.outAmount).unwrap() as f64
-            * (100.0 - new_slippage)
-            / 100.0) as u128;
-        let out_amount = u128::from_str(&quote.outAmount).unwrap();
-        let amount_out_min = out_amount * 90 / 100;
-        quote.otherAmountThreshold = new_other_amount_threshold.to_string();
-        quote.slippageBps = ((out_amount - amount_out_min) * 10_000 / out_amount - 1) as u64;
-        println!("NEW QUOTE: {:#?}", quote);
-
-        let swap_request = GenericSwapRequest {
-            trade_type: TradeType::ExactIn,
-            chain_id: ChainId::Solana,
-            spender: "7kDXEH3xPS5TvScR1czWvSCJMaeHHB9693mWTrdTRQVB".to_string(),
-            dest_address: "G22xmTDQHKnn9TiVbqgLAiBhoVPdhL1A3NqMELWYBGXa".to_string(),
-            src_token: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
-            dest_token: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263".to_string(),
-            amount_fixed: 1000000,
-            slippage: Slippage::Percent(new_slippage),
-        };
-
-        let client = Client::Unrestricted(reqwest::Client::new());
-        let jupiter_tx =
+        let tx =
             get_jupiter_transaction(&client, swap_request, quote, &jupiter_url, None, None, None)
                 .await
-                .expect("Jupiter swap transaction failed");
-        println!("Jupiter Swap Transaction MODIFIED: {:#?}", jupiter_tx);
+                .expect("Modified transaction failed");
+        println!("Modified Jupiter TX: {:#?}", tx);
     }
 }

@@ -437,4 +437,44 @@ mod tests {
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
     }
+
+    #[tokio::test]
+    async fn test_zero_x_swap_exact_in_zora() {
+        dotenv::dotenv().ok();
+
+        let zero_x_api_key = std::env::var("ZERO_X_API_KEY").expect("ZERO_X_API_KEY must be set");
+        let chain_id = ChainId::Base;
+        let src_token = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE".to_string();
+        let dest_token = "0x273d17f5301721fba881b495729393351181fae7".to_string();
+        let request = GenericSwapRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id,
+            spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
+            dest_address: "0x4E28f22DE1DBDe92310db2779217a74607691038".to_string(),
+            src_token,
+            dest_token,
+            amount_fixed: 10_000_000_000_000u128,
+            slippage: Slippage::Percent(2.0),
+        };
+
+        let client = Client::Unrestricted(reqwest::Client::new());
+
+        let generic_estimate_request = GenericEstimateRequest::from(request.clone());
+        let result =
+            estimate_swap_zero_x(&client, &zero_x_api_key, generic_estimate_request, None).await;
+        println!("Result: {:#?}", result);
+        assert!(
+            result.is_ok(),
+            "Expected a successful estimate swap response"
+        );
+        println!("Result: {:#?}", result);
+        let prev_res: Option<ReverseQuoteResult> =
+            serde_json::from_value(result.unwrap().router_data).unwrap();
+        assert!(prev_res.is_none());
+
+        let result =
+            prepare_swap_zero_x(&client, &zero_x_api_key, request, prev_res, None, None).await;
+        println!("Result: {:#?}", result);
+        assert!(result.is_ok());
+    }
 }
