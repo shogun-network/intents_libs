@@ -43,7 +43,7 @@ pub struct MonitorManager {
     pub alert_sender: tokio::sync::broadcast::Sender<MonitorAlert>,
     pub coin_cache: HashMap<TokenId, TokenPrice>,
     pub pending_swaps: HashMap<String, (PendingSwap, Option<u128>)>, // OrderId to pending swap and optionally, estimated amount out calculated
-    pub swaps_by_token: HashMap<TokenId, HashSet<String>>,           // TokenId to OrderIds
+    pub swaps_by_token: HashMap<TokenId, Vec<String>>,               // TokenId to OrderIds
     pub token_metadata: HashMap<TokenId, TokenMetadata>,
     pub codex_provider: CodexProvider,
     pub polling_mode: (bool, u64),
@@ -454,13 +454,13 @@ impl MonitorManager {
 
         self.swaps_by_token
             .entry(token_in_id)
-            .or_insert_with(HashSet::new)
-            .insert(order_id.clone());
+            .or_insert_with(Vec::new)
+            .push(order_id.clone());
 
         self.swaps_by_token
             .entry(token_out_id)
-            .or_insert_with(HashSet::new)
-            .insert(order_id.clone());
+            .or_insert_with(Vec::new)
+            .push(order_id.clone());
 
         self.pending_swaps.insert(
             order_id.clone(),
@@ -657,15 +657,15 @@ impl MonitorManager {
     async fn check_impacted_orders(&mut self, token: TokenId) {
         tracing::debug!("Checking impacted orders for token: {:?}", token);
         // Orders which have this token
-        let impacted_orders: HashSet<String> =
-            self.swaps_by_token.get(&token).cloned().unwrap_or_default();
-        if impacted_orders.is_empty() {
+        let Some(impacted_orders) = self.swaps_by_token.remove(&token) else {
+            tracing::debug!("No impacted orders for token: {:?}", token);
             return;
-        }
+        };
 
         let current_timestamp = get_timestamp();
         // Get the swap data of these orders
         let mut subset: Vec<(PendingSwap, Option<u128>)> = Vec::new();
+        let mut remaining_orders: Vec<String> = Vec::new();
         for order_id in impacted_orders.iter() {
             if let Some(ps) = self.pending_swaps.get(order_id).cloned() {
                 // Skip expired orders
@@ -702,6 +702,7 @@ impl MonitorManager {
                         pending_swap.order_id,
                         error
                     );
+                    remaining_orders.push(pending_swap.order_id.clone());
                     continue;
                 }
             };
@@ -743,10 +744,14 @@ impl MonitorManager {
                                 e
                             );
                             // Do not remove the swap if we failed to send alert
+                            remaining_orders.push(pending_swap.order_id.clone());
                             continue;
                         }
                         // Remove from pending swaps and every other data structure
                         self.remove_order(&pending_swap.order_id).await;
+                    } else {
+                        // Still not feasible, keep monitoring
+                        remaining_orders.push(pending_swap.order_id.clone());
                     }
                 }
                 Err(error) => {
@@ -758,6 +763,9 @@ impl MonitorManager {
                 }
             }
         }
+
+        // Re-insert remaining orders back into the map
+        self.swaps_by_token.insert(token, remaining_orders);
     }
 
     fn update_cache(&mut self, tokens_data: HashMap<TokenId, TokenPrice>) -> HashSet<TokenId> {
@@ -796,24 +804,24 @@ impl MonitorManager {
                 }
             }
             // Detach from token->orders map and unsubscribe if needed
-            let t_in = TokenId::new_for_codex(pending_swap.src_chain, &pending_swap.token_in);
-            let t_out = TokenId::new_for_codex(pending_swap.dst_chain, &pending_swap.token_out);
-            self.detach_order_from_token(&t_in, &pending_swap.order_id);
-            self.detach_order_from_token(&t_out, &pending_swap.order_id);
-            for token in pending_swap.extra_expenses.keys() {
-                self.detach_order_from_token(token, &pending_swap.order_id);
-            }
+            // let t_in = TokenId::new_for_codex(pending_swap.src_chain, &pending_swap.token_in);
+            // let t_out = TokenId::new_for_codex(pending_swap.dst_chain, &pending_swap.token_out);
+            // self.detach_order_from_token(&t_in, &pending_swap.order_id);
+            // self.detach_order_from_token(&t_out, &pending_swap.order_id);
+            // for token in pending_swap.extra_expenses.keys() {
+            //     self.detach_order_from_token(token, &pending_swap.order_id);
+            // }
         }
     }
 
-    fn detach_order_from_token(&mut self, token: &TokenId, order_id: &str) {
-        if let Some(set) = self.swaps_by_token.get_mut(token) {
-            set.remove(order_id);
-            if set.is_empty() {
-                self.swaps_by_token.remove(token);
-            }
-        }
-    }
+    // fn detach_order_from_token(&mut self, token: &TokenId, order_id: &str) {
+    //     if let Some(set) = self.swaps_by_token.get_mut(token) {
+    //         set.remove(order_id);
+    //         if set.is_empty() {
+    //             self.swaps_by_token.remove(token);
+    //         }
+    //     }
+    // }
 
     async fn get_tokens_data(
         &self,

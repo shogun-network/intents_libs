@@ -1,5 +1,6 @@
-use intents_models::network::rate_limit::{
-    RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest,
+use intents_models::network::{
+    client_rate_limit::Client,
+    rate_limit::{RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest},
 };
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -25,9 +26,11 @@ pub type ThrottledAftermathSender = mpsc::Sender<
 #[derive(Debug)]
 pub enum AftermathThrottledRequest {
     Estimate {
+        client: reqwest::Client,
         generic_estimate_request: GenericEstimateRequest,
     },
     Swap {
+        client: reqwest::Client,
         generic_swap_request: GenericSwapRequest,
         routes_value: Value,
         serialized_tx_and_coin_id: Option<(Value, Value)>,
@@ -61,18 +64,23 @@ pub async fn handle_aftermath_throttled_request(
 ) -> Result<AftermathThrottledResponse, Error> {
     match request {
         AftermathThrottledRequest::Estimate {
+            client,
             generic_estimate_request,
-        } => match quote_aftermath_swap(generic_estimate_request).await {
+        } => match quote_aftermath_swap(&Client::Unrestricted(client), generic_estimate_request)
+            .await
+        {
             Ok(estimate_response) => Ok(AftermathThrottledResponse::Estimate(estimate_response)),
             Err(e) => Err(e.current_context().to_owned()),
         },
         AftermathThrottledRequest::Swap {
+            client,
             amount_estimated,
             generic_swap_request,
             routes_value,
             serialized_tx_and_coin_id,
         } => {
             match prepare_swap_ptb_with_aftermath(
+                &Client::Unrestricted(client),
                 generic_swap_request,
                 routes_value,
                 serialized_tx_and_coin_id,

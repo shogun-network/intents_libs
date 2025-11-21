@@ -10,20 +10,20 @@ use crate::{
     routers::{estimate::TradeType, raydium::requests::RaydiumGetQuoteRequest},
 };
 use error_stack::{ResultExt, report};
+use intents_models::network::client_rate_limit::Client;
 use intents_models::network::http::{handle_reqwest_response, value_to_sorted_querystring};
-use lazy_static::lazy_static;
-use reqwest::Client;
 use serde_json::Value;
-use std::sync::Arc;
 
-lazy_static! {
-    static ref HTTP_CLIENT: Arc<Client> = Arc::new(Client::new());
-}
-
-pub async fn raydium_get_priority_fee() -> EstimatorResult<PriorityFeeResponse> {
-    let response = HTTP_CLIENT
+pub async fn raydium_get_priority_fee(client: &Client) -> EstimatorResult<PriorityFeeResponse> {
+    let request = client
+        .inner_client()
         .get(PRIORITY_FEE)
-        .send()
+        .build()
+        .change_context(Error::ReqwestError)
+        .attach_printable("Error building Raydium request")?;
+
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)
         .attach_printable("Error sending request to Raydium API for priority fee")?;
@@ -36,6 +36,7 @@ pub async fn raydium_get_priority_fee() -> EstimatorResult<PriorityFeeResponse> 
 }
 
 pub async fn raydium_get_price_route(
+    client: &Client,
     request: RaydiumGetQuoteRequest,
     trade_type: TradeType,
 ) -> EstimatorResult<RaydiumResponse> {
@@ -52,9 +53,15 @@ pub async fn raydium_get_price_route(
     .attach_printable("Error creating query string")?;
     let url = format!("{}/compute/{}?{}", SWAP_API_URL, swap_type_uri, query);
 
-    let response = HTTP_CLIENT
+    let request = client
+        .inner_client()
         .get(&url)
-        .send()
+        .build()
+        .change_context(Error::ReqwestError)
+        .attach_printable("Error building Raydium request")?;
+
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)
         .attach_printable("Error sending request to Raydium API")?;
@@ -84,6 +91,7 @@ pub fn raydium_get_price_route_from_swap_response(
 }
 
 pub async fn raydium_create_transaction(
+    client: &Client,
     request: RaydiumCreateTransactionRequest,
     trade_type: TradeType,
 ) -> EstimatorResult<Vec<Transaction>> {
@@ -93,10 +101,16 @@ pub async fn raydium_create_transaction(
     };
     let url = format!("{}/transaction/{}", SWAP_API_URL, swap_type_uri);
 
-    let response = HTTP_CLIENT
+    let request = client
+        .inner_client()
         .post(&url)
         .json(&request)
-        .send()
+        .build()
+        .change_context(Error::ReqwestError)
+        .attach_printable("Error building Raydium request")?;
+
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)
         .attach_printable("Error sending request to Raydium API")?;
@@ -117,14 +131,23 @@ pub async fn raydium_create_transaction(
     Ok(transaction_response)
 }
 
-pub async fn raydium_get_pools_info(pool_ids: Vec<String>) -> EstimatorResult<Vec<Pool>> {
+pub async fn raydium_get_pools_info(
+    client: &Client,
+    pool_ids: Vec<String>,
+) -> EstimatorResult<Vec<Pool>> {
     let url = format!("{BASE_HOST_URL}/pools/key/ids");
 
     let pool_ids_join = pool_ids.join(",");
 
-    let response = HTTP_CLIENT
+    let request = client
+        .inner_client()
         .get(format!("{url}?ids={pool_ids_join}"))
-        .send()
+        .build()
+        .change_context(Error::ReqwestError)
+        .attach_printable("Error building Raydium request")?;
+
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)
         .attach_printable("Error sending request to Raydium API")?;
@@ -165,7 +188,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_raydium_get_priority_fee() {
-        let result = raydium_get_priority_fee().await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = raydium_get_priority_fee(&client).await;
         println!("{:?}", result);
         assert!(result.is_ok());
     }
@@ -181,7 +205,8 @@ mod tests {
         };
         let trade_type = TradeType::ExactIn;
 
-        let result = raydium_get_price_route(request, trade_type).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = raydium_get_price_route(&client, request, trade_type).await;
 
         println!("{:?}", result);
         assert!(result.is_ok());
@@ -199,7 +224,8 @@ mod tests {
         };
         let trade_type = TradeType::ExactIn;
 
-        let result = raydium_get_price_route(request, trade_type).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = raydium_get_price_route(&client, request, trade_type).await;
 
         println!("{:?}", result);
         assert!(result.is_ok());
@@ -215,7 +241,8 @@ mod tests {
             wallet: "7kDXEH3xPS5TvScR1czWvSCJMaeHHB9693mWTrdTRQVB".to_string(),
         };
 
-        let result = raydium_create_transaction(request, trade_type).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = raydium_create_transaction(&client, request, trade_type).await;
 
         println!("{:?}", result);
         assert!(result.is_ok());
@@ -233,7 +260,8 @@ mod tests {
         };
         let trade_type = TradeType::ExactIn;
 
-        let result = raydium_get_price_route(request, trade_type).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = raydium_get_price_route(&client, request, trade_type).await;
 
         println!("{:?}", result);
         assert!(result.is_ok());
@@ -249,7 +277,8 @@ mod tests {
             wallet: "7kDXEH3xPS5TvScR1czWvSCJMaeHHB9693mWTrdTRQVB".to_string(),
         };
 
-        let result = raydium_create_transaction(request, trade_type).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = raydium_create_transaction(&client, request, trade_type).await;
 
         println!("{:?}", result);
         assert!(result.is_ok());
@@ -262,7 +291,8 @@ mod tests {
             "3KzeAMn3S3RNgdLpr1nwVMdZ1E1Cq4QAv2UadQuKKZiP".to_string(),
         ];
 
-        let result = raydium_get_pools_info(pool_ids).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = raydium_get_pools_info(&client, pool_ids).await;
 
         assert!(result.is_ok());
         println!(
