@@ -3,11 +3,12 @@ use futures_util::future;
 use intents_models::constants::chains::ChainId;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    sync::Arc,
     time::Duration,
     u64,
 };
 use strum::IntoEnumIterator;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::{RwLock, mpsc::Receiver};
 
 use crate::{
     error::{Error, EstimatorResult},
@@ -48,6 +49,7 @@ pub struct MonitorManager {
     pub codex_provider: CodexProvider,
     pub polling_mode: (bool, u64),
     pub orders_by_deadline: BTreeMap<u64, HashSet<String>>, // deadline timestamp to OrderIds
+    pub codex_http_requests: Arc<RwLock<u64>>,
 }
 
 impl MonitorManager {
@@ -69,6 +71,7 @@ impl MonitorManager {
             codex_provider,
             polling_mode,
             orders_by_deadline: BTreeMap::new(),
+            codex_http_requests: Arc::new(RwLock::new(0)),
         }
     }
 
@@ -84,13 +87,13 @@ impl MonitorManager {
             }
         }
 
-        let mut codex_rx_opt = match self.codex_provider.subscribe_events().await {
-            Ok(rx) => rx,
-            Err(err) => {
-                tracing::error!("Failed to subscribe Codex price events: {:?}", err);
-                return Err(err);
-            }
-        };
+        // let mut codex_rx_opt = match self.codex_provider.subscribe_events().await {
+        //     Ok(rx) => rx,
+        //     Err(err) => {
+        //         tracing::error!("Failed to subscribe Codex price events: {:?}", err);
+        //         return Err(err);
+        //     }
+        // };
 
         let mut unsubscriptions_interval = tokio::time::interval(Duration::from_secs(60));
         let mut polling_interval =
@@ -157,6 +160,7 @@ impl MonitorManager {
                 }
                 // Polling interval
                 _ = polling_interval.tick(), if self.polling_mode.0 => {
+                    tracing::info!("Current Codex HTTP requests in total: {}", *self.codex_http_requests.read().await);
                     tracing::debug!("Polling price updates for pending orders");
                     // Get all tokens needed to estimate pending swaps
                     let mut tokens_to_fetch: HashSet<TokenId> = self
@@ -188,23 +192,23 @@ impl MonitorManager {
                     }
                 }
                 // Codex update price event
-                evt = codex_rx_opt.recv() => {
-                    tracing::trace!("Received Codex price event: {:?}", evt);
-                    match evt {
-                        Ok(event) => {
-                            self.on_price_event(event).await;
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                            tracing::warn!("Lagged on Codex price events; skipping to latest");
-                            continue;
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                            tracing::error!("Codex price events channel closed");
-                            return Err(report!(Error::Unknown)
-                                .attach_printable("Codex price events receiver closed"));
-                        }
-                    }
-                }
+                // evt = codex_rx_opt.recv() => {
+                //     tracing::trace!("Received Codex price event: {:?}", evt);
+                //     match evt {
+                //         Ok(event) => {
+                //             self.on_price_event(event).await;
+                //         }
+                //         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                //             tracing::warn!("Lagged on Codex price events; skipping to latest");
+                //             continue;
+                //         }
+                //         Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                //             tracing::error!("Codex price events channel closed");
+                //             return Err(report!(Error::Unknown)
+                //                 .attach_printable("Codex price events receiver closed"));
+                //         }
+                //     }
+                // }
                 request = self.receiver.recv() => {
                     match request {
                         Some(request) => {
@@ -543,11 +547,11 @@ impl MonitorManager {
         tracing::debug!("Fetched tokens data from Codex: {:?}", fetched_by_codex);
 
         // Subscribe to live updates (by CODEX id)
-        if !self.polling_mode.0 {
-            for token in tokens_not_in_cache {
-                self.codex_provider.subscribe_to_token(token).await?;
-            }
-        }
+        // if !self.polling_mode.0 {
+        //     for token in tokens_not_in_cache {
+        //         self.codex_provider.subscribe_to_token(token).await?;
+        //     }
+        // }
 
         // Update coin cache (by CODEX id)
         for (codex_id, token_price) in fetched_by_codex.iter() {
@@ -831,6 +835,7 @@ impl MonitorManager {
         let mut orig_to_codex: Vec<(TokenId, TokenId)> = Vec::new();
         let mut codex_set: HashSet<TokenId> = HashSet::new();
 
+        let estimated_codex_api_requests = (token_ids.len() as f64 / 25.0_f64).ceil() as u64;
         for orig in token_ids.into_iter() {
             let codex = TokenId::new_for_codex(orig.chain.clone(), &orig.address);
             orig_to_codex.push((orig, codex.clone()));
@@ -849,6 +854,9 @@ impl MonitorManager {
 
         // Fire all batch requests in parallel
         let provider = &self.codex_provider;
+        {
+            *self.codex_http_requests.write().await += estimated_codex_api_requests;
+        }
         let fetches = batches.into_iter().map(|batch| {
             // each future captures provider by shared reference
             async move {
@@ -907,6 +915,10 @@ impl MonitorManager {
 
         // Fire all batch requests in parallel
         let provider = &self.codex_provider;
+        let estimated_codex_api_requests = (token_ids.len() as f64 / 25.0_f64).ceil() as u64;
+        {
+            *self.codex_http_requests.write().await += estimated_codex_api_requests;
+        }
         let fetches = batches.into_iter().map(|batch| {
             // each future captures provider by shared reference
             async move { provider.fetch_token_metadata(&batch).await }
