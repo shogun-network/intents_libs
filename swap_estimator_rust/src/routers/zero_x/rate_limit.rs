@@ -292,13 +292,23 @@ mod tests {
             handle_zero_x_throttled_request,
         ));
 
+        let client_2 = Arc::new(ThrottledZeroXClient::new(
+            rl_window,
+            None,
+            queue_capacity,
+            handle_zero_x_throttled_request,
+        ));
+
         let mut join_set = JoinSet::new();
 
         // 20 concurrent requests on a single client
         for i in 0..1000 {
             let client = Arc::clone(&client);
+            let client_2 = Arc::clone(&client_2);
             let req = build_swap_request(ChainId::Base, 1_000_000u128 + i);
+            let req_2 = build_swap_request(ChainId::Ethereum, 1_000_000u128 + i);
             join_set.spawn(async move { client.send(req).await });
+            join_set.spawn(async move { client_2.send(req_2).await });
         }
 
         let mut success = 0usize;
