@@ -117,6 +117,7 @@ impl TryFrom<&str> for ChainId {
             "Bsc" | "BSC" | "56" => Ok(Self::Bsc),
             "ArbitrumOne" | "Arbitrum One" | "42161" => Ok(Self::ArbitrumOne),
             "Base" | "8453" => Ok(Self::Base),
+            "Monad" | "143" => Ok(Self::Monad),
             "Solana" => Ok(Self::Solana),
             "Sui" | "101" => Ok(Self::Sui),
             "Optimism" | "10" => Ok(Self::Optimism),
