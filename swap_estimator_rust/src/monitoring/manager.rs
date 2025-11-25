@@ -332,6 +332,8 @@ impl MonitorManager {
             amount_out
         );
 
+        let order_already_present = self.pending_swaps.contains_key(&order_id);
+
         let token_in_id = TokenId::new_for_codex(src_chain, &token_in);
 
         let token_out_id = TokenId::new_for_codex(dst_chain, &token_out);
@@ -456,15 +458,18 @@ impl MonitorManager {
             amount_out
         );
 
-        self.swaps_by_token
-            .entry(token_in_id)
-            .or_insert_with(Vec::new)
-            .push(order_id.clone());
+        // Only add to swaps_by_token if not already present
+        if !order_already_present {
+            self.swaps_by_token
+                .entry(token_in_id)
+                .or_insert_with(Vec::new)
+                .push(order_id.clone());
 
-        self.swaps_by_token
-            .entry(token_out_id)
-            .or_insert_with(Vec::new)
-            .push(order_id.clone());
+            self.swaps_by_token
+                .entry(token_out_id)
+                .or_insert_with(Vec::new)
+                .push(order_id.clone());
+        }
 
         self.pending_swaps.insert(
             order_id.clone(),
