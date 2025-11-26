@@ -1,5 +1,6 @@
+use crate::routers::Slippage;
 use crate::routers::estimate::{GenericEstimateRequest, TradeType};
-use crate::routers::uniswap::update_uniswap_native_token;
+use crate::routers::uniswap::{get_uniswap_max_slippage, update_uniswap_native_token};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -196,9 +197,14 @@ impl UniswapQuoteRequest {
             generate_permit_as_transaction: true,
             // Setting swapper to dummy address for the cases we don't have any
             swapper: swapper.unwrap_or(SWAPPER_PLACEHOLDER.to_string()),
-            // We're calculating slippage manually later
-            slippage_tolerance: None,
-            auto_slippage: Some("DEFAULT".to_string()),
+            slippage_tolerance: Some(match request.slippage {
+                Slippage::Percent(slippage) => slippage,
+                Slippage::AmountLimit {
+                    fallback_slippage, ..
+                } => fallback_slippage,
+                Slippage::MaxSlippage => get_uniswap_max_slippage(),
+            }),
+            auto_slippage: None,
             routing_preference: Some(UniswapRoutingPreferences::BEST_PRICE),
             protocols: vec![
                 UniswapProtocol::V2,

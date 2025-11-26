@@ -12,3 +12,8 @@ pub fn update_uniswap_native_token(token_address: String) -> String {
         token_address
     }
 }
+
+pub fn get_uniswap_max_slippage() -> f64 {
+    // Uniswap API for some reason doesn't allow to quote with higher slippage
+    20.0 // 20%
+}

@@ -1,3 +1,4 @@
+use crate::routers::Slippage;
 use crate::routers::swap::EvmTxData;
 use crate::routers::uniswap::requests::{
     SWAPPER_PLACEHOLDER, UniswapQuoteRequest, UniswapSwapRequest,
@@ -6,6 +7,7 @@ use crate::routers::uniswap::responses::{
     UniswapQuoteResponse, UniswapQuoteValue, UniswapResponse, UniswapSwapResponse,
 };
 use crate::utils::json::replace_strings_in_json;
+use crate::utils::limit_amount::get_slippage_percentage;
 use crate::{
     error::{Error, EstimatorResult},
     routers::RouterType,
@@ -165,14 +167,12 @@ pub async fn quote_uniswap_generic(
     })
 }
 
-// todo uniswap: set limit amount slippage
-
 pub async fn swap_uniswap_generic(
     generic_swap_request: GenericSwapRequest,
     estimate_response: Option<GenericEstimateResponse>,
     api_key: &str,
 ) -> EstimatorResult<EvmSwapResponse> {
-    let quote_response = match estimate_response {
+    let mut quote_response = match estimate_response {
         Some(estimate_response) => {
             let mut quote_response: UniswapQuoteResponse = serde_json::from_value(
                 estimate_response.router_data,
@@ -217,8 +217,11 @@ pub async fn swap_uniswap_generic(
 
     let approve_address = quote_response.permit_transaction.clone().map(|tx| tx.to);
 
-    // todo slippage
-    // todo uniswap: set limit amount slippage
+    if let Slippage::AmountLimit { amount_limit, .. } = generic_swap_request.slippage {
+        let slippage_percent =
+            get_slippage_percentage(amount_quote, amount_limit, generic_swap_request.trade_type)?;
+        quote_response.quote["slippage"] = Value::from(slippage_percent);
+    }
 
     let swap_request = UniswapSwapRequest::from_quote(quote_response.quote);
 
@@ -412,48 +415,45 @@ mod tests {
         assert!(result.pre_transactions.is_none());
     }
 
-    //     #[tokio::test]
-    //     async fn test_uniswap_swap_exact_in_with_quote_amount_limit() {
-    //         let chain_id = ChainId::Base;
-    //         let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
-    //         let dest_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
-    //         let src_token_decimals = 18;
-    //         let dst_token_decimals = 6;
-    //         let request = GenericSwapRequest {
-    //             trade_type: TradeType::ExactIn,
-    //             chain_id,
-    //             spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
-    //             dest_address: "0x4E28f22DE1DBDe92310db2779217a74607691038".to_string(),
-    //             src_token,
-    //             dest_token,
-    //             amount_fixed: 10_000_000_000u128,
-    //             slippage: Slippage::AmountLimit {
-    //                 amount_limit: 20,
-    //                 fallback_slippage: 2.0,
-    //             },
-    //         };
-    //
-    //         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
-    //         let result = estimate_swap_uniswap_generic(
-    //             generic_estimate_request,
-    //             src_token_decimals,
-    //             dst_token_decimals,
-    //         )
-    //             .await;
-    //         assert!(
-    //             result.is_ok(),
-    //             "Expected a successful estimate swap response"
-    //         );
-    //         let response = result.unwrap();
-    //
-    //         let result = prepare_swap_uniswap_generic(
-    //             request,
-    //             src_token_decimals,
-    //             dst_token_decimals,
-    //             Some(response),
-    //         )
-    //             .await;
-    //         println!("Result: {:#?}", result);
-    //         assert!(result.is_ok());
-    //     }
+    #[tokio::test]
+    async fn test_uniswap_swap_exact_in_with_quote_amount_limit() {
+        let chain_id = ChainId::Base;
+        let api_key = dotenv::var("UNISWAP_TRADE_API_KEY").unwrap();
+
+        let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
+        let dest_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
+        let mut swap_request = GenericSwapRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id,
+            spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
+            dest_address: "0x4E28f22DE1DBDe92310db2779217a74607691038".to_string(),
+            src_token,
+            dest_token,
+            amount_fixed: 1_000_000_000_000_000_000u128,
+            slippage: Slippage::AmountLimit {
+                amount_limit: 1_000,
+                fallback_slippage: 2.0,
+            },
+        };
+
+        let quote_request: GenericEstimateRequest = swap_request.clone().into();
+        let quote_result = quote_uniswap_generic(quote_request, &api_key).await;
+        assert!(quote_result.is_ok());
+        let quote_result = quote_result.unwrap();
+
+        // Setting to 5%
+        let amount_limit = quote_result.amount_quote * 95 / 100;
+        swap_request.slippage = Slippage::AmountLimit {
+            amount_limit,
+            fallback_slippage: 2.0,
+        };
+
+        let swap_result = swap_uniswap_generic(swap_request, Some(quote_result), &api_key).await;
+        assert!(swap_result.is_ok());
+        let result = swap_result.unwrap();
+        assert!(result.approve_address.is_none());
+        assert!(result.require_transfer);
+        assert!(result.pre_transactions.is_none());
+        assert_eq!(result.amount_limit, amount_limit);
+    }
 }
