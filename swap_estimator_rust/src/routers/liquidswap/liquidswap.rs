@@ -357,7 +357,7 @@ fn create_route_request_from_generic_swap(
         multi_hop: Some(true),
         exclude_dexes: None,
         unwrap_whype,
-        slippage: None,
+        slippage: None, // todo, also limit amount
         use_native_hype,
     }
 }
@@ -385,7 +385,7 @@ fn create_route_request_from_generic_estimate(
         multi_hop: Some(true),
         exclude_dexes: None,
         unwrap_whype,
-        slippage: None,
+        slippage: None, // todo, also limit amount
         use_native_hype,
     }
 }

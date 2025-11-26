@@ -26,7 +26,7 @@ use intents_models::network::http::{
 };
 use lazy_static::lazy_static;
 use reqwest::Client;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 lazy_static! {
@@ -220,7 +220,7 @@ pub async fn swap_uniswap_generic(
     if let Slippage::AmountLimit { amount_limit, .. } = generic_swap_request.slippage {
         let slippage_percent =
             get_slippage_percentage(amount_quote, amount_limit, generic_swap_request.trade_type)?;
-        quote_response.quote["slippage"] = Value::from(slippage_percent);
+        quote_response.quote["slippage"] = json!(slippage_percent);
     }
 
     let swap_request = UniswapSwapRequest::from_quote(quote_response.quote);
@@ -268,40 +268,6 @@ mod tests {
     use crate::routers::{Slippage, estimate::TradeType};
     use intents_models::constants::chains::ChainId;
 
-    //     #[tokio::test]
-    //     async fn test_estimate_uniswap() {
-    //         let from_token_address = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string();
-    //         let to_token_address = "0x4200000000000000000000000000000000000006".to_string();
-    //         let amount = 100000000;
-    //
-    //         let request = GetPriceRouteRequest {
-    //             src_token: from_token_address,
-    //             src_decimals: 6,
-    //             dest_token: to_token_address,
-    //             amount: amount.to_string(),
-    //             side: Some(uniswapSide::SELL),
-    //             chain_id: (ChainId::Base as u32).to_string(),
-    //             user_address: Some(
-    //                 "0xb5b7FeCdA25d948e62Ce397404Bf765d8b09A4c4"
-    //                     .to_string()
-    //                     .to_lowercase(),
-    //             ),
-    //             dest_decimals: 18,
-    //             max_impact: None,
-    //             receiver: None,
-    //             version: Some(6.2),
-    //             exclude_dexs: Some("uniswapPool,uniswapLimitOrders".to_string()), // Had to add this to set ignoreChecks as true on transaction request
-    //         };
-    //
-    //         let amount_out = estimate_amount_uniswap(request)
-    //             .await
-    //             .expect("Failed to estimate amount")
-    //             .0;
-    //         println!("Amount out: {amount_out}");
-    //
-    //         assert!(amount_out > 0, "Amount out should be greater than zero");
-    //     }
-    //
     #[tokio::test]
     async fn test_estimate_swap_uniswap_generic_exact_in() {
         dotenv::dotenv().ok();

@@ -45,9 +45,7 @@ pub async fn raydium_get_price_route(
         TradeType::ExactOut => "swap-base-out",
     };
     let query = value_to_sorted_querystring(&serde_json::to_value(request).change_context(
-        Error::SerdeSerialize(format!(
-            "Error serializing request for raydium get price route"
-        )),
+        Error::SerdeSerialize("Error serializing request for raydium get price route".to_string()),
     )?)
     .change_context(Error::ModelsError)
     .attach_printable("Error creating query string")?;
