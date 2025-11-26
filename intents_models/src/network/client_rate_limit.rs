@@ -13,6 +13,22 @@ pub enum Client {
     Unrestricted(ReqwestClient),
 }
 
+impl Client {
+    pub async fn execute(&self, req: Request) -> Result<Response, ReqwestError> {
+        match self {
+            Client::RateLimited(rate_limited_client) => rate_limited_client.execute(req).await,
+            Client::Unrestricted(unrestricted_client) => unrestricted_client.execute(req).await,
+        }
+    }
+
+    pub fn inner_client(&self) -> &ReqwestClient {
+        match self {
+            Client::RateLimited(rate_limited_client) => rate_limited_client.inner_client(),
+            Client::Unrestricted(unrestricted_client) => unrestricted_client,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RateLimitedClient {
     inner: ReqwestClient,
@@ -60,16 +76,7 @@ mod tests {
                 .parse()
                 .unwrap(),
         );
-        let response = match client {
-            Client::RateLimited(rate_limited_client) => {
-                let resp = rate_limited_client.execute(req).await.unwrap();
-                resp
-            }
-            Client::Unrestricted(unrestricted_client) => {
-                let resp = unrestricted_client.execute(req).await.unwrap();
-                resp
-            }
-        };
+        let response = client.execute(req).await.unwrap();
         let body = response.text().await.unwrap();
         println!("Response Body: {}", body);
     }
@@ -77,7 +84,7 @@ mod tests {
     #[tokio::test]
     async fn test_rate_limited_client() {
         let rate_limited_client = RateLimitedClient::new(
-            RateLimitWindow::PerSecond(NonZeroU32::new(5).unwrap()),
+            RateLimitWindow::PerSecond(NonZeroU32::new(2).unwrap()),
             None,
         );
         let client = Client::RateLimited(rate_limited_client);

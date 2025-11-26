@@ -25,6 +25,7 @@ impl GeckoTerminalChain for ChainId {
             ChainId::Bsc => "bsc",
             ChainId::ArbitrumOne => "arbitrum",
             ChainId::Optimism => "optimism",
+            ChainId::Monad => "monad",
             ChainId::Solana => "solana",
             ChainId::Sui => "sui-network",
             ChainId::HyperEVM => "hyperevm",

@@ -12,14 +12,7 @@ pub mod zero_x;
 
 use crate::error::EstimatorResult;
 use intents_models::constants::chains::ChainId;
-use lazy_static::lazy_static;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-
-lazy_static! {
-    static ref HTTP_CLIENT: Arc<Client> = Arc::new(Client::new());
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Slippage {
@@ -58,6 +51,7 @@ pub fn routers_by_chain(chain: ChainId) -> EstimatorResult<Vec<RouterType>> {
         | ChainId::ArbitrumOne
         | ChainId::Base
         | ChainId::Optimism => Ok(vec![RouterType::OneInch, RouterType::ZeroX]),
+        ChainId::Monad => Ok(vec![RouterType::ZeroX]),
         ChainId::HyperEVM => Ok(vec![RouterType::Liquidswap]),
         ChainId::Solana => Ok(vec![
             RouterType::Jupiter,

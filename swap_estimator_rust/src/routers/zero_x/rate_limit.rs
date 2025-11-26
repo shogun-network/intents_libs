@@ -1,7 +1,7 @@
-use intents_models::network::rate_limit::{
-    RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest,
+use intents_models::network::{
+    client_rate_limit::Client,
+    rate_limit::{RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest},
 };
-use reqwest::Client;
 use tokio::sync::mpsc;
 
 use crate::{
@@ -26,13 +26,13 @@ pub type ThrottledZeroXSender =
 #[derive(Debug)]
 pub enum ZeroXThrottledRequest {
     Estimate {
-        client: Client,
+        client: reqwest::Client,
         api_key: String,
         estimator_request: GenericEstimateRequest,
         prev_result: Option<ReverseQuoteResult>,
     },
     Swap {
-        client: Client,
+        client: reqwest::Client,
         api_key: String,
         swap_request: GenericSwapRequest,
         prev_result: Option<ReverseQuoteResult>,
@@ -88,7 +88,14 @@ pub async fn handle_zero_x_throttled_request(
             api_key,
             estimator_request,
             prev_result,
-        } => match estimate_swap_zero_x(&client, &api_key, estimator_request, prev_result).await {
+        } => match estimate_swap_zero_x(
+            &Client::Unrestricted(client),
+            &api_key,
+            estimator_request,
+            prev_result,
+        )
+        .await
+        {
             Ok(estimate_response) => Ok(ZeroXThrottledResponse::Estimate(estimate_response)),
             Err(e) => Err(e.current_context().to_owned()),
         },
@@ -101,7 +108,7 @@ pub async fn handle_zero_x_throttled_request(
             tx_origin,
         } => {
             match prepare_swap_zero_x(
-                &client,
+                &Client::Unrestricted(client),
                 &api_key,
                 swap_request,
                 prev_result,
@@ -130,7 +137,7 @@ mod tests {
     use tokio::task::JoinSet;
 
     fn build_estimate_request(chain_id: ChainId, amount: u128) -> ZeroXThrottledRequest {
-        let client = Client::new();
+        let client = reqwest::Client::new();
         let src_token = match chain_id {
             ChainId::Base => "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // USDC Base
             ChainId::Ethereum => "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", // USDC Mainnet
@@ -164,7 +171,7 @@ mod tests {
     }
 
     fn build_swap_request(chain_id: ChainId, amount: u128) -> ZeroXThrottledRequest {
-        let client = Client::new();
+        let client = reqwest::Client::new();
         let src_token = match chain_id {
             ChainId::Base => "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // USDC Base
             ChainId::Ethereum => "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", // USDC Mainnet
@@ -275,7 +282,7 @@ mod tests {
     async fn test_zero_x_rate_limit_single_client_twenty_requests_limit_fifteen() {
         dotenv::dotenv().ok();
 
-        let rl_window = RateLimitWindow::PerSecond(NonZeroU32::new(100).unwrap());
+        let rl_window = RateLimitWindow::PerSecond(NonZeroU32::new(25).unwrap());
         let queue_capacity = 10000;
 
         let client = Arc::new(ThrottledZeroXClient::new(
@@ -285,13 +292,23 @@ mod tests {
             handle_zero_x_throttled_request,
         ));
 
+        let client_2 = Arc::new(ThrottledZeroXClient::new(
+            rl_window,
+            None,
+            queue_capacity,
+            handle_zero_x_throttled_request,
+        ));
+
         let mut join_set = JoinSet::new();
 
         // 20 concurrent requests on a single client
-        for i in 0..300 {
+        for i in 0..1000 {
             let client = Arc::clone(&client);
+            let client_2 = Arc::clone(&client_2);
             let req = build_swap_request(ChainId::Base, 1_000_000u128 + i);
+            let req_2 = build_swap_request(ChainId::Ethereum, 1_000_000u128 + i);
             join_set.spawn(async move { client.send(req).await });
+            join_set.spawn(async move { client_2.send(req_2).await });
         }
 
         let mut success = 0usize;

@@ -3,11 +3,12 @@ use futures_util::future;
 use intents_models::constants::chains::ChainId;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    sync::Arc,
     time::Duration,
     u64,
 };
 use strum::IntoEnumIterator;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::{RwLock, mpsc::Receiver};
 
 use crate::{
     error::{Error, EstimatorResult},
@@ -43,11 +44,12 @@ pub struct MonitorManager {
     pub alert_sender: tokio::sync::broadcast::Sender<MonitorAlert>,
     pub coin_cache: HashMap<TokenId, TokenPrice>,
     pub pending_swaps: HashMap<String, (PendingSwap, Option<u128>)>, // OrderId to pending swap and optionally, estimated amount out calculated
-    pub swaps_by_token: HashMap<TokenId, HashSet<String>>,           // TokenId to OrderIds
+    pub swaps_by_token: HashMap<TokenId, Vec<String>>,               // TokenId to OrderIds
     pub token_metadata: HashMap<TokenId, TokenMetadata>,
     pub codex_provider: CodexProvider,
     pub polling_mode: (bool, u64),
     pub orders_by_deadline: BTreeMap<u64, HashSet<String>>, // deadline timestamp to OrderIds
+    pub codex_http_requests: Arc<RwLock<u64>>,
 }
 
 impl MonitorManager {
@@ -69,6 +71,7 @@ impl MonitorManager {
             codex_provider,
             polling_mode,
             orders_by_deadline: BTreeMap::new(),
+            codex_http_requests: Arc::new(RwLock::new(0)),
         }
     }
 
@@ -84,13 +87,13 @@ impl MonitorManager {
             }
         }
 
-        let mut codex_rx_opt = match self.codex_provider.subscribe_events().await {
-            Ok(rx) => rx,
-            Err(err) => {
-                tracing::error!("Failed to subscribe Codex price events: {:?}", err);
-                return Err(err);
-            }
-        };
+        // let mut codex_rx_opt = match self.codex_provider.subscribe_events().await {
+        //     Ok(rx) => rx,
+        //     Err(err) => {
+        //         tracing::error!("Failed to subscribe Codex price events: {:?}", err);
+        //         return Err(err);
+        //     }
+        // };
 
         let mut unsubscriptions_interval = tokio::time::interval(Duration::from_secs(60));
         let mut polling_interval =
@@ -157,6 +160,7 @@ impl MonitorManager {
                 }
                 // Polling interval
                 _ = polling_interval.tick(), if self.polling_mode.0 => {
+                    tracing::info!("Current Codex HTTP requests in total: {}", *self.codex_http_requests.read().await);
                     tracing::debug!("Polling price updates for pending orders");
                     // Get all tokens needed to estimate pending swaps
                     let mut tokens_to_fetch: HashSet<TokenId> = self
@@ -188,23 +192,23 @@ impl MonitorManager {
                     }
                 }
                 // Codex update price event
-                evt = codex_rx_opt.recv() => {
-                    tracing::trace!("Received Codex price event: {:?}", evt);
-                    match evt {
-                        Ok(event) => {
-                            self.on_price_event(event).await;
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                            tracing::warn!("Lagged on Codex price events; skipping to latest");
-                            continue;
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                            tracing::error!("Codex price events channel closed");
-                            return Err(report!(Error::Unknown)
-                                .attach_printable("Codex price events receiver closed"));
-                        }
-                    }
-                }
+                // evt = codex_rx_opt.recv() => {
+                //     tracing::trace!("Received Codex price event: {:?}", evt);
+                //     match evt {
+                //         Ok(event) => {
+                //             self.on_price_event(event).await;
+                //         }
+                //         Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                //             tracing::warn!("Lagged on Codex price events; skipping to latest");
+                //             continue;
+                //         }
+                //         Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                //             tracing::error!("Codex price events channel closed");
+                //             return Err(report!(Error::Unknown)
+                //                 .attach_printable("Codex price events receiver closed"));
+                //         }
+                //     }
+                // }
                 request = self.receiver.recv() => {
                     match request {
                         Some(request) => {
@@ -454,13 +458,13 @@ impl MonitorManager {
 
         self.swaps_by_token
             .entry(token_in_id)
-            .or_insert_with(HashSet::new)
-            .insert(order_id.clone());
+            .or_insert_with(Vec::new)
+            .push(order_id.clone());
 
         self.swaps_by_token
             .entry(token_out_id)
-            .or_insert_with(HashSet::new)
-            .insert(order_id.clone());
+            .or_insert_with(Vec::new)
+            .push(order_id.clone());
 
         self.pending_swaps.insert(
             order_id.clone(),
@@ -543,11 +547,11 @@ impl MonitorManager {
         tracing::debug!("Fetched tokens data from Codex: {:?}", fetched_by_codex);
 
         // Subscribe to live updates (by CODEX id)
-        if !self.polling_mode.0 {
-            for token in tokens_not_in_cache {
-                self.codex_provider.subscribe_to_token(token).await?;
-            }
-        }
+        // if !self.polling_mode.0 {
+        //     for token in tokens_not_in_cache {
+        //         self.codex_provider.subscribe_to_token(token).await?;
+        //     }
+        // }
 
         // Update coin cache (by CODEX id)
         for (codex_id, token_price) in fetched_by_codex.iter() {
@@ -657,15 +661,15 @@ impl MonitorManager {
     async fn check_impacted_orders(&mut self, token: TokenId) {
         tracing::debug!("Checking impacted orders for token: {:?}", token);
         // Orders which have this token
-        let impacted_orders: HashSet<String> =
-            self.swaps_by_token.get(&token).cloned().unwrap_or_default();
-        if impacted_orders.is_empty() {
+        let Some(impacted_orders) = self.swaps_by_token.remove(&token) else {
+            tracing::debug!("No impacted orders for token: {:?}", token);
             return;
-        }
+        };
 
         let current_timestamp = get_timestamp();
         // Get the swap data of these orders
         let mut subset: Vec<(PendingSwap, Option<u128>)> = Vec::new();
+        let mut remaining_orders: Vec<String> = Vec::new();
         for order_id in impacted_orders.iter() {
             if let Some(ps) = self.pending_swaps.get(order_id).cloned() {
                 // Skip expired orders
@@ -702,6 +706,7 @@ impl MonitorManager {
                         pending_swap.order_id,
                         error
                     );
+                    remaining_orders.push(pending_swap.order_id.clone());
                     continue;
                 }
             };
@@ -743,10 +748,14 @@ impl MonitorManager {
                                 e
                             );
                             // Do not remove the swap if we failed to send alert
+                            remaining_orders.push(pending_swap.order_id.clone());
                             continue;
                         }
                         // Remove from pending swaps and every other data structure
                         self.remove_order(&pending_swap.order_id).await;
+                    } else {
+                        // Still not feasible, keep monitoring
+                        remaining_orders.push(pending_swap.order_id.clone());
                     }
                 }
                 Err(error) => {
@@ -758,6 +767,9 @@ impl MonitorManager {
                 }
             }
         }
+
+        // Re-insert remaining orders back into the map
+        self.swaps_by_token.insert(token, remaining_orders);
     }
 
     fn update_cache(&mut self, tokens_data: HashMap<TokenId, TokenPrice>) -> HashSet<TokenId> {
@@ -796,24 +808,24 @@ impl MonitorManager {
                 }
             }
             // Detach from token->orders map and unsubscribe if needed
-            let t_in = TokenId::new_for_codex(pending_swap.src_chain, &pending_swap.token_in);
-            let t_out = TokenId::new_for_codex(pending_swap.dst_chain, &pending_swap.token_out);
-            self.detach_order_from_token(&t_in, &pending_swap.order_id);
-            self.detach_order_from_token(&t_out, &pending_swap.order_id);
-            for token in pending_swap.extra_expenses.keys() {
-                self.detach_order_from_token(token, &pending_swap.order_id);
-            }
+            // let t_in = TokenId::new_for_codex(pending_swap.src_chain, &pending_swap.token_in);
+            // let t_out = TokenId::new_for_codex(pending_swap.dst_chain, &pending_swap.token_out);
+            // self.detach_order_from_token(&t_in, &pending_swap.order_id);
+            // self.detach_order_from_token(&t_out, &pending_swap.order_id);
+            // for token in pending_swap.extra_expenses.keys() {
+            //     self.detach_order_from_token(token, &pending_swap.order_id);
+            // }
         }
     }
 
-    fn detach_order_from_token(&mut self, token: &TokenId, order_id: &str) {
-        if let Some(set) = self.swaps_by_token.get_mut(token) {
-            set.remove(order_id);
-            if set.is_empty() {
-                self.swaps_by_token.remove(token);
-            }
-        }
-    }
+    // fn detach_order_from_token(&mut self, token: &TokenId, order_id: &str) {
+    //     if let Some(set) = self.swaps_by_token.get_mut(token) {
+    //         set.remove(order_id);
+    //         if set.is_empty() {
+    //             self.swaps_by_token.remove(token);
+    //         }
+    //     }
+    // }
 
     async fn get_tokens_data(
         &self,
@@ -823,6 +835,7 @@ impl MonitorManager {
         let mut orig_to_codex: Vec<(TokenId, TokenId)> = Vec::new();
         let mut codex_set: HashSet<TokenId> = HashSet::new();
 
+        let estimated_codex_api_requests = (token_ids.len() as f64 / 25.0_f64).ceil() as u64;
         for orig in token_ids.into_iter() {
             let codex = TokenId::new_for_codex(orig.chain.clone(), &orig.address);
             orig_to_codex.push((orig, codex.clone()));
@@ -841,6 +854,9 @@ impl MonitorManager {
 
         // Fire all batch requests in parallel
         let provider = &self.codex_provider;
+        {
+            *self.codex_http_requests.write().await += estimated_codex_api_requests;
+        }
         let fetches = batches.into_iter().map(|batch| {
             // each future captures provider by shared reference
             async move {
@@ -899,6 +915,10 @@ impl MonitorManager {
 
         // Fire all batch requests in parallel
         let provider = &self.codex_provider;
+        let estimated_codex_api_requests = (token_ids.len() as f64 / 25.0_f64).ceil() as u64;
+        {
+            *self.codex_http_requests.write().await += estimated_codex_api_requests;
+        }
         let fetches = batches.into_iter().map(|batch| {
             // each future captures provider by shared reference
             async move { provider.fetch_token_metadata(&batch).await }

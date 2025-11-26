@@ -1,7 +1,7 @@
-use intents_models::network::rate_limit::{
-    RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest,
+use intents_models::network::{
+    client_rate_limit::Client,
+    rate_limit::{RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest},
 };
-use reqwest::Client;
 use tokio::sync::mpsc;
 
 use crate::{
@@ -25,13 +25,13 @@ pub type ThrottledOneInchSender =
 #[derive(Debug)]
 pub enum OneInchThrottledRequest {
     Estimate {
-        client: Client,
+        client: reqwest::Client,
         api_key: String,
         estimator_request: GenericEstimateRequest,
         prev_result: Option<ReverseQuoteResult>,
     },
     Swap {
-        client: Client,
+        client: reqwest::Client,
         api_key: String,
         swap_request: GenericSwapRequest,
         prev_result: Option<ReverseQuoteResult>,
@@ -86,7 +86,14 @@ pub async fn handle_one_inch_throttled_request(
             estimator_request,
             prev_result,
         } => {
-            match estimate_swap_one_inch(&client, &api_key, estimator_request, prev_result).await {
+            match estimate_swap_one_inch(
+                &Client::Unrestricted(client),
+                &api_key,
+                estimator_request,
+                prev_result,
+            )
+            .await
+            {
                 Ok(estimate_response) => Ok(OneInchThrottledResponse::Estimate(estimate_response)),
                 Err(e) => Err(e.current_context().to_owned()),
             }
@@ -98,7 +105,14 @@ pub async fn handle_one_inch_throttled_request(
             prev_result,
             origin,
         } => {
-            match prepare_swap_one_inch(&client, &api_key, swap_request, prev_result, origin).await
+            match prepare_swap_one_inch(
+                &Client::Unrestricted(client),
+                &api_key,
+                swap_request,
+                prev_result,
+                origin,
+            )
+            .await
             {
                 Ok(swap_response) => Ok(OneInchThrottledResponse::Swap(swap_response)),
                 Err(e) => Err(e.current_context().to_owned()),

@@ -1,5 +1,6 @@
-use intents_models::network::rate_limit::{
-    RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest,
+use intents_models::network::{
+    client_rate_limit::Client,
+    rate_limit::{RateLimitedRequest, ThrottledApiClient, ThrottlingApiRequest},
 };
 use tokio::sync::mpsc;
 
@@ -28,9 +29,11 @@ pub type ThrottledLiquidswapSender = mpsc::Sender<
 #[derive(Debug)]
 pub enum LiquidswapThrottledRequest {
     Estimate {
+        client: reqwest::Client,
         request: GenericEstimateRequest,
     },
     Swap {
+        client: reqwest::Client,
         generic_swap_request: GenericSwapRequest,
         estimate_response: Option<GenericEstimateResponse>,
     },
@@ -68,8 +71,8 @@ pub async fn handle_liquidswap_throttled_request(
     request: LiquidswapThrottledRequest,
 ) -> Result<LiquidswapThrottledResponse, Error> {
     match request {
-        LiquidswapThrottledRequest::Estimate { request } => {
-            match estimate_swap_liquidswap_generic(request).await {
+        LiquidswapThrottledRequest::Estimate { client, request } => {
+            match estimate_swap_liquidswap_generic(&Client::Unrestricted(client), request).await {
                 Ok(estimate_response) => {
                     Ok(LiquidswapThrottledResponse::Estimate(estimate_response))
                 }
@@ -77,9 +80,16 @@ pub async fn handle_liquidswap_throttled_request(
             }
         }
         LiquidswapThrottledRequest::Swap {
+            client,
             generic_swap_request,
             estimate_response,
-        } => match prepare_swap_liquidswap_generic(generic_swap_request, estimate_response).await {
+        } => match prepare_swap_liquidswap_generic(
+            &Client::Unrestricted(client),
+            generic_swap_request,
+            estimate_response,
+        )
+        .await
+        {
             Ok(swap_response) => Ok(LiquidswapThrottledResponse::Swap(swap_response)),
             Err(e) => Err(e.current_context().to_owned()),
         },

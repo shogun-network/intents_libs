@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use super::{
     requests::{GetPriceRouteRequest, ParaswapSide, TransactionsRequest},
     responses::{ParaswapResponse, PriceRoute},
@@ -22,18 +20,14 @@ use crate::{
     utils::limit_amount::get_limit_amount,
 };
 use error_stack::{ResultExt, report};
-use intents_models::network::http::{
-    HttpMethod, handle_reqwest_response, value_to_sorted_querystring,
+use intents_models::network::{
+    client_rate_limit::Client,
+    http::{HttpMethod, handle_reqwest_response, value_to_sorted_querystring},
 };
-use lazy_static::lazy_static;
-use reqwest::Client;
 use serde_json::Value;
 
-lazy_static! {
-    static ref HTTP_CLIENT: Arc<Client> = Arc::new(Client::new());
-}
-
 pub async fn send_paraswap_request(
+    client: &Client,
     uri_path: &str,
     query: Option<Value>,
     body: Option<Value>,
@@ -47,19 +41,25 @@ pub async fn send_paraswap_request(
         None => format!("{PARASWAP_BASE_API_URL}{uri_path}"),
     };
 
-    let mut request = match method {
-        HttpMethod::GET => HTTP_CLIENT.get(url),
-        HttpMethod::POST => HTTP_CLIENT.post(url),
-        _ => return Err(report!(Error::Unknown).attach_printable("Unknown http method")),
+    let request = {
+        let client = client.inner_client();
+        let mut request = match method {
+            HttpMethod::GET => client.get(url),
+            HttpMethod::POST => client.post(url),
+            _ => return Err(report!(Error::Unknown).attach_printable("Unknown http method")),
+        };
+        request = match body {
+            Some(body) => request.json(&body),
+            None => request,
+        };
+        request
+            .build()
+            .change_context(Error::ReqwestError)
+            .attach_printable("Error building Paraswap request")?
     };
 
-    request = match body {
-        Some(body) => request.json(&body),
-        None => request,
-    };
-
-    let response = request
-        .send()
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)
         .attach_printable("Error in paraswap request")?;
@@ -89,6 +89,7 @@ fn handle_paraswap_response(response: ParaswapResponse) -> EstimatorResult<Paras
 }
 
 pub async fn paraswap_prices(
+    client: &Client,
     request: GetPriceRouteRequest,
 ) -> EstimatorResult<GetPriceRouteResponse> {
     let uri_path = "/prices";
@@ -97,7 +98,7 @@ pub async fn paraswap_prices(
     let query = serde_json::to_value(request).expect("Can't fail");
 
     let response = handle_paraswap_response(
-        send_paraswap_request(uri_path, Some(query), None, HttpMethod::GET).await?,
+        send_paraswap_request(&client, uri_path, Some(query), None, HttpMethod::GET).await?,
     )?;
     if let ParaswapResponse::Prices(prices) = response {
         Ok(prices)
@@ -111,6 +112,7 @@ pub async fn paraswap_prices(
 }
 
 pub async fn paraswap_transactions(
+    client: &Client,
     request: TransactionsRequest,
 ) -> EstimatorResult<TransactionsResponse> {
     let uri_path = format!("/transactions/{}", request.chain_id);
@@ -121,8 +123,14 @@ pub async fn paraswap_transactions(
     // Convert the request struct to a serde_json::Value to modify attribute names as specified by serde renames
     let body = serde_json::to_value(request.body_params).expect("Can't fail");
 
-    let response =
-        send_paraswap_request(&uri_path, Some(query), Some(body), HttpMethod::POST).await?;
+    let response = send_paraswap_request(
+        &client,
+        &uri_path,
+        Some(query),
+        Some(body),
+        HttpMethod::POST,
+    )
+    .await?;
     if let ParaswapResponse::Transactions(transactions) = response {
         Ok(transactions)
     } else {
@@ -135,6 +143,7 @@ pub async fn paraswap_transactions(
 }
 
 pub async fn estimate_swap_paraswap_generic(
+    client: &Client,
     request: GenericEstimateRequest,
     src_token_decimals: u8,
     dst_token_decimals: u8,
@@ -145,7 +154,7 @@ pub async fn estimate_swap_paraswap_generic(
         dst_token_decimals,
     );
 
-    let (amount_quote, router_data, _) = estimate_amount_paraswap(price_request).await?;
+    let (amount_quote, router_data, _) = estimate_amount_paraswap(&client, price_request).await?;
 
     let amount_limit = get_limit_amount(request.trade_type, amount_quote, request.slippage)?;
 
@@ -171,9 +180,10 @@ pub async fn estimate_swap_paraswap_generic(
 /// * Route
 /// * Approval address
 pub async fn estimate_amount_paraswap(
+    client: &Client,
     request: GetPriceRouteRequest,
 ) -> EstimatorResult<(u128, GetPriceRouteResponse, String)> {
-    let prices = paraswap_prices(request.clone()).await?;
+    let prices = paraswap_prices(&client, request.clone()).await?;
     let price_route: PriceRoute = serde_json::from_value(prices.price_route.clone())
         .change_context(Error::SerdeSerialize(
             "Failed to deserialize Paraswap quote response".to_string(),
@@ -194,6 +204,7 @@ pub async fn estimate_amount_paraswap(
 }
 
 pub async fn prepare_swap_paraswap_generic(
+    client: &Client,
     generic_swap_request: GenericSwapRequest,
     src_decimals: u8,
     dest_decimals: u8,
@@ -233,7 +244,7 @@ pub async fn prepare_swap_paraswap_generic(
                 dest_decimals,
             );
             let (amount_quote, prices_response, approval_address) =
-                estimate_amount_paraswap(prices_request).await?;
+                estimate_amount_paraswap(&client, prices_request).await?;
             (amount_quote, prices_response, approval_address)
         }
     };
@@ -245,7 +256,7 @@ pub async fn prepare_swap_paraswap_generic(
         prices_response.price_route,
     )?;
 
-    let transactions_response = paraswap_transactions(transactions_request).await?;
+    let transactions_response = paraswap_transactions(&client, transactions_request).await?;
 
     let amount_limit = get_limit_amount(
         generic_swap_request.trade_type,
@@ -298,7 +309,8 @@ mod tests {
             exclude_dexs: Some("ParaSwapPool,ParaSwapLimitOrders".to_string()), // Had to add this to set ignoreChecks as true on transaction request
         };
 
-        let amount_out = estimate_amount_paraswap(request)
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let amount_out = estimate_amount_paraswap(&client, request)
             .await
             .expect("Failed to estimate amount")
             .0;
@@ -319,8 +331,14 @@ mod tests {
             amount_fixed: 100000000,
             slippage: Slippage::Percent(2.0),
         };
-        let result =
-            estimate_swap_paraswap_generic(request, src_token_decimals, dst_token_decimals).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = estimate_swap_paraswap_generic(
+            &client,
+            request,
+            src_token_decimals,
+            dst_token_decimals,
+        )
+        .await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
@@ -350,9 +368,15 @@ mod tests {
             amount_fixed: 10_000_000_000u128,
             slippage: Slippage::Percent(2.0),
         };
-        let result =
-            prepare_swap_paraswap_generic(request, src_token_decimals, dst_token_decimals, None)
-                .await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = prepare_swap_paraswap_generic(
+            &client,
+            request,
+            src_token_decimals,
+            dst_token_decimals,
+            None,
+        )
+        .await;
         assert!(result.is_ok());
     }
 
@@ -373,9 +397,15 @@ mod tests {
             amount_fixed: 10_000u128,
             slippage: Slippage::Percent(2.0),
         };
-        let result =
-            prepare_swap_paraswap_generic(request, src_token_decimals, dst_token_decimals, None)
-                .await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = prepare_swap_paraswap_generic(
+            &client,
+            request,
+            src_token_decimals,
+            dst_token_decimals,
+            None,
+        )
+        .await;
         assert!(result.is_ok());
     }
 
@@ -398,7 +428,9 @@ mod tests {
         };
 
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
+        let client = Client::Unrestricted(reqwest::Client::new());
         let result = estimate_swap_paraswap_generic(
+            &client,
             generic_estimate_request,
             src_token_decimals,
             dst_token_decimals,
@@ -411,6 +443,7 @@ mod tests {
         let response = result.unwrap();
 
         let result = prepare_swap_paraswap_generic(
+            &client,
             request,
             src_token_decimals,
             dst_token_decimals,
@@ -442,8 +475,10 @@ mod tests {
             },
         };
 
+        let client = Client::Unrestricted(reqwest::Client::new());
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result = estimate_swap_paraswap_generic(
+            &client,
             generic_estimate_request,
             src_token_decimals,
             dst_token_decimals,
@@ -456,6 +491,7 @@ mod tests {
         let response = result.unwrap();
 
         let result = prepare_swap_paraswap_generic(
+            &client,
             request,
             src_token_decimals,
             dst_token_decimals,
