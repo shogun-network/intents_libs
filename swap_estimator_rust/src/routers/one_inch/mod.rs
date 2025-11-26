@@ -1,5 +1,4 @@
 pub mod one_inch;
-pub mod rate_limit;
 pub mod requests;
 pub mod responses;
 

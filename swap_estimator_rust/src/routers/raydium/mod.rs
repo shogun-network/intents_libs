@@ -1,4 +1,3 @@
-pub mod rate_limit;
 pub mod raydium;
 pub mod requests;
 pub mod responses;

@@ -1,6 +1,5 @@
 use intents_models::constants::chains::is_native_token_evm_address;
 
-pub mod rate_limit;
 pub mod requests;
 pub mod responses;
 pub mod uniswap;
