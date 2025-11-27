@@ -24,14 +24,12 @@ use error_stack::{ResultExt, report};
 use intents_models::network::http::{
     HttpMethod, handle_reqwest_response, value_to_sorted_querystring,
 };
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use reqwest::Client;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-lazy_static! {
-    static ref HTTP_CLIENT: Arc<Client> = Arc::new(Client::new());
-}
+static HTTP_CLIENT: Lazy<Arc<Client>> = Lazy::new(|| Arc::new(Client::new()));
 
 pub async fn send_uniswap_request(
     uri_path: &str,
