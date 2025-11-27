@@ -21,17 +21,14 @@ use crate::{
     utils::limit_amount::get_limit_amount,
 };
 use error_stack::{ResultExt, report};
+use intents_models::network::client_rate_limit::Client;
 use intents_models::network::http::{
     HttpMethod, handle_reqwest_response, value_to_sorted_querystring,
 };
-use once_cell::sync::Lazy;
-use reqwest::Client;
 use serde_json::{Value, json};
-use std::sync::Arc;
-
-static HTTP_CLIENT: Lazy<Arc<Client>> = Lazy::new(|| Arc::new(Client::new()));
 
 pub async fn send_uniswap_request(
+    client: &Client,
     uri_path: &str,
     api_key: &str,
     query: Option<Value>,
@@ -46,21 +43,26 @@ pub async fn send_uniswap_request(
         None => format!("{BASE_UNISWAP_API_URL}{uri_path}"),
     };
 
-    let mut request = match method {
-        HttpMethod::GET => HTTP_CLIENT.get(url),
-        HttpMethod::POST => HTTP_CLIENT.post(url),
-        _ => return Err(report!(Error::Unknown).attach_printable("Unknown http method")),
+    let request = {
+        let client = client.inner_client();
+        let mut request = match method {
+            HttpMethod::GET => client.get(url),
+            HttpMethod::POST => client.post(url),
+            _ => return Err(report!(Error::Unknown).attach_printable("Unknown http method")),
+        };
+        request = match body {
+            Some(body) => request.json(&body),
+            None => request,
+        };
+        request = request.header("x-api-key", api_key);
+        request
+            .build()
+            .change_context(Error::ReqwestError)
+            .attach_printable("Error building Paraswap request")?
     };
 
-    request = match body {
-        Some(body) => request.json(&body),
-        None => request,
-    };
-
-    request = request.header("x-api-key", api_key);
-
-    let response = request
-        .send()
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError)
         .attach_printable("Error in Uniswap request")?;
@@ -90,6 +92,7 @@ fn handle_uniswap_response(response: UniswapResponse) -> EstimatorResult<Uniswap
 }
 
 pub async fn uniswap_quote(
+    client: &Client,
     request: UniswapQuoteRequest,
     api_key: &str,
 ) -> EstimatorResult<UniswapQuoteResponse> {
@@ -97,7 +100,15 @@ pub async fn uniswap_quote(
     let body = serde_json::to_value(request).expect("Can't fail");
 
     let response = handle_uniswap_response(
-        send_uniswap_request("/quote/", api_key, None, Some(body), HttpMethod::POST).await?,
+        send_uniswap_request(
+            client,
+            "/quote/",
+            api_key,
+            None,
+            Some(body),
+            HttpMethod::POST,
+        )
+        .await?,
     )?;
     if let UniswapResponse::Quote(quote_response) = response {
         Ok(quote_response)
@@ -111,6 +122,7 @@ pub async fn uniswap_quote(
 }
 
 pub async fn uniswap_swap(
+    client: &Client,
     request: UniswapSwapRequest,
     api_key: &str,
 ) -> EstimatorResult<UniswapSwapResponse> {
@@ -118,7 +130,15 @@ pub async fn uniswap_swap(
     let body = serde_json::to_value(request).expect("Can't fail");
 
     let response = handle_uniswap_response(
-        send_uniswap_request("/swap/", api_key, None, Some(body), HttpMethod::POST).await?,
+        send_uniswap_request(
+            client,
+            "/swap/",
+            api_key,
+            None,
+            Some(body),
+            HttpMethod::POST,
+        )
+        .await?,
     )?;
     if let UniswapResponse::Swap(swap_response) = response {
         Ok(swap_response)
@@ -132,6 +152,7 @@ pub async fn uniswap_swap(
 }
 
 pub async fn quote_uniswap_generic(
+    client: &Client,
     request: GenericEstimateRequest,
     api_key: &str,
 ) -> EstimatorResult<GenericEstimateResponse> {
@@ -139,7 +160,7 @@ pub async fn quote_uniswap_generic(
     let slippage = request.slippage;
     let quote_request = UniswapQuoteRequest::from_generic_estimate_request(request, None);
 
-    let quote_response = uniswap_quote(quote_request, api_key).await?;
+    let quote_response = uniswap_quote(client, quote_request, api_key).await?;
     let quote_data: UniswapQuoteValue = serde_json::from_value(quote_response.quote.clone())
         .change_context(Error::AggregatorError(
             "Error deserializing Uniswap quote response data".to_string(),
@@ -166,6 +187,7 @@ pub async fn quote_uniswap_generic(
 }
 
 pub async fn swap_uniswap_generic(
+    client: &Client,
     generic_swap_request: GenericSwapRequest,
     estimate_response: Option<GenericEstimateResponse>,
     api_key: &str,
@@ -195,7 +217,7 @@ pub async fn swap_uniswap_generic(
                 generic_estimate_request,
                 Some(generic_swap_request.spender.clone()),
             );
-            let quote_response = uniswap_quote(prices_request, api_key).await?;
+            let quote_response = uniswap_quote(client, prices_request, api_key).await?;
 
             quote_response
         }
@@ -223,7 +245,7 @@ pub async fn swap_uniswap_generic(
 
     let swap_request = UniswapSwapRequest::from_quote(quote_response.quote);
 
-    let swap_response = uniswap_swap(swap_request, api_key).await?;
+    let swap_response = uniswap_swap(client, swap_request, api_key).await?;
 
     let amount_limit = get_limit_amount(
         generic_swap_request.trade_type,
@@ -270,6 +292,7 @@ mod tests {
     async fn test_estimate_swap_uniswap_generic_exact_in() {
         dotenv::dotenv().ok();
         let api_key = dotenv::var("UNISWAP_TRADE_API_KEY").unwrap();
+        let client = Client::Unrestricted(reqwest::Client::new());
 
         let request = GenericEstimateRequest {
             trade_type: TradeType::ExactIn,
@@ -279,7 +302,7 @@ mod tests {
             amount_fixed: 100000000,
             slippage: Slippage::Percent(2.0),
         };
-        let result = quote_uniswap_generic(request, &api_key).await;
+        let result = quote_uniswap_generic(&client, request, &api_key).await;
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
@@ -296,6 +319,7 @@ mod tests {
     async fn test_uniswap_swap_exact_in() {
         dotenv::dotenv().ok();
         let api_key = dotenv::var("UNISWAP_TRADE_API_KEY").unwrap();
+        let client = Client::Unrestricted(reqwest::Client::new());
 
         let chain_id = ChainId::Base;
         let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
@@ -311,7 +335,7 @@ mod tests {
             slippage: Slippage::Percent(2.0),
         };
 
-        let swap_result = swap_uniswap_generic(swap_request, None, &api_key).await;
+        let swap_result = swap_uniswap_generic(&client, swap_request, None, &api_key).await;
         assert!(swap_result.is_ok());
         let result = swap_result.unwrap();
         assert!(result.approve_address.is_none());
@@ -323,6 +347,7 @@ mod tests {
     async fn test_uniswap_swap_exact_out() {
         dotenv::dotenv().ok();
         let api_key = dotenv::var("UNISWAP_TRADE_API_KEY").unwrap();
+        let client = Client::Unrestricted(reqwest::Client::new());
 
         let chain_id = ChainId::Base;
         let src_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
@@ -337,7 +362,7 @@ mod tests {
             amount_fixed: 10_000_000_000_000_000u128,
             slippage: Slippage::Percent(2.0),
         };
-        let swap_result = swap_uniswap_generic(request, None, &api_key).await;
+        let swap_result = swap_uniswap_generic(&client, request, None, &api_key).await;
         assert!(swap_result.is_ok());
         let swap_result = swap_result.unwrap();
         assert!(swap_result.approve_address.is_some());
@@ -351,6 +376,7 @@ mod tests {
     async fn test_uniswap_swap_exact_in_with_quote() {
         dotenv::dotenv().ok();
         let api_key = dotenv::var("UNISWAP_TRADE_API_KEY").unwrap();
+        let client = Client::Unrestricted(reqwest::Client::new());
 
         let chain_id = ChainId::Base;
         let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
@@ -367,11 +393,12 @@ mod tests {
         };
 
         let quote_request: GenericEstimateRequest = swap_request.clone().into();
-        let quote_result = quote_uniswap_generic(quote_request, &api_key).await;
+        let quote_result = quote_uniswap_generic(&client, quote_request, &api_key).await;
         assert!(quote_result.is_ok());
         let quote_result = quote_result.unwrap();
 
-        let swap_result = swap_uniswap_generic(swap_request, Some(quote_result), &api_key).await;
+        let swap_result =
+            swap_uniswap_generic(&client, swap_request, Some(quote_result), &api_key).await;
         assert!(swap_result.is_ok());
         let result = swap_result.unwrap();
         assert!(result.approve_address.is_none());
@@ -383,6 +410,7 @@ mod tests {
     async fn test_uniswap_swap_exact_in_with_quote_amount_limit() {
         let chain_id = ChainId::Base;
         let api_key = dotenv::var("UNISWAP_TRADE_API_KEY").unwrap();
+        let client = Client::Unrestricted(reqwest::Client::new());
 
         let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
         let dest_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
@@ -401,7 +429,7 @@ mod tests {
         };
 
         let quote_request: GenericEstimateRequest = swap_request.clone().into();
-        let quote_result = quote_uniswap_generic(quote_request, &api_key).await;
+        let quote_result = quote_uniswap_generic(&client, quote_request, &api_key).await;
         assert!(quote_result.is_ok());
         let quote_result = quote_result.unwrap();
 
@@ -412,7 +440,8 @@ mod tests {
             fallback_slippage: 2.0,
         };
 
-        let swap_result = swap_uniswap_generic(swap_request, Some(quote_result), &api_key).await;
+        let swap_result =
+            swap_uniswap_generic(&client, swap_request, Some(quote_result), &api_key).await;
         assert!(swap_result.is_ok());
         let result = swap_result.unwrap();
         assert!(result.approve_address.is_none());
