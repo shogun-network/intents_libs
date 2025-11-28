@@ -59,7 +59,7 @@ pub async fn send_uniswap_request(
         request
             .build()
             .change_context(Error::ReqwestError)
-            .attach_printable("Error building Paraswap request")?
+            .attach_printable("Error building Uniswap request")?
     };
 
     let response = client
@@ -84,7 +84,7 @@ fn handle_uniswap_response(response: UniswapResponse) -> EstimatorResult<Uniswap
         UniswapResponse::UnknownResponse(val) => {
             tracing::error!(
                 "Unknown response from Uniswap: {}",
-                serde_json::to_string_pretty(&val).unwrap()
+                serde_json::to_string_pretty(&val).unwrap_or_else(|_| format!("{:?}", val))
             );
             Err(report!(Error::ResponseError).attach_printable("Unknown response from Uniswap"))
         }
@@ -410,6 +410,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_uniswap_swap_exact_in_with_quote_amount_limit() {
+        dotenv::dotenv().ok();
         let chain_id = ChainId::Base;
         let api_key = dotenv::var("UNISWAP_TRADE_API_KEY").unwrap();
         let client = Client::Unrestricted(reqwest::Client::new());
