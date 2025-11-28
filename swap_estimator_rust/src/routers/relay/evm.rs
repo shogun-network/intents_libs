@@ -5,6 +5,7 @@ use crate::routers::relay::requests::RelayQuoteRequest;
 use crate::routers::relay::responses::RelayEvmTxData;
 use crate::routers::swap::{EvmSwapResponse, EvmTxData, GenericSwapRequest};
 use crate::routers::{RouterType, Slippage};
+use crate::utils::evm::replace_amount_limit_in_tx;
 use error_stack::{ResultExt, report};
 use intents_models::network::client_rate_limit::Client;
 
@@ -32,7 +33,6 @@ pub async fn swap_relay_evm(
     client: &Client,
     generic_swap_request: GenericSwapRequest,
 ) -> EstimatorResult<EvmSwapResponse> {
-    // todo relay handle Slippage::AmountLimit - maybe allow for exact OUT?
     let trade_type = generic_swap_request.trade_type;
     let estimate_request = GenericEstimateRequest::from(generic_swap_request.clone());
     let quote_request = RelayQuoteRequest::from_generic_estimate_request(
@@ -99,36 +99,13 @@ pub async fn swap_relay_evm(
         ..
     } = generic_swap_request.slippage
     {
-        match trade_type {
-            TradeType::ExactIn => {
-                if amount_quote < requested_amount_limit {
-                    return Err(report!(Error::AggregatorError(format!(
-                        "Amount quote {amount_quote} is lower than requested \
-                        amount limit {requested_amount_limit} for exact IN trade"
-                    ))));
-                }
-            }
-            TradeType::ExactOut => {
-                if amount_quote > requested_amount_limit {
-                    return Err(report!(Error::AggregatorError(format!(
-                        "Amount quote {amount_quote} is greater than requested \
-                        amount limit {requested_amount_limit} for exact OUT trade"
-                    ))));
-                }
-            }
-        }
-        let amount_limit_hex = format!("{:064x}", amount_limit);
-        let requested_amount_limit_hex = format!("{:064x}", requested_amount_limit);
-        let new_tx_data = swap_tx
-            .tx_data
-            .replace(&amount_limit_hex, &requested_amount_limit_hex);
-        if new_tx_data.eq(&swap_tx.tx_data) {
-            return Err(report!(Error::AggregatorError(format!(
-                "Could not replace amount limit {amount_limit} with \
-                requested amount limit {requested_amount_limit} in Relay calldata"
-            ))));
-        }
-        swap_tx.tx_data = new_tx_data;
+        swap_tx.tx_data = replace_amount_limit_in_tx(
+            swap_tx.tx_data,
+            trade_type,
+            amount_quote,
+            amount_limit,
+            requested_amount_limit,
+        )?;
     }
 
     Ok(EvmSwapResponse {
@@ -270,7 +247,7 @@ mod tests {
 
         let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
         let dest_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
-        let mut swap_request = GenericSwapRequest {
+        let swap_request = GenericSwapRequest {
             trade_type: TradeType::ExactIn,
             chain_id,
             spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
@@ -283,7 +260,7 @@ mod tests {
                 fallback_slippage: 2.0,
             },
         };
-        let requested_amount_limit_hex = format!("{:064x}", 1_000);
+        let requested_amount_limit_hex = format!("{:064x}", 1_123);
 
         let swap_result = swap_relay_evm(&client, swap_request).await;
         assert!(swap_result.is_ok());
