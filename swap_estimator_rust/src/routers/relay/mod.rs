@@ -2,6 +2,7 @@ use intents_models::constants::chains::{
     ChainId, is_native_token_evm_address, is_native_token_solana_address,
 };
 
+pub mod evm;
 pub mod relay;
 pub mod requests;
 pub mod responses;

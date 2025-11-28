@@ -1,22 +1,25 @@
+use crate::error::{Error, EstimatorResult};
+use crate::routers::swap::EvmTxData;
 use crate::routers::uniswap::responses::{UniswapQuoteResponse, UniswapSwapResponse};
-use serde::Deserialize;
+use error_stack::ResultExt;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 // https://docs.relay.link/references/api/get-quote
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RelayQuoteResponse<ChainData> {
-    pub steps: Vec<RelayQuoteStep<ChainData>>,
+pub struct RelayQuoteResponse<TxData> {
+    pub steps: Vec<RelayQuoteStep<TxData>>,
     pub fees: HashMap<String, RelayQuoteFees>,
     pub details: RelayQuoteDetails,
 }
 
 pub enum RelayStepId {}
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RelayQuoteStep<ChainData> {
+pub struct RelayQuoteStep<TxData> {
     // Unique identifier tied to the step
     // Available options: deposit, approve, authorize, authorize1, authorize2, swap, send
     pub id: String,
@@ -29,24 +32,24 @@ pub struct RelayQuoteStep<ChainData> {
     pub kind: Option<String>,
     // While uncommon it is possible for steps to contain multiple items of the same kind
     // (transaction/signature) grouped together that can be executed simultaneously.
-    pub items: Vec<RelayStepItem<ChainData>>,
+    pub items: Vec<RelayStepItem<TxData>>,
     // A unique identifier for this step, tying all related transactions together
     pub request_id: Option<String>,
     // The deposit address for the bridge request
     pub deposit_address: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RelayStepItem<ChainData> {
+pub struct RelayStepItem<TxData> {
     // Can either be complete or incomplete, this can be locally controlled once the step item is
     // completed (depending on the kind) and the check object (if returned) has been verified.
     // Once all step items are complete, the bridge is complete
     pub status: Option<String>,
-    pub data: Option<ChainData>,
+    pub data: TxData,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayQuoteDetails {
     pub operation: Option<String>,
@@ -66,7 +69,7 @@ pub struct RelayQuoteDetails {
     pub user_balance: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayQuoteFees {
     pub currency: RelayCurrency,
@@ -76,7 +79,7 @@ pub struct RelayQuoteFees {
     pub minimum_amount: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayCurrencyWithAmount {
     pub currency: RelayCurrency,
@@ -86,7 +89,7 @@ pub struct RelayCurrencyWithAmount {
     pub minimum_amount: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayCurrency {
     pub chain_id: u32,
@@ -97,7 +100,7 @@ pub struct RelayCurrency {
     pub metadata: Option<RelayCurrencyMetadata>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayCurrencyMetadata {
     pub logo_uri: Option<String>,
@@ -105,21 +108,21 @@ pub struct RelayCurrencyMetadata {
     pub is_native: Option<bool>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelayImpact {
     pub usd: Option<String>,
     pub percent: Option<String>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelaySlippageTolerance {
     pub origin: Option<RelaySlippageToleranceItem>,
     pub destination: Option<RelaySlippageToleranceItem>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelaySlippageToleranceItem {
     pub usd: Option<String>,
@@ -129,9 +132,9 @@ pub struct RelaySlippageToleranceItem {
 
 // ============================  EVM  ============================
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RelayEvmChainData {
+pub struct RelayEvmTxData {
     pub from: String,
     pub to: String,
     pub data: String,
@@ -142,16 +145,35 @@ pub struct RelayEvmChainData {
     pub chain_id: Option<u32>,
 }
 
+impl RelayEvmTxData {
+    pub fn to_evm_tx_data(self) -> EstimatorResult<EvmTxData> {
+        Ok(EvmTxData {
+            tx_to: self.to,
+            tx_data: self.data,
+            tx_value: self
+                .value
+                .map(|value| {
+                    value
+                        .parse::<u128>()
+                        .change_context(Error::ParseError)
+                        .attach_printable("Error msg.value")
+                })
+                .transpose()?
+                .unwrap_or_default(),
+        })
+    }
+}
+
 // ============================  Solana  ============================
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RelaySolanaChainData {
+pub struct RelaySolanaTxData {
     pub instructions: Vec<RelaySolanaInstruction>,
     pub address_lookup_table_addresses: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelaySolanaInstruction {
     pub keys: Vec<RelaySolanaKey>,
@@ -159,7 +181,7 @@ pub struct RelaySolanaInstruction {
     pub data: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RelaySolanaKey {
     pub pubkey: String,
@@ -167,9 +189,9 @@ pub struct RelaySolanaKey {
     pub is_writable: bool,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum RelayResponse<ChainData> {
-    Quote(RelayQuoteResponse<ChainData>),
+pub enum RelayResponse<TxData> {
+    Quote(RelayQuoteResponse<TxData>),
     UnknownResponse(Value),
 }

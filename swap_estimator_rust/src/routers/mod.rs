@@ -38,6 +38,7 @@ pub enum RouterType {
     OneInch,
     ZeroX,
     Uniswap,
+    Relay,
     Liquidswap,
     Jupiter,
     Aftermath,

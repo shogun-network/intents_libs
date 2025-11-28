@@ -1,5 +1,6 @@
 use crate::error::{Error, EstimatorResult};
 use crate::routers::constants::BASE_RELAY_API_URL;
+use crate::routers::estimate::TradeType;
 use crate::routers::relay::requests::RelayQuoteRequest;
 use crate::routers::relay::responses::{RelayQuoteResponse, RelayResponse};
 use error_stack::{ResultExt, report};
@@ -11,15 +12,15 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::fmt::Debug;
 
-pub async fn send_relay_request<ChainData>(
+pub async fn send_relay_request<TxData>(
     client: &Client,
     uri_path: &str,
     query: Option<Value>,
     body: Option<Value>,
     method: HttpMethod,
-) -> EstimatorResult<RelayResponse<ChainData>>
+) -> EstimatorResult<RelayResponse<TxData>>
 where
-    ChainData: DeserializeOwned + Debug,
+    TxData: DeserializeOwned + Debug,
 {
     let url = match query {
         Some(query) => {
@@ -59,9 +60,9 @@ where
     Ok(response)
 }
 
-fn handle_relay_response<ChainData>(
-    response: RelayResponse<ChainData>,
-) -> EstimatorResult<RelayResponse<ChainData>> {
+pub fn handle_relay_response<TxData>(
+    response: RelayResponse<TxData>,
+) -> EstimatorResult<RelayResponse<TxData>> {
     match response {
         RelayResponse::UnknownResponse(val) => {
             tracing::error!(
@@ -74,12 +75,12 @@ fn handle_relay_response<ChainData>(
     }
 }
 
-pub async fn quote_relay_generic<ChainData>(
+pub async fn quote_relay_generic<TxData>(
     client: &Client,
     request: RelayQuoteRequest,
-) -> EstimatorResult<RelayQuoteResponse<ChainData>>
+) -> EstimatorResult<RelayQuoteResponse<TxData>>
 where
-    ChainData: DeserializeOwned + Debug,
+    TxData: DeserializeOwned + Debug,
 {
     // Convert the request struct to a serde_json::Value to modify attribute names as specified by serde renames
     let body = serde_json::to_value(request).expect("Can't fail");
@@ -96,4 +97,33 @@ where
         );
         Err(report!(Error::ResponseError).attach_printable("Unexpected response from Relay"))
     }
+}
+
+pub fn get_amounts_from_quote<TxData>(
+    quote_response: &RelayQuoteResponse<TxData>,
+    trade_type: TradeType,
+) -> EstimatorResult<(u128, u128)> {
+    let (amount_quote, amount_limit) = match trade_type {
+        TradeType::ExactIn => (
+            quote_response.details.currency_out.amount.clone(),
+            quote_response.details.currency_out.minimum_amount.clone(),
+        ),
+        TradeType::ExactOut => (
+            quote_response.details.currency_out.amount.clone(),
+            quote_response.details.currency_out.minimum_amount.clone(),
+        ),
+    };
+
+    let amount_quote = amount_quote
+        .parse::<u128>()
+        .change_context(Error::AggregatorError(
+            "Error deserializing Relay quote output amount".to_string(),
+        ))?;
+    let amount_limit = amount_limit
+        .parse::<u128>()
+        .change_context(Error::AggregatorError(
+            "Error deserializing Relay limit output amount".to_string(),
+        ))?;
+
+    Ok((amount_quote, amount_limit))
 }

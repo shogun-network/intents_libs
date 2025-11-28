@@ -105,10 +105,11 @@ pub struct RelayQuoteRequest {
 impl RelayQuoteRequest {
     pub fn from_generic_estimate_request(
         request: GenericEstimateRequest,
-        swapper: Option<String>,
+        user: Option<String>,
+        recipient: Option<String>,
     ) -> EstimatorResult<Self> {
         Ok(Self {
-            user: USER_PLACEHOLDER.to_string(),
+            user: user.unwrap_or(USER_PLACEHOLDER.to_string()),
             origin_chain_id: request.chain_id as u32,
             destination_chain_id: request.chain_id as u32,
             origin_currency: request.src_token,
@@ -118,7 +119,7 @@ impl RelayQuoteRequest {
                 TradeType::ExactIn => RelayTradeType::EXACT_INPUT,
                 TradeType::ExactOut => RelayTradeType::EXACT_OUTPUT,
             },
-            recipient: None,
+            recipient,
             txs: None,
             referrer: Some("gun.fun".to_string()),
             refund_to: None,
