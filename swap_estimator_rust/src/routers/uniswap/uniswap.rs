@@ -1,4 +1,5 @@
 use crate::routers::Slippage;
+use crate::routers::estimate::TradeType;
 use crate::routers::swap::EvmTxData;
 use crate::routers::uniswap::requests::{
     SWAPPER_PLACEHOLDER, UniswapQuoteRequest, UniswapSwapRequest,
@@ -165,14 +166,14 @@ pub async fn quote_uniswap_generic(
         .change_context(Error::AggregatorError(
             "Error deserializing Uniswap quote response data".to_string(),
         ))?;
-    let amount_quote =
-        quote_data
-            .output
-            .amount
-            .parse::<u128>()
-            .change_context(Error::AggregatorError(
-                "Error deserializing Uniswap quote output amount".to_string(),
-            ))?;
+    let amount_quote = match trade_type {
+        TradeType::ExactIn => quote_data.output.amount,
+        TradeType::ExactOut => quote_data.input.amount,
+    }
+    .parse::<u128>()
+    .change_context(Error::AggregatorError(
+        "Error deserializing Uniswap quote output amount".to_string(),
+    ))?;
 
     let amount_limit = get_limit_amount(trade_type, amount_quote, slippage)?;
 
@@ -226,14 +227,14 @@ pub async fn swap_uniswap_generic(
         .change_context(Error::AggregatorError(
             "Error deserializing Uniswap quote response data".to_string(),
         ))?;
-    let amount_quote =
-        quote_data
-            .output
-            .amount
-            .parse::<u128>()
-            .change_context(Error::AggregatorError(
-                "Error deserializing Uniswap quote output amount".to_string(),
-            ))?;
+    let amount_quote = match generic_swap_request.trade_type {
+        TradeType::ExactIn => quote_data.output.amount,
+        TradeType::ExactOut => quote_data.input.amount,
+    }
+    .parse::<u128>()
+    .change_context(Error::AggregatorError(
+        "Error deserializing Uniswap quote output amount".to_string(),
+    ))?;
 
     let approve_address = quote_response.permit_transaction.clone().map(|tx| tx.to);
 
@@ -370,6 +371,7 @@ mod tests {
         assert!(swap_result.pre_transactions.is_some());
         let pre_transactions = swap_result.pre_transactions.unwrap();
         assert_eq!(pre_transactions.len(), 1);
+        assert!(swap_result.amount_quote < 1_000_000_000)
     }
 
     #[tokio::test]
