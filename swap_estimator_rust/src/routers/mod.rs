@@ -7,6 +7,7 @@ pub mod one_inch;
 pub mod paraswap;
 pub mod raydium;
 pub mod swap;
+pub mod uniswap;
 pub mod zero_x;
 
 use crate::error::EstimatorResult;
@@ -35,6 +36,7 @@ pub enum RouterType {
     Paraswap,
     OneInch,
     ZeroX,
+    Uniswap,
     Liquidswap,
     Jupiter,
     Aftermath,
@@ -48,8 +50,12 @@ pub fn routers_by_chain(chain: ChainId) -> EstimatorResult<Vec<RouterType>> {
         | ChainId::Bsc
         | ChainId::ArbitrumOne
         | ChainId::Base
-        | ChainId::Optimism => Ok(vec![RouterType::OneInch, RouterType::ZeroX]),
-        ChainId::Monad => Ok(vec![RouterType::ZeroX]),
+        | ChainId::Optimism => Ok(vec![
+            RouterType::OneInch,
+            RouterType::ZeroX,
+            RouterType::Uniswap,
+        ]),
+        ChainId::Monad => Ok(vec![RouterType::ZeroX, RouterType::Uniswap]),
         ChainId::HyperEVM => Ok(vec![RouterType::Liquidswap]),
         ChainId::Solana => Ok(vec![
             RouterType::Jupiter,

@@ -282,6 +282,7 @@ async fn prepare_exact_in_swap_one_inch(
     Ok(EvmSwapResponse {
         amount_quote: amount_out,
         amount_limit,
+        pre_transactions: None,
         tx_to: swap_response.tx.to.clone(),
         tx_data: swap_response.tx.data,
         tx_value: decimal_string_to_u128(&swap_response.tx.value, 0)?,

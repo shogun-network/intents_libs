@@ -2,7 +2,6 @@ use intents_models::constants::chains::is_native_token_evm_address;
 
 #[allow(clippy::module_inception)]
 pub mod paraswap;
-pub mod rate_limit;
 pub mod requests;
 pub mod responses;
 

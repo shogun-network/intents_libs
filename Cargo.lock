@@ -2339,7 +2339,7 @@ dependencies = [
  "futures-util",
  "governor",
  "intents_models",
- "lazy_static",
+ "once_cell",
  "reqwest",
  "rust_decimal",
  "serde",

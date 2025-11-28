@@ -266,7 +266,8 @@ pub async fn prepare_swap_paraswap_generic(
 
     Ok(EvmSwapResponse {
         amount_quote,
-        amount_limit: amount_limit,
+        amount_limit,
+        pre_transactions: None,
         tx_to: transactions_response.to,
         tx_data: transactions_response.data,
         tx_value: decimal_string_to_u128(&transactions_response.value, ETH_TOKEN_DECIMALS)?,
