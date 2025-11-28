@@ -1,10 +1,10 @@
 use crate::error::{Error, EstimatorResult};
-use crate::routers::RouterType;
-use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse};
+use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType};
 use crate::routers::relay::relay::{get_amounts_from_quote, quote_relay_generic};
 use crate::routers::relay::requests::RelayQuoteRequest;
 use crate::routers::relay::responses::RelayEvmTxData;
 use crate::routers::swap::{EvmSwapResponse, EvmTxData, GenericSwapRequest};
+use crate::routers::{RouterType, Slippage};
 use error_stack::{ResultExt, report};
 use intents_models::network::client_rate_limit::Client;
 
@@ -92,7 +92,44 @@ pub async fn swap_relay_evm(
         pre_transactions.push(relay_tx.to_evm_tx_data()?);
     }
 
-    let swap_tx = swap_tx.to_evm_tx_data()?;
+    let mut swap_tx = swap_tx.to_evm_tx_data()?;
+
+    if let Slippage::AmountLimit {
+        amount_limit: requested_amount_limit,
+        ..
+    } = generic_swap_request.slippage
+    {
+        match trade_type {
+            TradeType::ExactIn => {
+                if amount_quote < requested_amount_limit {
+                    return Err(report!(Error::AggregatorError(format!(
+                        "Amount quote {amount_quote} is lower than requested \
+                        amount limit {requested_amount_limit} for exact IN trade"
+                    ))));
+                }
+            }
+            TradeType::ExactOut => {
+                if amount_quote > requested_amount_limit {
+                    return Err(report!(Error::AggregatorError(format!(
+                        "Amount quote {amount_quote} is greater than requested \
+                        amount limit {requested_amount_limit} for exact OUT trade"
+                    ))));
+                }
+            }
+        }
+        let amount_limit_hex = format!("{:064x}", amount_limit);
+        let requested_amount_limit_hex = format!("{:064x}", requested_amount_limit);
+        let new_tx_data = swap_tx
+            .tx_data
+            .replace(&amount_limit_hex, &requested_amount_limit_hex);
+        if new_tx_data.eq(&swap_tx.tx_data) {
+            return Err(report!(Error::AggregatorError(format!(
+                "Could not replace amount limit {amount_limit} with \
+                requested amount limit {requested_amount_limit} in Relay calldata"
+            ))));
+        }
+        swap_tx.tx_data = new_tx_data;
+    }
 
     Ok(EvmSwapResponse {
         amount_quote,
@@ -217,8 +254,7 @@ mod tests {
             slippage: Slippage::Percent(2.0),
         };
 
-        let swap_result =
-            swap_relay_evm(&client, swap_request).await;
+        let swap_result = swap_relay_evm(&client, swap_request).await;
         assert!(swap_result.is_ok());
         let result = swap_result.unwrap();
         assert!(result.approve_address.is_none());
@@ -228,46 +264,30 @@ mod tests {
 
     #[tokio::test]
     async fn test_relay_swap_exact_in_with_quote_amount_limit() {
-        // todo
-        // dotenv::dotenv().ok();
-        // let chain_id = ChainId::Base;
-        // let client = Client::Unrestricted(reqwest::Client::new());
-        //
-        // let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
-        // let dest_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
-        // let mut swap_request = GenericSwapRequest {
-        //     trade_type: TradeType::ExactIn,
-        //     chain_id,
-        //     spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
-        //     dest_address: "0x4E28f22DE1DBDe92310db2779217a74607691038".to_string(),
-        //     src_token,
-        //     dest_token,
-        //     amount_fixed: 1_000_000_000_000_000_000u128,
-        //     slippage: Slippage::AmountLimit {
-        //         amount_limit: 1_000,
-        //         fallback_slippage: 2.0,
-        //     },
-        // };
-        //
-        // let quote_request: GenericEstimateRequest = swap_request.clone().into();
-        // let quote_result = quote_relay_generic(&client, quote_request, &api_key).await;
-        // assert!(quote_result.is_ok());
-        // let quote_result = quote_result.unwrap();
-        //
-        // // Setting to 5%
-        // let amount_limit = quote_result.amount_quote * 95 / 100;
-        // swap_request.slippage = Slippage::AmountLimit {
-        //     amount_limit,
-        //     fallback_slippage: 2.0,
-        // };
-        //
-        // let swap_result =
-        //     swap_relay_evm(&client, swap_request).await;
-        // assert!(swap_result.is_ok());
-        // let result = swap_result.unwrap();
-        // assert!(result.approve_address.is_none());
-        // assert!(result.require_transfer);
-        // assert!(result.pre_transactions.is_none());
-        // assert_eq!(result.amount_limit, amount_limit);
+        dotenv::dotenv().ok();
+        let chain_id = ChainId::Base;
+        let client = Client::Unrestricted(reqwest::Client::new());
+
+        let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
+        let dest_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
+        let mut swap_request = GenericSwapRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id,
+            spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
+            dest_address: "0x4E28f22DE1DBDe92310db2779217a74607691038".to_string(),
+            src_token,
+            dest_token,
+            amount_fixed: 1_000_000_000_000_000_000u128,
+            slippage: Slippage::AmountLimit {
+                amount_limit: 1_123,
+                fallback_slippage: 2.0,
+            },
+        };
+        let requested_amount_limit_hex = format!("{:064x}", 1_000);
+
+        let swap_result = swap_relay_evm(&client, swap_request).await;
+        assert!(swap_result.is_ok());
+        let swap_response = swap_result.unwrap();
+        assert!(swap_response.tx_data.contains(&requested_amount_limit_hex));
     }
 }
