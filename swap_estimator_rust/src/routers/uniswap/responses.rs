@@ -50,6 +50,5 @@ pub struct UniswapSwapResponse {
 pub enum UniswapResponse {
     Quote(UniswapQuoteResponse),
     Swap(UniswapSwapResponse),
-    RequestError { error: String },
     UnknownResponse(Value),
 }

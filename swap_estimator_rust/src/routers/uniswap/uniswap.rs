@@ -77,10 +77,6 @@ pub async fn send_uniswap_request(
 
 fn handle_uniswap_response(response: UniswapResponse) -> EstimatorResult<UniswapResponse> {
     match response {
-        UniswapResponse::RequestError { error } => {
-            tracing::error!("Request error from Uniswap: {error}");
-            Err(report!(Error::ResponseError).attach_printable("Request error from Uniswap"))
-        }
         UniswapResponse::UnknownResponse(val) => {
             tracing::error!(
                 "Unknown response from Uniswap: {}",

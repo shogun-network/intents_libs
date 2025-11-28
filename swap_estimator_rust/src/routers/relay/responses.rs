@@ -1,12 +1,13 @@
+use crate::routers::uniswap::responses::{UniswapQuoteResponse, UniswapSwapResponse};
 use serde::Deserialize;
+use serde_json::Value;
 use std::collections::HashMap;
-
 // https://docs.relay.link/references/api/get-quote
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RelayQuoteResponse<ChainSpecificData> {
-    pub steps: Vec<RelayQuoteStep<ChainSpecificData>>,
+pub struct RelayQuoteResponse<ChainData> {
+    pub steps: Vec<RelayQuoteStep<ChainData>>,
     pub fees: HashMap<String, RelayQuoteFees>,
     pub details: RelayQuoteDetails,
 }
@@ -15,7 +16,7 @@ pub enum RelayStepId {}
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RelayQuoteStep<ChainSpecificData> {
+pub struct RelayQuoteStep<ChainData> {
     // Unique identifier tied to the step
     // Available options: deposit, approve, authorize, authorize1, authorize2, swap, send
     pub id: String,
@@ -28,7 +29,7 @@ pub struct RelayQuoteStep<ChainSpecificData> {
     pub kind: Option<String>,
     // While uncommon it is possible for steps to contain multiple items of the same kind
     // (transaction/signature) grouped together that can be executed simultaneously.
-    pub items: Vec<RelayStepItem<ChainSpecificData>>,
+    pub items: Vec<RelayStepItem<ChainData>>,
     // A unique identifier for this step, tying all related transactions together
     pub request_id: Option<String>,
     // The deposit address for the bridge request
@@ -37,12 +38,12 @@ pub struct RelayQuoteStep<ChainSpecificData> {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RelayStepItem<ChainSpecificData> {
+pub struct RelayStepItem<ChainData> {
     // Can either be complete or incomplete, this can be locally controlled once the step item is
     // completed (depending on the kind) and the check object (if returned) has been verified.
     // Once all step items are complete, the bridge is complete
     pub status: Option<String>,
-    pub data: Option<ChainSpecificData>,
+    pub data: Option<ChainData>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -164,4 +165,11 @@ pub struct RelaySolanaKey {
     pub pubkey: String,
     pub is_signer: bool,
     pub is_writable: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum RelayResponse<ChainData> {
+    Quote(RelayQuoteResponse<ChainData>),
+    UnknownResponse(Value),
 }
