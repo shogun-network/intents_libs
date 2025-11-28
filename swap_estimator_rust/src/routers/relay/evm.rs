@@ -1,5 +1,5 @@
 use crate::error::{Error, EstimatorResult};
-use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType};
+use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse};
 use crate::routers::relay::relay::{get_amounts_from_quote, quote_relay_generic};
 use crate::routers::relay::requests::RelayQuoteRequest;
 use crate::routers::relay::responses::RelayEvmTxData;
