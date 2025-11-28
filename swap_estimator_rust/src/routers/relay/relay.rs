@@ -86,7 +86,7 @@ where
     let body = serde_json::to_value(request).expect("Can't fail");
 
     let response = handle_relay_response(
-        send_relay_request(client, "quote/", None, Some(body), HttpMethod::POST).await?,
+        send_relay_request(client, "quote", None, Some(body), HttpMethod::POST).await?,
     )?;
     if let RelayResponse::Quote(quote_response) = response {
         Ok(quote_response)
@@ -109,8 +109,8 @@ pub fn get_amounts_from_quote<TxData>(
             quote_response.details.currency_out.minimum_amount.clone(),
         ),
         TradeType::ExactOut => (
-            quote_response.details.currency_out.amount.clone(),
-            quote_response.details.currency_out.minimum_amount.clone(),
+            quote_response.details.currency_in.amount.clone(),
+            quote_response.details.currency_in.minimum_amount.clone(),
         ),
     };
 

@@ -1,6 +1,5 @@
 use crate::error::{Error, EstimatorResult};
 use crate::routers::swap::EvmTxData;
-use crate::routers::uniswap::responses::{UniswapQuoteResponse, UniswapSwapResponse};
 use error_stack::ResultExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

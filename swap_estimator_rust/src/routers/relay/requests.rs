@@ -1,7 +1,9 @@
 use crate::error::EstimatorResult;
 use crate::routers::Slippage;
 use crate::routers::estimate::{GenericEstimateRequest, TradeType};
-use crate::routers::relay::get_relay_max_slippage;
+use crate::routers::relay::{
+    get_relay_max_slippage, update_relay_chain_id, update_relay_native_token,
+};
 use crate::utils::number_conversion::slippage_to_bps;
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +41,7 @@ pub struct RelayQuoteRequest {
     pub trade_type: RelayTradeType,
 
     // Address that is receiving the funds on the destination chain, if not specified then this will default to the user address
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub recipient: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub txs: Option<Vec<RelayRequestedTx>>,
@@ -59,6 +62,7 @@ pub struct RelayQuoteRequest {
     pub use_receiver: Option<bool>,
     // Enabling will send any swap surplus when doing exact output operations to the solver EOA,
     // otherwise it will be swept to the recipient
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_true_exact_output: Option<bool>,
     // Enable this to use canonical+ bridging, trading speed for more liquidity
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -110,10 +114,10 @@ impl RelayQuoteRequest {
     ) -> EstimatorResult<Self> {
         Ok(Self {
             user: user.unwrap_or(USER_PLACEHOLDER.to_string()),
-            origin_chain_id: request.chain_id as u32,
-            destination_chain_id: request.chain_id as u32,
-            origin_currency: request.src_token,
-            destination_currency: request.dest_token,
+            origin_chain_id: update_relay_chain_id(request.chain_id),
+            destination_chain_id: update_relay_chain_id(request.chain_id),
+            origin_currency: update_relay_native_token(request.src_token),
+            destination_currency: update_relay_native_token(request.dest_token),
             amount: request.amount_fixed.to_string(),
             trade_type: match request.trade_type {
                 TradeType::ExactIn => RelayTradeType::EXACT_INPUT,

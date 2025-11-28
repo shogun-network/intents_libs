@@ -1,6 +1,6 @@
 use crate::error::{Error, EstimatorResult};
 use crate::routers::RouterType;
-use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse, TradeType};
+use crate::routers::estimate::{GenericEstimateRequest, GenericEstimateResponse};
 use crate::routers::relay::relay::{get_amounts_from_quote, quote_relay_generic};
 use crate::routers::relay::requests::RelayQuoteRequest;
 use crate::routers::relay::responses::RelayEvmTxData;
@@ -31,13 +31,13 @@ pub async fn estimate_relay_evm(
 pub async fn swap_relay_evm(
     client: &Client,
     generic_swap_request: GenericSwapRequest,
-    spender: String,
 ) -> EstimatorResult<EvmSwapResponse> {
+    // todo relay handle Slippage::AmountLimit - maybe allow for exact OUT?
     let trade_type = generic_swap_request.trade_type;
     let estimate_request = GenericEstimateRequest::from(generic_swap_request.clone());
     let quote_request = RelayQuoteRequest::from_generic_estimate_request(
         estimate_request,
-        Some(spender),
+        Some(generic_swap_request.spender.clone()),
         Some(generic_swap_request.dest_address.clone()),
     )?;
     let quote_response = quote_relay_generic::<RelayEvmTxData>(client, quote_request).await?;
@@ -109,4 +109,165 @@ pub async fn swap_relay_evm(
         // Relay sends tokens to receiver
         require_transfer: false,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::routers::{Slippage, estimate::TradeType};
+    use intents_models::constants::chains::ChainId;
+
+    #[tokio::test]
+    async fn test_estimate_relay_evm_exact_in() {
+        dotenv::dotenv().ok();
+        let client = Client::Unrestricted(reqwest::Client::new());
+
+        let request = GenericEstimateRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id: ChainId::Base,
+            src_token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913".to_string(),
+            dest_token: "0x4200000000000000000000000000000000000006".to_string(),
+            amount_fixed: 100000000,
+            slippage: Slippage::Percent(2.0),
+        };
+        let result = estimate_relay_evm(&client, request).await;
+        assert!(
+            result.is_ok(),
+            "Expected a successful estimate swap response"
+        );
+        let response = result.unwrap();
+        println!("Response: {response:?}");
+        assert!(
+            response.amount_quote > 0,
+            "Expected a non-zero amount quote"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_relay_swap_exact_in() {
+        dotenv::dotenv().ok();
+        let client = Client::Unrestricted(reqwest::Client::new());
+
+        let chain_id = ChainId::Base;
+        let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
+        let dest_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
+        let swap_request = GenericSwapRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id,
+            spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
+            dest_address: "0x4E28f22DE1DBDe92310db2779217a74607691038".to_string(),
+            src_token,
+            dest_token,
+            amount_fixed: 10_000_000_000u128,
+            slippage: Slippage::Percent(2.0),
+        };
+
+        let swap_result = swap_relay_evm(&client, swap_request).await;
+        assert!(swap_result.is_ok());
+        let result = swap_result.unwrap();
+        assert!(result.approve_address.is_none());
+        assert!(!result.require_transfer);
+        assert!(result.pre_transactions.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_relay_swap_exact_out() {
+        dotenv::dotenv().ok();
+        let client = Client::Unrestricted(reqwest::Client::new());
+
+        let chain_id = ChainId::Base;
+        let src_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
+        let dest_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
+        let request = GenericSwapRequest {
+            trade_type: TradeType::ExactOut,
+            chain_id,
+            spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
+            dest_address: "0x4E28f22DE1DBDe92310db2779217a74607691038".to_string(),
+            src_token,
+            dest_token,
+            amount_fixed: 10_000_000_000_000_000u128,
+            slippage: Slippage::Percent(2.0),
+        };
+        let swap_result = swap_relay_evm(&client, request).await;
+        assert!(swap_result.is_ok());
+        let swap_result = swap_result.unwrap();
+        assert!(swap_result.approve_address.is_none());
+        assert!(!swap_result.require_transfer);
+        assert!(swap_result.pre_transactions.is_none());
+        assert!(swap_result.amount_quote < 1_000_000_000)
+    }
+
+    #[tokio::test]
+    async fn test_relay_swap_exact_in_with_quote() {
+        dotenv::dotenv().ok();
+        let client = Client::Unrestricted(reqwest::Client::new());
+
+        let chain_id = ChainId::Base;
+        let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
+        let dest_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
+        let swap_request = GenericSwapRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id,
+            spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
+            dest_address: "0x4E28f22DE1DBDe92310db2779217a74607691038".to_string(),
+            src_token,
+            dest_token,
+            amount_fixed: 10_000_000_000u128,
+            slippage: Slippage::Percent(2.0),
+        };
+
+        let swap_result =
+            swap_relay_evm(&client, swap_request).await;
+        assert!(swap_result.is_ok());
+        let result = swap_result.unwrap();
+        assert!(result.approve_address.is_none());
+        assert!(!result.require_transfer);
+        assert!(result.pre_transactions.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_relay_swap_exact_in_with_quote_amount_limit() {
+        // todo
+        // dotenv::dotenv().ok();
+        // let chain_id = ChainId::Base;
+        // let client = Client::Unrestricted(reqwest::Client::new());
+        //
+        // let src_token = "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee".to_string();
+        // let dest_token = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string();
+        // let mut swap_request = GenericSwapRequest {
+        //     trade_type: TradeType::ExactIn,
+        //     chain_id,
+        //     spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
+        //     dest_address: "0x4E28f22DE1DBDe92310db2779217a74607691038".to_string(),
+        //     src_token,
+        //     dest_token,
+        //     amount_fixed: 1_000_000_000_000_000_000u128,
+        //     slippage: Slippage::AmountLimit {
+        //         amount_limit: 1_000,
+        //         fallback_slippage: 2.0,
+        //     },
+        // };
+        //
+        // let quote_request: GenericEstimateRequest = swap_request.clone().into();
+        // let quote_result = quote_relay_generic(&client, quote_request, &api_key).await;
+        // assert!(quote_result.is_ok());
+        // let quote_result = quote_result.unwrap();
+        //
+        // // Setting to 5%
+        // let amount_limit = quote_result.amount_quote * 95 / 100;
+        // swap_request.slippage = Slippage::AmountLimit {
+        //     amount_limit,
+        //     fallback_slippage: 2.0,
+        // };
+        //
+        // let swap_result =
+        //     swap_relay_evm(&client, swap_request).await;
+        // assert!(swap_result.is_ok());
+        // let result = swap_result.unwrap();
+        // assert!(result.approve_address.is_none());
+        // assert!(result.require_transfer);
+        // assert!(result.pre_transactions.is_none());
+        // assert_eq!(result.amount_limit, amount_limit);
+    }
 }
