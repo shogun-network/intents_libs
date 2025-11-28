@@ -6,6 +6,7 @@ pub mod liquidswap;
 pub mod one_inch;
 pub mod paraswap;
 pub mod raydium;
+pub mod relay;
 pub mod swap;
 pub mod uniswap;
 pub mod zero_x;
