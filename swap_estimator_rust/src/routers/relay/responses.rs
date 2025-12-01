@@ -155,7 +155,7 @@ impl RelayEvmTxData {
                     value
                         .parse::<u128>()
                         .change_context(Error::ParseError)
-                        .attach_printable("Error msg.value")
+                        .attach_printable(format!("Failed to parse tx value: {value}"))
                 })
                 .transpose()?
                 .unwrap_or_default(),

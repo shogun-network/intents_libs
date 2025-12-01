@@ -2,6 +2,9 @@ use crate::error::{Error, EstimatorResult};
 use crate::routers::estimate::TradeType;
 use error_stack::report;
 
+pub const ERC20_APPROVE_SELECTOR: &str = "0x095ea7b3";
+pub const ERC20_APPROVE_CALLDATA_LEN: usize = 138; // 0x + 8 (selector) + 64 (address) + 64 (amount)
+
 /// Replaces 32-bytes amount limit in calldata
 ///
 /// Throws if `amount_quote` is not enough to satisfy `requested_amount_limit`

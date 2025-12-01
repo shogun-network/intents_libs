@@ -5,7 +5,9 @@ use crate::routers::relay::requests::RelayQuoteRequest;
 use crate::routers::relay::responses::RelayEvmTxData;
 use crate::routers::swap::{EvmSwapResponse, EvmTxData, GenericSwapRequest};
 use crate::routers::{RouterType, Slippage};
-use crate::utils::evm::replace_amount_limit_in_tx;
+use crate::utils::evm::{
+    ERC20_APPROVE_CALLDATA_LEN, ERC20_APPROVE_SELECTOR, replace_amount_limit_in_tx,
+};
 use error_stack::{ResultExt, report};
 use intents_models::network::client_rate_limit::Client;
 
@@ -69,8 +71,8 @@ pub async fn swap_relay_evm(
     let mut approve_address: Option<String> = None;
 
     if let Some(maybe_approval_tx) = maybe_approval_tx {
-        let is_approval_calldata =
-            maybe_approval_tx.data.starts_with("0x095ea7b3") && maybe_approval_tx.data.len() == 138;
+        let is_approval_calldata = maybe_approval_tx.data.starts_with(ERC20_APPROVE_SELECTOR)
+            && maybe_approval_tx.data.len() == ERC20_APPROVE_CALLDATA_LEN;
         if is_approval_calldata
             && maybe_approval_tx
                 .to
