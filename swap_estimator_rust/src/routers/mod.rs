@@ -6,6 +6,7 @@ pub mod liquidswap;
 pub mod one_inch;
 pub mod paraswap;
 pub mod raydium;
+pub mod relay;
 pub mod swap;
 pub mod uniswap;
 pub mod zero_x;
@@ -37,6 +38,7 @@ pub enum RouterType {
     OneInch,
     ZeroX,
     Uniswap,
+    Relay,
     Liquidswap,
     Jupiter,
     Aftermath,
@@ -54,8 +56,13 @@ pub fn routers_by_chain(chain: ChainId) -> EstimatorResult<Vec<RouterType>> {
             RouterType::OneInch,
             RouterType::ZeroX,
             RouterType::Uniswap,
+            RouterType::Relay,
         ]),
-        ChainId::Monad => Ok(vec![RouterType::ZeroX, RouterType::Uniswap]),
+        ChainId::Monad => Ok(vec![
+            RouterType::ZeroX,
+            RouterType::Uniswap,
+            RouterType::Relay,
+        ]),
         ChainId::HyperEVM => Ok(vec![RouterType::Liquidswap]),
         ChainId::Solana => Ok(vec![
             RouterType::Jupiter,
