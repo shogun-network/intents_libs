@@ -144,6 +144,25 @@ impl IntentRequest {
             }
         }
     }
+    /// Amount of tokens that may be spent during single order execution
+    pub fn get_trade_amount_in(&self) -> u128 {
+        match self {
+            IntentRequest::SingleChainLimitOrder(intent) => intent.generic_data.amount_in,
+            IntentRequest::SingleChainDcaOrder(intent) => {
+                intent
+                    .generic_data
+                    .common_dca_order_data
+                    .amount_in_per_interval
+            }
+            IntentRequest::CrossChainLimitOrder(intent) => intent.generic_data.amount_in,
+            IntentRequest::CrossChainDcaOrder(intent) => {
+                intent
+                    .generic_data
+                    .common_dca_order_data
+                    .amount_in_per_interval
+            }
+        }
+    }
     pub fn get_amount_out_min(&self) -> u128 {
         match self {
             IntentRequest::SingleChainLimitOrder(intent) => {
