@@ -1,3 +1,4 @@
+use crate::utils::evm::replace_amount_limit_in_tx;
 use crate::utils::exact_in_reverse_quoter::{ReverseQuoteResult, quote_exact_out_with_exact_in};
 use crate::{
     error::{Error, EstimatorResult},
@@ -297,15 +298,30 @@ async fn prepare_exact_in_swap_zero_x(
         tx_origin,
     };
 
-    let quote_response = zero_x_get_quote(client, api_key, request).await?;
+    let mut quote_response = zero_x_get_quote(client, api_key, request).await?;
 
     let amount_out = decimal_string_to_u128(&quote_response.buy_amount, 0)?;
 
     let amount_limit = decimal_string_to_u128(&quote_response.min_buy_amount, 0)?;
 
+    if let Slippage::AmountLimit {
+        amount_limit: requested_amount_limit,
+        ..
+    } = swap_request.slippage
+    {
+        quote_response.transaction.data = replace_amount_limit_in_tx(
+            quote_response.transaction.data,
+            swap_request.trade_type,
+            amount_out,
+            amount_limit,
+            requested_amount_limit,
+        )?;
+    }
+
     Ok(EvmSwapResponse {
         amount_quote: amount_out,
         amount_limit,
+        pre_transactions: None,
         tx_to: quote_response.transaction.to.clone(),
         tx_data: quote_response.transaction.data,
         tx_value: decimal_string_to_u128(&quote_response.transaction.value, 0)?,
@@ -476,5 +492,38 @@ mod tests {
             prepare_swap_zero_x(&client, &zero_x_api_key, request, prev_res, None, None).await;
         println!("Result: {:#?}", result);
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_zero_x_swap_exact_in_with_amount_limit() {
+        dotenv::dotenv().ok();
+
+        let zero_x_api_key = std::env::var("ZERO_X_API_KEY").expect("ZERO_X_API_KEY must be set");
+        let chain_id = ChainId::Bsc;
+        let src_token = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c".to_string();
+        let dest_token = "0x55d398326f99059ff775485246999027b3197955".to_string();
+        let swap_request = GenericSwapRequest {
+            trade_type: TradeType::ExactIn,
+            chain_id,
+            spender: "0x9ecDC9aF2a8254DdE8bbce8778eFAe695044cC9F".to_string(),
+            dest_address: "0x4E28f22DE1DBDe92310db2779217a74607691038".to_string(),
+            src_token,
+            dest_token,
+            amount_fixed: 1_000_000_000_000_000_000u128,
+            slippage: Slippage::AmountLimit {
+                amount_limit: 1_123,
+                fallback_slippage: 2.0,
+            },
+        };
+
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result =
+            prepare_swap_zero_x(&client, &zero_x_api_key, swap_request, None, None, None).await;
+        println!("Result: {:#?}", result);
+        assert!(result.is_ok());
+        let swap_response = result.unwrap();
+
+        let requested_amount_limit_hex = format!("{:064x}", 1_123);
+        assert!(swap_response.tx_data.contains(&requested_amount_limit_hex));
     }
 }

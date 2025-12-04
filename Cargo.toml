@@ -23,7 +23,7 @@ tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
 async-nats = "0.42.0"
 futures = "0.3.31"
 rustls = { version = "0.23.28", features = ["ring"] }
-lazy_static = "1.5.0"
+once_cell = "1.21.3"
 serde_with = "3.13.0"
 async-trait = "0.1.88"
 dotenv = "0.15.0"

@@ -4,6 +4,7 @@ use crate::routers::jupiter::get_jupiter_max_slippage;
 use crate::routers::jupiter::models::{JupiterSwapResponse, QuoteResponse, SwapMode};
 use crate::routers::swap::{GenericSwapRequest, SolanaPriorityFeeType};
 use crate::routers::{RouterType, Slippage};
+use crate::utils::limit_amount::get_slippage_percentage;
 use crate::utils::number_conversion::slippage_to_bps;
 use error_stack::{ResultExt, report};
 use intents_models::constants::chains::{
@@ -114,7 +115,7 @@ pub async fn get_jupiter_quote(
 pub async fn get_jupiter_transaction(
     client: &Client,
     generic_swap_request: GenericSwapRequest,
-    quote: Value,
+    mut quote: Value,
     jupiter_url: &str,
     jupiter_api_key: Option<String>,
     priority_fee: Option<SolanaPriorityFeeType>,
@@ -127,6 +128,55 @@ pub async fn get_jupiter_transaction(
     } else {
         None
     };
+
+    match generic_swap_request.slippage {
+        Slippage::Percent(slippage_percent) => {
+            quote["slippageBps"] = serde_json::Value::from(
+                slippage_to_bps(slippage_percent).change_context(Error::ParseError)?,
+            );
+        }
+        Slippage::AmountLimit {
+            amount_limit,
+            fallback_slippage: _,
+        } => {
+            let decoded_quote: QuoteResponse = match serde_json::from_value(quote.clone()) {
+                Ok(quote) => quote,
+                Err(error) => {
+                    tracing::error!(
+                        "Error deserializing Jupiter quote response: {}, response: {}",
+                        error,
+                        quote
+                    );
+                    return Err(report!(Error::SerdeDeserialize(format!(
+                        "Error deserializing Jupiter quote response: {}",
+                        error
+                    ))));
+                }
+            };
+
+            let amount_quote = u128::from_str(match generic_swap_request.trade_type {
+                TradeType::ExactIn => &decoded_quote.outAmount,
+                TradeType::ExactOut => &decoded_quote.inAmount,
+            })
+            .change_context(Error::SerdeSerialize(
+                "Error serializing Jupiter quote response".to_string(),
+            ))?;
+
+            let slippage_percent = get_slippage_percentage(
+                amount_quote,
+                amount_limit,
+                generic_swap_request.trade_type,
+            )
+            .change_context(Error::ParseError)?;
+            quote["slippageBps"] = serde_json::Value::from(
+                slippage_to_bps(slippage_percent).change_context(Error::ParseError)?,
+            );
+        }
+        Slippage::MaxSlippage => {
+            quote["slippageBps"] = serde_json::Value::from(get_jupiter_max_slippage())
+        }
+    }
+
     let mut swap_request_body = json!({
         "quoteResponse": quote,
         "userPublicKey": generic_swap_request.spender,

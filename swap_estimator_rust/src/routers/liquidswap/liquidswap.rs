@@ -190,9 +190,7 @@ pub async fn estimate_swap_liquidswap_generic(
     .attach_printable("Error getting token decimals from Liquidswap")?;
 
     // Calculate the amount as f64 using the token decimals
-    let amount_fixed = u128::try_from(request.amount_fixed)
-        .change_context(Error::ParseError)
-        .attach_printable("Error parsing fixed amount")?;
+    let amount_fixed = request.amount_fixed;
     let mut liquidswap_route_request = create_route_request_from_generic_estimate(request.clone());
     match request.trade_type {
         TradeType::ExactIn => {
@@ -260,9 +258,7 @@ pub async fn prepare_swap_liquidswap_generic(
             let mut router_request =
                 create_route_request_from_generic_swap(generic_swap_request.clone());
 
-            let amount_fixed = u128::try_from(generic_swap_request.amount_fixed)
-                .change_context(Error::ParseError)
-                .attach_printable("Error parsing fixed amount")?;
+            let amount_fixed = generic_swap_request.amount_fixed;
             match generic_swap_request.trade_type {
                 TradeType::ExactIn => {
                     router_request.amount_in = Some(u128_to_f64(amount_fixed, token_in_decimals));
@@ -289,8 +285,9 @@ pub async fn prepare_swap_liquidswap_generic(
     };
 
     Ok(EvmSwapResponse {
-        amount_quote: amount_quote,
-        amount_limit: amount_limit,
+        amount_quote,
+        amount_limit,
+        pre_transactions: None,
         tx_to: route_response.execution.to.clone(),
         tx_data: route_response.execution.calldata,
         tx_value: if use_native_hype { amount_limit } else { 0 },
@@ -356,7 +353,7 @@ fn create_route_request_from_generic_swap(
         multi_hop: Some(true),
         exclude_dexes: None,
         unwrap_whype,
-        slippage: None,
+        slippage: None, // todo, also limit amount
         use_native_hype,
     }
 }
@@ -384,7 +381,7 @@ fn create_route_request_from_generic_estimate(
         multi_hop: Some(true),
         exclude_dexes: None,
         unwrap_whype,
-        slippage: None,
+        slippage: None, // todo, also limit amount
         use_native_hype,
     }
 }

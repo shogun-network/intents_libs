@@ -13,7 +13,7 @@ error-stack        = { workspace = true }
 thiserror          = { workspace = true }
 reqwest            = { workspace = true }
 tracing-subscriber = { workspace = true }
-lazy_static        = { workspace = true }
+once_cell          = { workspace = true }
 serde_with         = { workspace = true }
 async-trait        = { workspace = true }
 dotenv             = { workspace = true }
