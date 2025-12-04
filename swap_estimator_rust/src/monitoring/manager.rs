@@ -126,7 +126,7 @@ impl MonitorManager {
                         }
                     }
                 }
-                _ = unsubscriptions_interval.tick(), if !self.polling_mode.0 => {
+                _ = unsubscriptions_interval.tick() => {
                     tracing::debug!("Checking for tokens to unsubscribe due to no pending orders");
                     // Collect tokens that no longer have pending orders
                     let tokens_to_unsubscribe: Vec<TokenId> = self
@@ -142,15 +142,17 @@ impl MonitorManager {
                         .collect();
 
                     for token in tokens_to_unsubscribe.into_iter() {
-                        match self.codex_provider.unsubscribe_from_token(token.clone()).await {
-                            Ok(_) => {
-                                tracing::debug!(
-                                    "Unsubscribed from token {:?} due to no pending orders",
-                                    token
-                                );
-                            }
-                            Err(e) => {
-                                tracing::warn!("Codex unsubscribe_from_token failed: {:?}", e);
+                        if !self.polling_mode.0 {
+                            match self.codex_provider.unsubscribe_from_token(token.clone()).await {
+                                Ok(_) => {
+                                    tracing::debug!(
+                                        "Unsubscribed from token {:?} due to no pending orders",
+                                        token
+                                    );
+                                }
+                                Err(e) => {
+                                    tracing::warn!("Codex unsubscribe_from_token failed: {:?}", e);
+                                }
                             }
                         }
                         // Remove from coin cache and map
@@ -562,6 +564,10 @@ impl MonitorManager {
         for (codex_id, token_price) in fetched_by_codex.iter() {
             self.coin_cache
                 .insert(codex_id.clone(), token_price.clone());
+            // This will trigger cache removal for tokens without orders
+            self.swaps_by_token
+                .entry(codex_id.clone())
+                .or_insert_with(Vec::new);
         }
 
         // Map fetched CODEX entries back to ORIGINAL keys for the output
@@ -956,15 +962,7 @@ impl MonitorManager {
             .iter()
             .map(|(token_id, _)| token_id.clone())
             .collect::<HashSet<_>>();
-        let tokens_data = if self.polling_mode.0 {
-            // Fetch fresh data from the API as cache might not be updated
-            let mut tokens_data = self.get_tokens_data(tokens_to_search).await?;
-            self.update_tokens_metadata(&mut tokens_data).await?;
-            tokens_data
-        } else {
-            // Cache should be updated via subscriptions
-            self.get_coins_data(tokens_to_search).await?
-        };
+        let tokens_data = self.get_coins_data(tokens_to_search).await?;
 
         let mut total_value = 0.0;
         let mut values = vec![];
