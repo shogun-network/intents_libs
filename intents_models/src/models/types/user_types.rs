@@ -1,5 +1,6 @@
 use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
+use crate::models::types::common::{CommonDcaOrderData, CommonLimitOrderData};
 use crate::models::types::cross_chain::CrossChainIntentRequest;
 use crate::models::types::cross_chain::CrossChainLimitOrderIntentRequest;
 use crate::models::types::cross_chain::{CrossChainDcaOrderIntentRequest, CrossChainGenericData};
@@ -235,6 +236,32 @@ impl IntentRequest {
                 .common_limit_order_data
                 .check_order_can_be_fulfilled(),
             IntentRequest::CrossChainDcaOrder(_) => Ok(()),
+        }
+    }
+
+    pub fn get_common_limit_order_data(&self) -> Option<CommonLimitOrderData> {
+        match self {
+            IntentRequest::SingleChainLimitOrder(intent) => {
+                Some(intent.generic_data.common_limit_order_data.clone())
+            }
+            IntentRequest::SingleChainDcaOrder(_) | IntentRequest::CrossChainDcaOrder(_) => None,
+            IntentRequest::CrossChainLimitOrder(intent) => {
+                Some(intent.generic_data.common_limit_order_data.clone())
+            }
+        }
+    }
+
+    pub fn get_common_dca_order_data(&self) -> Option<CommonDcaOrderData> {
+        match self {
+            IntentRequest::SingleChainDcaOrder(intent) => {
+                Some(intent.generic_data.common_dca_order_data.clone())
+            }
+            IntentRequest::SingleChainLimitOrder(_) | IntentRequest::CrossChainLimitOrder(_) => {
+                None
+            }
+            IntentRequest::CrossChainDcaOrder(intent) => {
+                Some(intent.generic_data.common_dca_order_data.clone())
+            }
         }
     }
 }
