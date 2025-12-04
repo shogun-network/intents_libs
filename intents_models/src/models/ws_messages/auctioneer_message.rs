@@ -45,6 +45,10 @@ impl WsAuctioneerMessage {
             inner: WsAuctioneerMessageInner::ErrorMessage(error),
         }
     }
+
+    pub fn inner(self) -> WsAuctioneerMessageInner {
+        self.inner
+    }
 }
 
 impl Deref for WsAuctioneerMessage {
