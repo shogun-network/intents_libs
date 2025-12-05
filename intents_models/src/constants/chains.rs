@@ -1,4 +1,5 @@
 use error_stack::{Report, report};
+use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::fmt;
 use strum::IntoEnumIterator;
@@ -48,7 +49,7 @@ pub enum ChainId {
     HyperEVM = 999,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, Hash, Serialize, Deserialize)]
 pub enum ChainType {
     EVM,
     Solana,

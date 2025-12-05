@@ -172,6 +172,7 @@ impl SolverStartPermission {
             }
         }
     }
+
     pub fn get_intent_id(&self) -> String {
         match &self {
             SolverStartPermission::SingleChainLimit(data) => {
@@ -186,6 +187,15 @@ impl SolverStartPermission {
             SolverStartPermission::CrossChainDca(data) => {
                 data.common_data.src_chain_specific_data.get_intent_id()
             }
+        }
+    }
+
+    pub fn get_solver_deadline(&self) -> u64 {
+        match &self {
+            SolverStartPermission::SingleChainLimit(data) => data.common_data.solver_deadline,
+            SolverStartPermission::SingleChainDca(data) => data.common_data.solver_deadline,
+            SolverStartPermission::CrossChainLimit(data) => data.common_data.solver_deadline,
+            SolverStartPermission::CrossChainDca(data) => data.common_data.solver_deadline,
         }
     }
 }
