@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use intents_models::constants::chains::ChainId;
+use intents_models::{constants::chains::ChainId, models::types::order::OrderTypeFulfillmentData};
 use tokio::sync::oneshot;
 
 use crate::{
@@ -25,6 +25,7 @@ pub enum MonitorRequest {
         amount_in: u128,
         amount_out: u128,
         deadline: u64,
+        order_type_fulfillment_data: OrderTypeFulfillmentData,
         solver_last_bid: Option<u128>,
         extra_expenses: HashMap<TokenId, u128>,
     },
@@ -43,5 +44,8 @@ pub enum MonitorRequest {
 
 #[derive(Debug, Clone)]
 pub enum MonitorAlert {
-    SwapIsFeasible { order_id: String },
+    SwapIsFeasible {
+        order_id: String,
+        order_type_fulfillment_data: OrderTypeFulfillmentData,
+    },
 }

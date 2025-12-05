@@ -3,6 +3,7 @@ use std::process;
 
 use intents_models::constants::chains::ChainId;
 use intents_models::log::init_tracing;
+use intents_models::models::types::order::OrderTypeFulfillmentData;
 use swap_estimator_rust::monitoring::manager::MonitorManager;
 use swap_estimator_rust::monitoring::messages::{MonitorAlert, MonitorRequest};
 use swap_estimator_rust::prices::TokenId;
@@ -42,8 +43,13 @@ async fn run() -> Result<(), String> {
     tokio::spawn(async move {
         while let Ok(alert) = alert_rx.recv().await {
             match alert {
-                MonitorAlert::SwapIsFeasible { order_id } => {
-                    println!("[ALERT] Swap is feasible for order_id={order_id}");
+                MonitorAlert::SwapIsFeasible {
+                    order_id,
+                    order_type_fulfillment_data,
+                } => {
+                    println!(
+                        "[ALERT] Swap is feasible for order_id={order_id}, order_type_fulfillment_data={order_type_fulfillment_data:?}"
+                    );
                 }
             }
         }
@@ -160,6 +166,7 @@ async fn run() -> Result<(), String> {
                         amount_out,
                         deadline: get_timestamp() + 300,
                         solver_last_bid,
+                        order_type_fulfillment_data: OrderTypeFulfillmentData::Limit,
                         extra_expenses: HashMap::new(),
                     })
                     .await
