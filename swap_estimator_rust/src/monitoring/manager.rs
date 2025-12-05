@@ -1,6 +1,6 @@
 use error_stack::report;
 use futures_util::future;
-use intents_models::constants::chains::ChainId;
+use intents_models::{constants::chains::ChainId, models::types::order::OrderTypeFulfillmentData};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
@@ -35,6 +35,7 @@ pub struct PendingSwap {
     pub amount_in: u128,
     pub amount_out: u128,
     pub deadline: u64,
+    pub order_type_fulfillment_data: OrderTypeFulfillmentData,
     pub extra_expenses: HashMap<TokenId, u128>, // TokenId to amount
 }
 
@@ -230,10 +231,11 @@ impl MonitorManager {
                                     amount_in,
                                     amount_out,
                                     deadline,
+                                    order_type_fulfillment_data,
                                     solver_last_bid,
                                     extra_expenses,
                                 } => {
-                                    if let Err(error) = self.check_swap_feasibility(order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out, deadline, solver_last_bid, extra_expenses).await {
+                                    if let Err(error) = self.check_swap_feasibility(order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out, deadline, order_type_fulfillment_data, solver_last_bid, extra_expenses).await {
                                         tracing::error!("Error processing CheckSwapFeasibility request: {:?}", error);
                                     }
                                 }
@@ -322,6 +324,7 @@ impl MonitorManager {
         amount_in: u128,
         amount_out: u128,
         deadline: u64,
+        order_type_fulfillment_data: OrderTypeFulfillmentData,
         solver_last_bid: Option<u128>,
         extra_expenses: HashMap<TokenId, u128>,
     ) -> EstimatorResult<()> {
@@ -349,6 +352,7 @@ impl MonitorManager {
             amount_in,
             amount_out,
             deadline,
+            order_type_fulfillment_data,
             extra_expenses,
         };
 
@@ -392,6 +396,7 @@ impl MonitorManager {
                         );
                         if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
                             order_id: pending_swap.order_id.clone(),
+                            order_type_fulfillment_data: pending_swap.order_type_fulfillment_data,
                         }) {
                             tracing::error!(
                                 "Failed to send alert for order_id {}: {:?}",
@@ -414,6 +419,7 @@ impl MonitorManager {
                         );
                         if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
                             order_id: pending_swap.order_id.clone(),
+                            order_type_fulfillment_data: pending_swap.order_type_fulfillment_data,
                         }) {
                             tracing::error!(
                                 "Failed to send alert for order_id {}: {:?}",
@@ -752,6 +758,7 @@ impl MonitorManager {
                         );
                         if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
                             order_id: pending_swap.order_id.clone(),
+                            order_type_fulfillment_data: pending_swap.order_type_fulfillment_data,
                         }) {
                             tracing::error!(
                                 "Failed to send alert for order_id {}: {:?}",
@@ -1190,6 +1197,7 @@ mod tests {
         amount_in: u128,
         amount_out: u128,
         deadline: u64,
+        order_type_fulfillment_data: OrderTypeFulfillmentData,
         extra_expenses: HashMap<TokenId, u128>,
     ) -> PendingSwap {
         PendingSwap {
@@ -1201,6 +1209,7 @@ mod tests {
             amount_in,
             amount_out,
             deadline,
+            order_type_fulfillment_data,
             extra_expenses,
         }
     }
@@ -1235,6 +1244,7 @@ mod tests {
             1_000_000_000_000_000_000, // 1 token (18 decimals)
             1_900_000,                 // 1.9 tokens (6 decimals), expecting ~2 tokens
             get_timestamp() + 300,
+            OrderTypeFulfillmentData::Limit,
             HashMap::new(),
         );
 
@@ -1274,6 +1284,7 @@ mod tests {
             1_000_000_000_000_000_000,
             2_000_000_000_000_000_000,
             get_timestamp() + 300,
+            OrderTypeFulfillmentData::Limit,
             HashMap::new(),
         );
 
@@ -1328,6 +1339,7 @@ mod tests {
             1_000_000_000_000_000_000,
             2_000_000_000_000_000_000,
             get_timestamp() + 300,
+            OrderTypeFulfillmentData::Limit,
             extra_expenses,
         );
 
@@ -1358,6 +1370,7 @@ mod tests {
             1_000_000_000_000_000_000,
             2_000_000_000_000_000_000,
             get_timestamp() + 300,
+            OrderTypeFulfillmentData::Limit,
             HashMap::new(),
         );
 
