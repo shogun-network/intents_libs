@@ -1,4 +1,7 @@
-use crate::error::{Error, ModelResult};
+use crate::{
+    error::{Error, ModelResult},
+    models::types::common::StopLoss,
+};
 use error_stack::report;
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
@@ -17,9 +20,8 @@ pub struct CommonLimitOrderData {
     /// to start execution "Stop loss" order
     /// E.g.: If `amount_in * token_in_usd_price / token_out_usd_price <= stop_loss_max_out` - trigger "Stop loss"
     /// Must be higher than `amount_out_min`
-    #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_loss_max_out: Option<u128>,
+    pub stop_loss_max_out: Option<StopLoss>,
     /// `stop_loss_max_out` threshold was reached and now immediate marker order must be executed
     pub stop_loss_triggered: bool,
 }
@@ -68,19 +70,21 @@ impl CommonLimitOrderData {
 
     /// Validates common limit order data
     pub fn validate(&self, amount_out_min: u128) -> ModelResult<()> {
-        if let Some(stop_loss_max_out) = self.stop_loss_max_out
-            && amount_out_min >= stop_loss_max_out
+        if let Some(StopLoss::Classic(stop_loss_max_out)) = &self.stop_loss_max_out
+            && amount_out_min >= stop_loss_max_out.0
         {
+            let stop_loss_max_out = stop_loss_max_out.0;
             return Err(report!(Error::ValidationError).attach_printable(format!(
                 "amount_out_min ({amount_out_min}) \
                 must be lower than stop_loss_max_out ({stop_loss_max_out})"
             )));
         }
 
-        if let (Some(stop_loss_max_out), Some(take_profit_min_out)) =
-            (self.stop_loss_max_out, self.take_profit_min_out)
-            && stop_loss_max_out >= take_profit_min_out
+        if let (Some(StopLoss::Classic(stop_loss_max_out)), Some(take_profit_min_out)) =
+            (&self.stop_loss_max_out, self.take_profit_min_out)
+            && stop_loss_max_out.0 >= take_profit_min_out
         {
+            let stop_loss_max_out = stop_loss_max_out.0;
             return Err(report!(Error::ValidationError).attach_printable(format!(
                 "stop_loss_max_out ({stop_loss_max_out}) \
                 must be lower than take_profit_min_out ({take_profit_min_out})"
@@ -88,7 +92,7 @@ impl CommonLimitOrderData {
         }
 
         if let (None, Some(take_profit_min_out)) =
-            (self.stop_loss_max_out, self.take_profit_min_out)
+            (&self.stop_loss_max_out, self.take_profit_min_out)
             && amount_out_min != take_profit_min_out
         {
             return Err(report!(Error::ValidationError).attach_printable(
@@ -102,6 +106,8 @@ impl CommonLimitOrderData {
 
 #[cfg(test)]
 mod tests {
+    use crate::models::DisplayU128;
+
     use super::*;
 
     #[test]
@@ -120,7 +126,7 @@ mod tests {
         assert_eq!(amount_out_min, 100);
 
         limit_order_data.take_profit_min_out = None;
-        limit_order_data.stop_loss_max_out = Some(300);
+        limit_order_data.stop_loss_max_out = Some(StopLoss::Classic(DisplayU128(300)));
         let amount_out_min = limit_order_data.get_amount_out_min(100);
         assert_eq!(amount_out_min, 100);
 
@@ -154,7 +160,7 @@ mod tests {
         assert!(valid.is_ok());
 
         limit_order_data.take_profit_min_out = None;
-        limit_order_data.stop_loss_max_out = Some(300);
+        limit_order_data.stop_loss_max_out = Some(StopLoss::Classic(DisplayU128(300)));
         let valid = limit_order_data.validate(100);
         assert!(valid.is_ok());
 
@@ -188,7 +194,7 @@ mod tests {
         assert!(res.is_ok());
 
         limit_order_data.take_profit_min_out = None;
-        limit_order_data.stop_loss_max_out = Some(300);
+        limit_order_data.stop_loss_max_out = Some(StopLoss::Classic(DisplayU128(300)));
         let res = limit_order_data.check_order_can_be_fulfilled();
         assert!(res.is_err());
 

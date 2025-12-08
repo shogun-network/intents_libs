@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
 
+use crate::models::types::common::StopLoss;
+
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -15,7 +17,6 @@ pub struct CommonLimitOrderUserRequestData {
     /// to start execution "Stop loss" order
     /// E.g.: If `amount_in * token_in_usd_price / token_out_usd_price <= stop_loss_max_out` - trigger "Stop loss"
     /// Must be higher than `amount_out_min`
-    #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_loss_max_out: Option<u128>,
+    pub stop_loss_max_out: Option<StopLoss>,
 }
