@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use error_stack::{ResultExt, report};
-use intents_models::constants::chains::ChainId;
+use intents_models::{constants::chains::ChainId, models::types::order::OrderTypeFulfillmentData};
 use tokio::sync::{mpsc::Sender, oneshot};
 
 use crate::{
@@ -88,6 +88,7 @@ impl MonitorClient {
         amount_in: u128,
         amount_out: u128,
         deadline: u64,
+        order_type_fulfillment_data: OrderTypeFulfillmentData,
         extra_expenses: HashMap<TokenId, u128>,
         solver_last_bid: Option<u128>,
     ) -> EstimatorResult<()> {
@@ -101,6 +102,7 @@ impl MonitorClient {
                 amount_in,
                 amount_out,
                 deadline,
+                order_type_fulfillment_data,
                 extra_expenses,
                 solver_last_bid,
             })
