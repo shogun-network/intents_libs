@@ -8,9 +8,10 @@ use crate::models::types::single_chain::{
     SingleChainOnChainOrderDataEnum, SingleChainUserDcaOrderResponse,
     SingleChainUserLimitOrderResponse,
 };
-use error_stack::{ResultExt, report};
+use error_stack::report;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::str::FromStr;
 
 mod execution;
 mod order_data_request;
@@ -136,18 +137,21 @@ impl fmt::Display for OrderStatus {
     }
 }
 
-// Helper functions to parse string status into enums
-pub fn parse_order_status(status: &str) -> ModelResult<OrderStatus> {
-    Ok(match status {
-        "Auction" => OrderStatus::Auction,
-        "NoBids" => OrderStatus::NoBids,
-        "Executing" => OrderStatus::Executing,
-        "DcaIntervalFulfilled" => OrderStatus::DcaIntervalFulfilled,
-        "Fulfilled" => OrderStatus::Fulfilled,
-        "Cancelled" => OrderStatus::Cancelled,
-        "Outdated" => OrderStatus::Outdated,
-        _ => Err(Error::ParseError).attach_printable(format!("Invalid order status: {status}"))?,
-    })
+impl FromStr for OrderStatus {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Auction" => Ok(OrderStatus::Auction),
+            "NoBids" => Ok(OrderStatus::NoBids),
+            "Executing" => Ok(OrderStatus::Executing),
+            "DcaIntervalFulfilled" => Ok(OrderStatus::DcaIntervalFulfilled),
+            "Fulfilled" => Ok(OrderStatus::Fulfilled),
+            "Cancelled" => Ok(OrderStatus::Cancelled),
+            "Outdated" => Ok(OrderStatus::Outdated),
+            _ => Err(Error::ParseError),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]

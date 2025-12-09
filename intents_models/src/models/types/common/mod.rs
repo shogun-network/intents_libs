@@ -6,12 +6,15 @@ mod user_response;
 
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, PickFirst, serde_as};
+use std::{fmt, str::FromStr};
 
 pub use dca_order::*;
 pub use fulfillment::*;
 pub use limit_order::*;
 pub use limit_order_request::*;
 pub use user_response::*;
+
+use crate::error::Error;
 
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -55,4 +58,28 @@ pub enum StopLossType {
     ///   • Price rises to 120 → trigger moves to 108 (120 * 0.9)
     ///   • Price falls to 107.9 → stop triggers (107.9 < 108)
     TrailingPercent,
+}
+
+impl fmt::Display for StopLossType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = match self {
+            StopLossType::Fixed => "Fixed",
+            StopLossType::TrailingAbsolute => "TrailingAbsolute",
+            StopLossType::TrailingPercent => "TrailingPercent",
+        };
+        write!(f, "{value}")
+    }
+}
+
+impl FromStr for StopLossType {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Fixed" => Ok(StopLossType::Fixed),
+            "TrailingAbsolute" => Ok(StopLossType::TrailingAbsolute),
+            "TrailingPercent" => Ok(StopLossType::TrailingPercent),
+            _ => Err(Error::ParseError),
+        }
+    }
 }
