@@ -69,6 +69,16 @@ pub enum StopLoss {
     },
 }
 
+impl StopLoss {
+    pub fn get_trigger_price(&self) -> f64 {
+        match self {
+            StopLoss::Fixed { trigger_price } => *trigger_price,
+            StopLoss::TrailingAbsolute { trigger_price } => *trigger_price,
+            StopLoss::TrailingPercent { trigger_price } => *trigger_price,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
