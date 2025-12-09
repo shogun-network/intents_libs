@@ -129,7 +129,10 @@ impl CrossChainLimitOrderUserIntentRequest {
                 take_profit_min_out: execution_details
                     .common_limit_order_data
                     .take_profit_min_out,
-                stop_loss: execution_details.common_limit_order_data.stop_loss,
+                stop_loss_type: execution_details.common_limit_order_data.stop_loss_type,
+                stop_loss_trigger_price: execution_details
+                    .common_limit_order_data
+                    .stop_loss_trigger_price,
                 stop_loss_triggered: false,
             },
             amount_in: self.generic_data.amount_in,

@@ -28,17 +28,13 @@ pub struct TransferDetails {
 
 #[serde_as]
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum StopLoss {
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum StopLossType {
     /// Fixed stop loss based on the current `token_in / token_out` price ratio.
     ///
     /// The stop triggers once the market price falls below `trigger_price`
     /// (expressed as an absolute ratio value).
-    Fixed {
-        #[serde(rename = "triggerPrice")]
-        #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
-        trigger_price: f64,
-    },
+    Fixed,
 
     /// Trailing stop loss with a fixed absolute distance from the maximum
     /// observed `token_in / token_out` price ratio.
@@ -48,11 +44,7 @@ pub enum StopLoss {
     ///   • `trigger_price`: 90 (distance = -10)
     ///   • Price rises to 120 → trigger moves to 110 (120 - 10)
     ///   • Price falls to 109.9 → stop triggers (109.9 < 110)
-    TrailingAbsolute {
-        #[serde(rename = "triggerPrice")]
-        #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
-        trigger_price: f64,
-    },
+    TrailingAbsolute,
 
     /// Trailing stop loss using a percentage distance from the maximum
     /// observed `token_in / token_out` price ratio.
@@ -62,49 +54,5 @@ pub enum StopLoss {
     ///   • `trigger_price`: 90% of the peak
     ///   • Price rises to 120 → trigger moves to 108 (120 * 0.9)
     ///   • Price falls to 107.9 → stop triggers (107.9 < 108)
-    TrailingPercent {
-        #[serde(rename = "triggerPrice")]
-        #[serde_as(as = "PickFirst<(DisplayFromStr, _)>")]
-        trigger_price: f64,
-    },
-}
-
-impl StopLoss {
-    pub fn get_trigger_price(&self) -> f64 {
-        match self {
-            StopLoss::Fixed { trigger_price } => *trigger_price,
-            StopLoss::TrailingAbsolute { trigger_price } => *trigger_price,
-            StopLoss::TrailingPercent { trigger_price } => *trigger_price,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn serialize_stop_loss() {
-        assert_eq!(
-            serde_json::json!(StopLoss::Fixed {
-                trigger_price: 20.0
-            })
-            .to_string(),
-            "{\"triggerPrice\":\"20\",\"type\":\"FIXED\"}".to_string()
-        );
-        assert_eq!(
-            serde_json::json!(StopLoss::TrailingAbsolute {
-                trigger_price: 20.0
-            })
-            .to_string(),
-            "{\"triggerPrice\":\"20\",\"type\":\"TRAILING_ABSOLUTE\"}".to_string()
-        );
-        assert_eq!(
-            serde_json::json!(StopLoss::TrailingPercent {
-                trigger_price: 20.0
-            })
-            .to_string(),
-            "{\"triggerPrice\":\"20\",\"type\":\"TRAILING_PERCENT\"}".to_string()
-        );
-    }
+    TrailingPercent,
 }

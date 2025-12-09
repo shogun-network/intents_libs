@@ -52,7 +52,11 @@ impl SingleChainLimitOrderUserIntentRequest {
                     .generic_data
                     .common_limit_order_data
                     .take_profit_min_out,
-                stop_loss: self.generic_data.common_limit_order_data.stop_loss,
+                stop_loss_trigger_price: self
+                    .generic_data
+                    .common_limit_order_data
+                    .stop_loss_trigger_price,
+                stop_loss_type: self.generic_data.common_limit_order_data.stop_loss_type,
                 stop_loss_triggered: false,
             },
             amount_in: self.generic_data.amount_in,
@@ -80,7 +84,8 @@ impl From<SingleChainLimitOrderGenericData> for SingleChainLimitOrderGenericRequ
             },
             common_limit_order_data: CommonLimitOrderUserRequestData {
                 take_profit_min_out: value.common_limit_order_data.take_profit_min_out,
-                stop_loss: value.common_limit_order_data.stop_loss,
+                stop_loss_trigger_price: value.common_limit_order_data.stop_loss_trigger_price,
+                stop_loss_type: value.common_limit_order_data.stop_loss_type,
             },
             amount_in: value.amount_in,
         }

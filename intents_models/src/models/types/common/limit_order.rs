@@ -1,10 +1,8 @@
-use crate::{
-    error::{Error, ModelResult},
-    models::types::common::StopLoss,
-};
+use crate::error::{Error, ModelResult};
+use crate::models::types::common::StopLossType;
 use error_stack::report;
 use serde::{Deserialize, Serialize};
-use serde_with::{DisplayFromStr, serde_as};
+use serde_with::{DisplayFromStr, PickFirst, serde_as};
 
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -16,16 +14,19 @@ pub struct CommonLimitOrderData {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub take_profit_min_out: Option<u128>,
-    /// Stop loss config
+    /// Stop loss type
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_loss: Option<StopLoss>,
+    pub stop_loss_type: Option<StopLossType>,
+    /// Initial requested trigger price of token IN/token OUT to trigger stop loss
+    #[serde_as(as = "Option<PickFirst<(DisplayFromStr, _)>>")]
+    pub stop_loss_trigger_price: Option<f64>,
     /// `stop_loss` threshold was reached and now immediate marker order must be executed
     pub stop_loss_triggered: bool,
 }
 
 impl CommonLimitOrderData {
     pub fn get_amount_out_min(&self, amount_out_min: u128) -> u128 {
-        match self.stop_loss {
+        match self.stop_loss_trigger_price {
             // If no "stop loss" is requested, we just use `amount_out_min`
             None => amount_out_min,
             Some(_) => {
@@ -47,7 +48,7 @@ impl CommonLimitOrderData {
 
     pub fn check_order_can_be_fulfilled(&self) -> ModelResult<()> {
         // If no "stop loss" is requested order can be fulfilled
-        if self.stop_loss.is_none()
+        if self.stop_loss_trigger_price.is_none()
             // If "stop loss" was triggered, order must be fulfilled immediately
             || self.stop_loss_triggered
             // If "stop loss" was requested while "take profit" was not
@@ -67,7 +68,8 @@ impl CommonLimitOrderData {
 
     /// Validates common limit order data
     pub fn validate(&self, amount_out_min: u128) -> ModelResult<()> {
-        if let (None, Some(take_profit_min_out)) = (&self.stop_loss, self.take_profit_min_out)
+        if let (None, Some(take_profit_min_out)) =
+            (&self.stop_loss_trigger_price, self.take_profit_min_out)
             && amount_out_min != take_profit_min_out
         {
             return Err(report!(Error::ValidationError).attach_printable(
@@ -87,7 +89,8 @@ mod tests {
     fn test_get_limit_order_amount_out_min() {
         let mut limit_order_data = CommonLimitOrderData {
             take_profit_min_out: None,
-            stop_loss: None,
+            stop_loss_type: None,
+            stop_loss_trigger_price: None,
             stop_loss_triggered: false,
         };
 
@@ -99,7 +102,8 @@ mod tests {
         assert_eq!(amount_out_min, 100);
 
         limit_order_data.take_profit_min_out = None;
-        limit_order_data.stop_loss = Some(StopLoss::Fixed { trigger_price: 1.0 });
+        limit_order_data.stop_loss_type = Some(StopLossType::Fixed);
+        limit_order_data.stop_loss_trigger_price = Some(1.0);
         let amount_out_min = limit_order_data.get_amount_out_min(100);
         assert_eq!(amount_out_min, 100);
 
@@ -116,7 +120,8 @@ mod tests {
     fn test_validate_limit_order() {
         let mut limit_order_data = CommonLimitOrderData {
             take_profit_min_out: None,
-            stop_loss: None,
+            stop_loss_type: None,
+            stop_loss_trigger_price: None,
             stop_loss_triggered: false,
         };
 
@@ -133,7 +138,8 @@ mod tests {
         assert!(valid.is_ok());
 
         limit_order_data.take_profit_min_out = None;
-        limit_order_data.stop_loss = Some(StopLoss::Fixed { trigger_price: 1.0 });
+        limit_order_data.stop_loss_type = Some(StopLossType::Fixed);
+        limit_order_data.stop_loss_trigger_price = Some(1.0);
         let valid = limit_order_data.validate(100);
         assert!(valid.is_ok());
 
@@ -146,7 +152,8 @@ mod tests {
     fn test_check_limit_order_can_be_fulfilled() {
         let mut limit_order_data = CommonLimitOrderData {
             take_profit_min_out: None,
-            stop_loss: None,
+            stop_loss_type: None,
+            stop_loss_trigger_price: None,
             stop_loss_triggered: false,
         };
 
