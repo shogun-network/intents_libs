@@ -624,7 +624,7 @@ impl MonitorManager {
         Ok(())
     }
 
-    // Gestionar un PriceEvent: actualizar cache, re-evaluar órdenes afectadas, limpiar y desuscribir tokens si ya no quedan swaps que dependan de ellos.
+    // Handle a PriceEvent: update cache, re-evaluate affected orders, clean up and unsubscribe tokens if there are no swaps depending on them anymore.
     async fn on_price_event(&mut self, mut event: PriceEvent) {
         // Sanitizing token id:
         event.token = TokenId::new_for_codex(event.token.chain.clone(), &event.token.address);

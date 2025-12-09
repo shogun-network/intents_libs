@@ -18,5 +18,5 @@ pub struct CommonLimitOrderUserRequestData {
     /// E.g.: If `amount_in * token_in_usd_price / token_out_usd_price <= stop_loss_max_out` - trigger "Stop loss"
     /// Must be higher than `amount_out_min`
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_loss_max_out: Option<StopLoss>,
+    pub stop_loss: Option<StopLoss>,
 }
