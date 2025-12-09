@@ -13,10 +13,7 @@ pub struct CommonLimitOrderUserRequestData {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub take_profit_min_out: Option<u128>,
-    /// If Some: Trigger amount OUT considering amount IN and tokens IN/OUT prices
-    /// to start execution "Stop loss" order
-    /// E.g.: If `amount_in * token_in_usd_price / token_out_usd_price <= stop_loss_max_out` - trigger "Stop loss"
-    /// Must be higher than `amount_out_min`
+    /// Stop loss config
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_loss: Option<StopLoss>,
 }
