@@ -63,9 +63,9 @@ pub enum StopLossType {
 impl fmt::Display for StopLossType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let value = match self {
-            StopLossType::Fixed => "Fixed",
-            StopLossType::TrailingAbsolute => "TrailingAbsolute",
-            StopLossType::TrailingPercent => "TrailingPercent",
+            StopLossType::Fixed => "FIXED",
+            StopLossType::TrailingAbsolute => "TRAILING_ABSOLUTE",
+            StopLossType::TrailingPercent => "TRAILING_PERCENT",
         };
         write!(f, "{value}")
     }
@@ -76,9 +76,9 @@ impl FromStr for StopLossType {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "Fixed" => Ok(StopLossType::Fixed),
-            "TrailingAbsolute" => Ok(StopLossType::TrailingAbsolute),
-            "TrailingPercent" => Ok(StopLossType::TrailingPercent),
+            "FIXED" => Ok(StopLossType::Fixed),
+            "TRAILING_ABSOLUTE" => Ok(StopLossType::TrailingAbsolute),
+            "TRAILING_PERCENT" => Ok(StopLossType::TrailingPercent),
             _ => Err(Error::ParseError),
         }
     }
