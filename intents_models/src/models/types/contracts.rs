@@ -5,6 +5,8 @@ use std::collections::HashMap;
 #[serde(rename_all = "camelCase")]
 pub struct ContractsAddresses {
     pub evm: HashMap<u32, EvmContractsAddresses>,
+    pub solana: SolanaContractsAddresses,
+    pub sui: SuiContractsAddresses,
 }
 
 // ================================= EVM =================================
@@ -22,6 +24,7 @@ pub struct EvmContractsAddresses {
 pub struct SingleChainEvmContracts {
     pub guard_limit: String,
     pub guard_dca: String,
+    pub protocol_fee_token: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -31,6 +34,7 @@ pub struct CrossChainEvmContracts {
     pub guard_dca: String,
     pub collateral_token: String,
     pub stablecoin: String,
+    pub destination_chain_guard: String,
 }
 
 // ================================ SOLANA ================================
@@ -46,6 +50,7 @@ pub struct SolanaContractsAddresses {
 pub struct SingleChainSolanaContracts {
     pub guard_program_id: String,
     pub guard_account: String,
+    pub protocol_fee_token: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
