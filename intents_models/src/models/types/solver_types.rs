@@ -198,6 +198,86 @@ impl SolverStartPermission {
             SolverStartPermission::CrossChainDca(data) => data.common_data.solver_deadline,
         }
     }
+    pub fn get_token_in_address(&self) -> &str {
+        match self {
+            SolverStartPermission::SingleChainLimit(permission) => {
+                &permission.generic_data.common_data.token_in
+            }
+            SolverStartPermission::SingleChainDca(permission) => {
+                &permission.generic_data.common_data.token_in
+            }
+            SolverStartPermission::CrossChainLimit(permission) => {
+                &permission.generic_data.common_data.token_in
+            }
+            SolverStartPermission::CrossChainDca(permission) => {
+                &permission.generic_data.common_data.token_in
+            }
+        }
+    }
+    pub fn get_token_out_address(&self) -> &str {
+        match self {
+            SolverStartPermission::SingleChainLimit(permission) => {
+                &permission.generic_data.common_data.token_out
+            }
+            SolverStartPermission::SingleChainDca(permission) => {
+                &permission.generic_data.common_data.token_out
+            }
+            SolverStartPermission::CrossChainLimit(permission) => {
+                &permission.generic_data.common_data.token_out
+            }
+            SolverStartPermission::CrossChainDca(permission) => {
+                &permission.generic_data.common_data.token_out
+            }
+        }
+    }
+    pub fn get_trade_amount_in(&self) -> u128 {
+        match self {
+            SolverStartPermission::SingleChainLimit(permission) => {
+                permission.generic_data.amount_in
+            }
+            SolverStartPermission::SingleChainDca(permission) => {
+                permission.generic_data.common_dca_order_data.amount_in_per_interval
+            }
+            SolverStartPermission::CrossChainLimit(permission) => {
+                permission.generic_data.amount_in
+            }
+            SolverStartPermission::CrossChainDca(permission) => {
+                permission.generic_data.common_dca_order_data.amount_in_per_interval
+            }
+        }
+    }
+    pub fn get_trade_amount_out_min(&self) -> u128 {
+        match self {
+            SolverStartPermission::SingleChainLimit(permission) => {
+                permission.generic_data.common_data.amount_out_min
+            }
+            SolverStartPermission::SingleChainDca(permission) => {
+                permission.generic_data.common_data.amount_out_min
+            }
+            SolverStartPermission::CrossChainLimit(permission) => {
+                permission.generic_data.common_data.amount_out_min
+            }
+            SolverStartPermission::CrossChainDca(permission) => {
+                permission.generic_data.common_data.amount_out_min
+            }
+        }
+    }
+    pub fn get_order_deadline(&self) -> u64 {
+        match self {
+            SolverStartPermission::SingleChainLimit(permission) => {
+                permission.generic_data.common_data.deadline
+            }
+            SolverStartPermission::SingleChainDca(permission) => {
+                permission.generic_data.common_data.deadline
+            }
+            SolverStartPermission::CrossChainLimit(permission) => {
+                permission.generic_data.common_data.deadline
+            }
+            SolverStartPermission::CrossChainDca(permission) => {
+                permission.generic_data.common_data.deadline
+            }
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
