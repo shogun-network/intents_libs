@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use serde_with::{DisplayFromStr, serde_as};
+use serde_with::{DisplayFromStr, PickFirst, serde_as};
+
+use crate::models::types::common::StopLossType;
 
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -11,11 +13,10 @@ pub struct CommonLimitOrderUserRequestData {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub take_profit_min_out: Option<u128>,
-    /// If Some: Trigger amount OUT considering amount IN and tokens IN/OUT prices
-    /// to start execution "Stop loss" order
-    /// E.g.: If `amount_in * token_in_usd_price / token_out_usd_price <= stop_loss_max_out` - trigger "Stop loss"
-    /// Must be higher than `amount_out_min`
-    #[serde_as(as = "Option<DisplayFromStr>")]
+    /// Stop loss type
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub stop_loss_max_out: Option<u128>,
+    pub stop_loss_type: Option<StopLossType>,
+    /// Initial requested trigger price of token IN/token OUT to trigger stop loss
+    #[serde_as(as = "Option<PickFirst<(DisplayFromStr, _)>>")]
+    pub stop_loss_trigger_price: Option<f64>,
 }
