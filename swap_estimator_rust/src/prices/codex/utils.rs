@@ -31,7 +31,36 @@ fn validate_token_len(kind: &str, len: usize, max: usize) -> EstimatorResult<usi
     Ok(len.div_ceil(BATCH_SIZE))
 }
 
-fn build_inputs_object(
+fn build_inputs_object_generic(
+    inputs: &[Value],
+    max_tokens: usize,
+    key_prefixes: &[&str],
+    kind: &str,
+) -> EstimatorResult<Value> {
+    validate_token_len(kind, inputs.len(), max_tokens)?;
+    let mut result: HashMap<String, Value> = HashMap::new();
+
+    for (i, chunk) in inputs.chunks(BATCH_SIZE).enumerate() {
+        let mut inputs = Vec::with_capacity(chunk.len());
+        for input in chunk {
+            inputs.push(input.to_owned());
+        }
+
+        for prefix in key_prefixes {
+            let key = format!("{prefix}{i}");
+            result.insert(key, Value::Array(inputs.clone()));
+        }
+    }
+
+    let mut object_map: Map<String, Value> = Map::with_capacity(result.len());
+    for (k, v) in result {
+        object_map.insert(k, v);
+    }
+
+    Ok(Value::Object(object_map))
+}
+
+fn build_inputs_object_by_token_id(
     tokens: &[TokenId],
     max_tokens: usize,
     key_prefixes: &[&str],
@@ -133,7 +162,7 @@ fn create_price_and_metadata_body(tokens_len: usize) -> EstimatorResult<String> 
 }
 
 fn create_price_and_metadata_inputs(tokens: &[TokenId]) -> EstimatorResult<Value> {
-    build_inputs_object(
+    build_inputs_object_by_token_id(
         tokens,
         PRICE_AND_META_MAX_TOKENS,
         &["tokenInputs", "priceInputs"],
@@ -253,7 +282,7 @@ fn create_get_prices_body(tokens_len: usize) -> EstimatorResult<String> {
 }
 
 fn create_get_prices_inputs(tokens: &[TokenId]) -> EstimatorResult<Value> {
-    build_inputs_object(
+    build_inputs_object_by_token_id(
         tokens,
         PRICE_OR_METADATA_ONLY_MAX_TOKENS,
         &["inputs"],
@@ -261,10 +290,49 @@ fn create_get_prices_inputs(tokens: &[TokenId]) -> EstimatorResult<Value> {
     )
 }
 
+fn create_get_historical_prices_inputs(
+    tokens_and_dates: &[(TokenId, u64)],
+) -> EstimatorResult<Value> {
+    let inputs: Vec<Value> = tokens_and_dates
+        .iter()
+        .map(|(token, date)| {
+            serde_json::json!({
+                "address": token.address,
+                "networkId": token.chain.to_codex_chain_number(),
+                "timestamp": date,
+            })
+        })
+        .collect();
+    build_inputs_object_generic(
+        &inputs,
+        PRICE_OR_METADATA_ONLY_MAX_TOKENS,
+        &["inputs"],
+        "historical-price-only",
+    )
+}
+
 pub fn combine_get_prices_query(tokens: &[TokenId]) -> EstimatorResult<Value> {
     let args = create_get_prices_args(tokens.len())?;
     let body = create_get_prices_body(tokens.len())?;
     let inputs = create_get_prices_inputs(tokens)?;
+    let query = format!(
+        r#"query GetTokenPrice(
+            {args}
+        ) {{
+            {body}
+        }}
+        "#
+    );
+    Ok(serde_json::json!({
+        "query": query,
+        "variables": inputs
+    }))
+}
+
+pub fn combine_get_historical_prices_query(tokens: &[(TokenId, u64)]) -> EstimatorResult<Value> {
+    let args = create_get_prices_args(tokens.len())?;
+    let body = create_get_prices_body(tokens.len())?;
+    let inputs = create_get_historical_prices_inputs(tokens)?;
     let query = format!(
         r#"query GetTokenPrice(
             {args}
@@ -355,7 +423,7 @@ fn create_get_metadata_body(tokens_len: usize) -> EstimatorResult<String> {
 }
 
 fn create_get_metadata_inputs(tokens: &[TokenId]) -> EstimatorResult<Value> {
-    build_inputs_object(
+    build_inputs_object_by_token_id(
         tokens,
         PRICE_OR_METADATA_ONLY_MAX_TOKENS,
         &["inputs"],
