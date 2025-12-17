@@ -64,10 +64,9 @@ impl CrossChainIntentRequest {
 
     pub fn get_amount_out_min(&self) -> u128 {
         match self {
-            CrossChainIntentRequest::CrossChainLimitOrder(intent) => intent
-                .generic_data
-                .common_limit_order_data
-                .get_amount_out_min(intent.generic_data.common_data.amount_out_min),
+            CrossChainIntentRequest::CrossChainLimitOrder(intent) => {
+                intent.generic_data.get_amount_out_min()
+            }
             CrossChainIntentRequest::CrossChainDcaOrder(intent) => {
                 intent.generic_data.common_data.amount_out_min
             }
