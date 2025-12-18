@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -177,7 +177,7 @@ impl CodexProvider {
     pub async fn fetch_historical_prices(
         &self,
         tokens_and_dates: &[(TokenId, u64)],
-    ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
+    ) -> EstimatorResult<HashMap<TokenId, BTreeMap<u64, TokenPrice>>> {
         let pool = self.pool().await?;
         pool.fetch_historical_prices(&tokens_and_dates).await
     }
@@ -624,7 +624,7 @@ impl CodexConnectionPool {
     async fn fetch_historical_prices(
         &self,
         tokens_and_dates: &[(TokenId, u64)],
-    ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
+    ) -> EstimatorResult<HashMap<TokenId, BTreeMap<u64, TokenPrice>>> {
         if tokens_and_dates.is_empty() {
             return Ok(HashMap::new());
         }
@@ -673,11 +673,14 @@ impl CodexConnectionPool {
                     .ok_or(Error::ParseError)?,
                 address: price.address,
             };
+            let timestamp = price.timestamp;
             let price = TokenPrice {
                 price: price.price_usd,
                 decimals: default_decimals(token_id.chain),
             };
-            out.insert(token_id.clone(), price);
+            out.entry(token_id.clone())
+                .or_insert_with(BTreeMap::new)
+                .insert(timestamp, price);
         }
 
         Ok(out)
