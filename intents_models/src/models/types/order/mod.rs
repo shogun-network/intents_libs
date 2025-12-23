@@ -216,12 +216,12 @@ impl UserOrderType {
         }
     }
 
-    pub fn order_status(&self) -> &OrderStatus {
+    pub fn order_status(&self) -> OrderStatus {
         match self {
-            UserOrderType::CrossChainLimitOrder(order) => &order.order_status,
-            UserOrderType::CrossChainDCAOrder(order) => &order.order_status,
-            UserOrderType::SingleChainLimitOrder(order) => &order.order_status,
-            UserOrderType::SingleChainDCAOrder(order) => &order.order_status,
+            UserOrderType::CrossChainLimitOrder(order) => order.order_status,
+            UserOrderType::CrossChainDCAOrder(order) => order.order_status,
+            UserOrderType::SingleChainLimitOrder(order) => order.order_status,
+            UserOrderType::SingleChainDCAOrder(order) => order.order_status,
         }
     }
 
