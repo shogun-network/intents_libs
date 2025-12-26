@@ -25,18 +25,6 @@ pub enum UserIntentRequest {
 }
 
 impl UserIntentRequest {
-    pub fn try_into_intent_request(self) -> ModelResult<IntentRequest> {
-        Ok(match self {
-            UserIntentRequest::SingleChainLimitOrder(intent) => intent.into_into_intent_request(),
-            UserIntentRequest::SingleChainDcaOrder(intent) => intent.into_into_intent_request(),
-            UserIntentRequest::CrossChainLimitOrder(intent) => {
-                intent.try_into_into_intent_request()?
-            }
-            UserIntentRequest::CrossChainDcaOrder(intent) => {
-                intent.try_into_into_intent_request()?
-            }
-        })
-    }
     pub fn try_get_cross_chain_execution_details(&self) -> ModelResult<String> {
         match self {
             UserIntentRequest::SingleChainLimitOrder(_)
@@ -45,6 +33,19 @@ impl UserIntentRequest {
             ))),
             UserIntentRequest::CrossChainLimitOrder(intent) => Ok(intent.execution_details.clone()),
             UserIntentRequest::CrossChainDcaOrder(intent) => Ok(intent.execution_details.clone()),
+        }
+    }
+}
+
+impl TryFrom<UserIntentRequest> for IntentRequest {
+    type Error = error_stack::Report<Error>;
+
+    fn try_from(value: UserIntentRequest) -> Result<Self, Self::Error> {
+        match value {
+            UserIntentRequest::SingleChainLimitOrder(intent) => Ok(intent.into()),
+            UserIntentRequest::SingleChainDcaOrder(intent) => Ok(intent.into()),
+            UserIntentRequest::CrossChainLimitOrder(intent) => intent.try_into(),
+            UserIntentRequest::CrossChainDcaOrder(intent) => intent.try_into(),
         }
     }
 }

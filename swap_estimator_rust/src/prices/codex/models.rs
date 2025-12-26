@@ -68,6 +68,7 @@ pub struct CodexPricePayload {
     pub price_usd: f64,
     #[serde(rename = "networkId")]
     pub network_id: i64,
+    pub timestamp: u64,
 }
 
 #[derive(Debug, Deserialize)]

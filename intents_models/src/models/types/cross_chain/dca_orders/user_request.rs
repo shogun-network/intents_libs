@@ -1,5 +1,5 @@
 use crate::constants::chains::ChainId;
-use crate::error::{Error, ModelResult};
+use crate::error::Error;
 use crate::models::types::common::{CommonDcaOrderData, CommonDcaOrderState, TransferDetails};
 use crate::models::types::cross_chain::{
     CrossChainChainSpecificData, CrossChainDcaOrderGenericData, CrossChainDcaOrderIntentRequest,
@@ -88,52 +88,62 @@ pub struct CrossChainDcaOrderExecutionDetails {
     pub extra_transfers: Option<Vec<TransferDetails>>,
 }
 
-impl CrossChainDcaOrderUserIntentRequest {
-    pub fn try_into_into_intent_request(self) -> ModelResult<IntentRequest> {
-        let mut hasher = sha2::Sha256::new();
-        hasher.update(&self.execution_details);
-        let result = hasher.finalize();
-        let execution_details_hash = format!("0x{result:x}");
+impl TryFrom<CrossChainDcaOrderUserIntentRequest> for IntentRequest {
+    type Error = error_stack::Report<Error>;
 
-        if !execution_details_hash.eq_ignore_ascii_case(&self.generic_data.execution_details_hash) {
+    fn try_from(value: CrossChainDcaOrderUserIntentRequest) -> Result<Self, Self::Error> {
+        let CrossChainDcaOrderUserIntentRequest {
+            generic_data,
+            chain_specific_data,
+            execution_details,
+        } = value;
+
+        let CrossChainDcaOrderGenericRequestData {
+            user,
+            src_chain_id,
+            token_in,
+            min_stablecoins_amount,
+            deadline,
+            execution_details_hash,
+            common_dca_order_data,
+        } = generic_data;
+
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(&execution_details);
+        let result = hasher.finalize();
+        let computed_execution_details_hash = format!("0x{result:x}");
+
+        if !computed_execution_details_hash.eq_ignore_ascii_case(&execution_details_hash) {
             tracing::error!(
                 "genericData.executionDetailsHash {} doesn't match with executionDetails ({}) SHA-256 hash {}",
-                &self.generic_data.execution_details_hash,
-                &self.execution_details,
-                &execution_details_hash
+                &execution_details_hash,
+                &execution_details,
+                &computed_execution_details_hash
             );
             return Err(report!(Error::ValidationError)
                 .attach_printable("Execution details hash does not match the provided hash."));
         }
 
         let execution_details: CrossChainDcaOrderExecutionDetails =
-            serde_json::from_str(&self.execution_details)
+            serde_json::from_str(&execution_details)
                 .change_context(Error::ValidationError)
                 .attach_printable("Invalid execution_details object.")?;
 
         let generic_data = CrossChainDcaOrderGenericData {
             common_data: CrossChainGenericData {
-                user: self.generic_data.user.clone(),
-                src_chain_id: self.generic_data.src_chain_id,
-                token_in: self.generic_data.token_in.clone(),
-                min_stablecoins_amount: self.generic_data.min_stablecoins_amount,
+                user,
+                src_chain_id,
+                token_in,
+                min_stablecoins_amount,
                 dest_chain_id: execution_details.dest_chain_id,
-                token_out: execution_details.token_out.clone(),
+                token_out: execution_details.token_out,
                 amount_out_min: execution_details.amount_out_min,
-                destination_address: execution_details.destination_address.clone(),
+                destination_address: execution_details.destination_address,
                 extra_transfers: execution_details.extra_transfers,
-                deadline: self.generic_data.deadline,
-                execution_details_hash: self.generic_data.execution_details_hash.clone(),
+                deadline,
+                execution_details_hash,
             },
-            common_dca_order_data: CommonDcaOrderData {
-                start_time: self.generic_data.common_dca_order_data.start_time,
-                amount_in_per_interval: self
-                    .generic_data
-                    .common_dca_order_data
-                    .amount_in_per_interval,
-                total_intervals: self.generic_data.common_dca_order_data.total_intervals,
-                interval_duration: self.generic_data.common_dca_order_data.interval_duration,
-            },
+            common_dca_order_data,
             common_dca_state: CommonDcaOrderState {
                 total_executed_intervals: 0,
                 last_executed_interval_index: 0,
@@ -144,7 +154,7 @@ impl CrossChainDcaOrderUserIntentRequest {
         Ok(IntentRequest::CrossChainDcaOrder(
             CrossChainDcaOrderIntentRequest {
                 generic_data,
-                chain_specific_data: self.chain_specific_data.clone(),
+                chain_specific_data,
             },
         ))
     }

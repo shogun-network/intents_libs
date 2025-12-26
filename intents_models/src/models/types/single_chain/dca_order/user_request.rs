@@ -31,20 +31,20 @@ pub struct SingleChainDcaOrderGenericRequestData {
     pub common_dca_order_data: CommonDcaOrderData,
 }
 
-impl SingleChainDcaOrderUserIntentRequest {
-    pub fn into_into_intent_request(self) -> IntentRequest {
+impl From<SingleChainDcaOrderUserIntentRequest> for IntentRequest {
+    fn from(value: SingleChainDcaOrderUserIntentRequest) -> Self {
         let generic_data = SingleChainDcaOrderGenericData {
             common_data: SingleChainGenericData {
-                user: self.generic_data.common_data.user.clone(),
-                chain_id: self.generic_data.common_data.chain_id,
-                token_in: self.generic_data.common_data.token_in.clone(),
-                token_out: self.generic_data.common_data.token_out.clone(),
-                amount_out_min: self.generic_data.common_data.amount_out_min,
-                destination_address: self.generic_data.common_data.destination_address.clone(),
-                extra_transfers: self.generic_data.common_data.extra_transfers,
-                deadline: self.generic_data.common_data.deadline,
+                user: value.generic_data.common_data.user.clone(),
+                chain_id: value.generic_data.common_data.chain_id,
+                token_in: value.generic_data.common_data.token_in.clone(),
+                token_out: value.generic_data.common_data.token_out.clone(),
+                amount_out_min: value.generic_data.common_data.amount_out_min,
+                destination_address: value.generic_data.common_data.destination_address.clone(),
+                extra_transfers: value.generic_data.common_data.extra_transfers,
+                deadline: value.generic_data.common_data.deadline,
             },
-            common_dca_order_data: self.generic_data.common_dca_order_data,
+            common_dca_order_data: value.generic_data.common_dca_order_data,
             common_dca_state: CommonDcaOrderState {
                 total_executed_intervals: 0,
                 last_executed_interval_index: 0,
@@ -53,7 +53,7 @@ impl SingleChainDcaOrderUserIntentRequest {
 
         IntentRequest::SingleChainDcaOrder(SingleChainDcaOrderIntentRequest {
             generic_data,
-            chain_specific_data: self.chain_specific_data.clone(),
+            chain_specific_data: value.chain_specific_data.clone(),
         })
     }
 }

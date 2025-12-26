@@ -1,5 +1,5 @@
 use crate::constants::chains::ChainId;
-use crate::error::{Error, ModelResult};
+use crate::error::Error;
 use crate::models::types::common::{
     CommonLimitOrderData, CommonLimitOrderUserRequestData, TransferDetails,
 };
@@ -88,18 +88,21 @@ pub struct CrossChainLimitOrderExecutionDetails {
     pub common_limit_order_data: CommonLimitOrderUserRequestData,
 }
 
-impl CrossChainLimitOrderUserIntentRequest {
-    pub fn try_into_into_intent_request(self) -> ModelResult<IntentRequest> {
+impl TryFrom<CrossChainLimitOrderUserIntentRequest> for IntentRequest {
+    type Error = error_stack::Report<Error>;
+
+    fn try_from(value: CrossChainLimitOrderUserIntentRequest) -> Result<Self, Self::Error> {
         let mut hasher = sha2::Sha256::new();
-        hasher.update(&self.execution_details);
+        hasher.update(&value.execution_details);
         let result = hasher.finalize();
         let execution_details_hash = format!("0x{result:x}");
 
-        if !execution_details_hash.eq_ignore_ascii_case(&self.generic_data.execution_details_hash) {
+        if !execution_details_hash.eq_ignore_ascii_case(&value.generic_data.execution_details_hash)
+        {
             tracing::error!(
                 "genericData.executionDetailsHash {} doesn't match with executionDetails ({}) SHA-256 hash {}",
-                &self.generic_data.execution_details_hash,
-                &self.execution_details,
+                &value.generic_data.execution_details_hash,
+                &value.execution_details,
                 &execution_details_hash
             );
             return Err(report!(Error::ValidationError)
@@ -107,23 +110,23 @@ impl CrossChainLimitOrderUserIntentRequest {
         }
 
         let execution_details: CrossChainLimitOrderExecutionDetails =
-            serde_json::from_str(&self.execution_details)
+            serde_json::from_str(&value.execution_details)
                 .change_context(Error::ValidationError)
                 .attach_printable("Invalid execution_details object.")?;
 
         let generic_data = CrossChainLimitOrderGenericData {
             common_data: CrossChainGenericData {
-                user: self.generic_data.user.clone(),
-                src_chain_id: self.generic_data.src_chain_id,
-                token_in: self.generic_data.token_in.clone(),
-                min_stablecoins_amount: self.generic_data.min_stablecoins_amount,
+                user: value.generic_data.user.clone(),
+                src_chain_id: value.generic_data.src_chain_id,
+                token_in: value.generic_data.token_in.clone(),
+                min_stablecoins_amount: value.generic_data.min_stablecoins_amount,
                 dest_chain_id: execution_details.dest_chain_id,
                 token_out: execution_details.token_out.clone(),
                 amount_out_min: execution_details.amount_out_min,
                 destination_address: execution_details.destination_address.clone(),
                 extra_transfers: execution_details.extra_transfers,
-                deadline: self.generic_data.deadline,
-                execution_details_hash: self.generic_data.execution_details_hash.clone(),
+                deadline: value.generic_data.deadline,
+                execution_details_hash: value.generic_data.execution_details_hash.clone(),
             },
             common_limit_order_data: CommonLimitOrderData {
                 take_profit_min_out: execution_details
@@ -135,13 +138,13 @@ impl CrossChainLimitOrderUserIntentRequest {
                     .stop_loss_trigger_price,
                 stop_loss_triggered: false,
             },
-            amount_in: self.generic_data.amount_in,
+            amount_in: value.generic_data.amount_in,
         };
 
         Ok(IntentRequest::CrossChainLimitOrder(
             CrossChainLimitOrderIntentRequest {
                 generic_data,
-                chain_specific_data: self.chain_specific_data.clone(),
+                chain_specific_data: value.chain_specific_data.clone(),
             },
         ))
     }
