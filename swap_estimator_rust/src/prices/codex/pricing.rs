@@ -639,7 +639,7 @@ impl CodexConnectionPool {
             .send()
             .await
             .change_context(Error::ResponseError)
-            .attach_printable("Failed to send Codex HTTP price and metadata request")?;
+            .attach_printable("Failed to send Codex HTTP fetch historical prices request")?;
 
         let status = response.status();
         if !status.is_success() {
