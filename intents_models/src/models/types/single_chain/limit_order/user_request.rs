@@ -34,37 +34,33 @@ pub struct SingleChainLimitOrderGenericRequestData {
     pub amount_in: u128,
 }
 
-impl SingleChainLimitOrderUserIntentRequest {
-    pub fn into_into_intent_request(self) -> IntentRequest {
+impl From<SingleChainLimitOrderUserIntentRequest> for IntentRequest {
+    fn from(value: SingleChainLimitOrderUserIntentRequest) -> Self {
+        let SingleChainLimitOrderUserIntentRequest {
+            generic_data,
+            chain_specific_data,
+        } = value;
+
+        let SingleChainLimitOrderGenericRequestData {
+            common_data,
+            common_limit_order_data,
+            amount_in,
+        } = generic_data;
+
         let generic_data = SingleChainLimitOrderGenericData {
-            common_data: SingleChainGenericData {
-                user: self.generic_data.common_data.user.clone(),
-                chain_id: self.generic_data.common_data.chain_id,
-                token_in: self.generic_data.common_data.token_in.clone(),
-                token_out: self.generic_data.common_data.token_out.clone(),
-                amount_out_min: self.generic_data.common_data.amount_out_min,
-                destination_address: self.generic_data.common_data.destination_address.clone(),
-                extra_transfers: self.generic_data.common_data.extra_transfers,
-                deadline: self.generic_data.common_data.deadline,
-            },
+            common_data,
             common_limit_order_data: CommonLimitOrderData {
-                take_profit_min_out: self
-                    .generic_data
-                    .common_limit_order_data
-                    .take_profit_min_out,
-                stop_loss_trigger_price: self
-                    .generic_data
-                    .common_limit_order_data
-                    .stop_loss_trigger_price,
-                stop_loss_type: self.generic_data.common_limit_order_data.stop_loss_type,
+                take_profit_min_out: common_limit_order_data.take_profit_min_out,
+                stop_loss_trigger_price: common_limit_order_data.stop_loss_trigger_price,
+                stop_loss_type: common_limit_order_data.stop_loss_type,
                 stop_loss_triggered: false,
             },
-            amount_in: self.generic_data.amount_in,
+            amount_in,
         };
 
         IntentRequest::SingleChainLimitOrder(SingleChainLimitOrderIntentRequest {
             generic_data,
-            chain_specific_data: self.chain_specific_data.clone(),
+            chain_specific_data,
         })
     }
 }

@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -35,9 +35,9 @@ use crate::{
             },
             utils::{
                 assemble_get_metadata_results, assemble_get_prices_results,
-                assemble_price_and_metadata_results, combine_get_metadata_query,
-                combine_get_prices_query, combine_price_and_metadata_query, default_decimals,
-                subscription_id,
+                assemble_price_and_metadata_results, combine_get_historical_prices_query,
+                combine_get_metadata_query, combine_get_prices_query,
+                combine_price_and_metadata_query, default_decimals, subscription_id,
             },
         },
     },
@@ -172,6 +172,14 @@ impl CodexProvider {
     ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
         let pool = self.pool().await?;
         pool.fetch_price_and_metadata(&tokens).await
+    }
+
+    pub async fn fetch_historical_prices(
+        &self,
+        tokens_and_dates: &[(TokenId, u64)],
+    ) -> EstimatorResult<HashMap<TokenId, BTreeMap<u64, TokenPrice>>> {
+        let pool = self.pool().await?;
+        pool.fetch_historical_prices(&tokens_and_dates).await
     }
 
     pub async fn fetch_trending_tokens(
@@ -608,6 +616,71 @@ impl CodexConnectionPool {
                 decimals: meta.decimals,
             };
             out.insert(token_id.clone(), price);
+        }
+
+        Ok(out)
+    }
+
+    async fn fetch_historical_prices(
+        &self,
+        tokens_and_dates: &[(TokenId, u64)],
+    ) -> EstimatorResult<HashMap<TokenId, BTreeMap<u64, TokenPrice>>> {
+        if tokens_and_dates.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        // Create json body with query and inputs
+        let body = combine_get_historical_prices_query(tokens_and_dates)?;
+
+        let response = self
+            .http_client
+            .post(CODEX_HTTP_URL)
+            .json(&body)
+            .send()
+            .await
+            .change_context(Error::ResponseError)
+            .attach_printable("Failed to send Codex HTTP fetch historical prices request")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response
+                .text()
+                .await
+                .change_context(Error::ResponseError)
+                .attach_printable("Failed to read Codex HTTP error response")?;
+            return Err(report!(Error::ResponseError).attach_printable(format!(
+                "Codex HTTP price request failed with status {}: {}",
+                status.as_u16(),
+                body
+            )));
+        }
+
+        let payload: serde_json::Value = response
+            .json()
+            .await
+            .change_context(Error::ResponseError)
+            .attach_printable("Failed to deserialize Codex HTTP price response")?;
+
+        let data = assemble_get_prices_results(tokens_and_dates.len(), payload)?;
+
+        let mut out = HashMap::new();
+        for price in data.prices.into_iter() {
+            let Some(price) = price else {
+                continue;
+            };
+            let token_id = TokenId {
+                chain: ChainId::from_codex_chain_number(price.network_id)
+                    .ok_or(Error::ParseError)?,
+                address: price.address,
+            };
+            let timestamp = price.timestamp;
+            let price = TokenPrice {
+                price: price.price_usd,
+                decimals: default_decimals(token_id.chain),
+            };
+            out.entry(token_id.clone())
+                .or_insert_with(BTreeMap::new)
+                .insert(timestamp, price);
         }
 
         Ok(out)
@@ -1216,6 +1289,93 @@ mod tests {
         println!("Codex tokens price: {:#?}", tokens_price);
         for token in tokens.into_iter() {
             assert!(tokens_price.contains_key(&token));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_codex_get_historical_tokens_price_success() {
+        dotenv::dotenv().ok();
+        init_tracing_in_tests();
+
+        let codex_api_key = match std::env::var("CODEX_API_KEY") {
+            Ok(key) => key,
+            Err(_) => {
+                eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
+                return;
+            }
+        };
+        let codex_provider = CodexProvider::new(codex_api_key);
+
+        let tokens = HashSet::from([
+            (
+                TokenId {
+                    chain: ChainId::Solana,
+                    address: "So11111111111111111111111111111111111111112".to_string(),
+                },
+                1765700637,
+            ),
+            (
+                TokenId::new_for_codex(ChainId::Sui, NATIVE_TOKEN_SUI_ADDRESS),
+                1765700637,
+            ),
+            (
+                TokenId {
+                    chain: ChainId::Solana,
+                    address: "G6jmigL9nkgYrT9MFP5fvrgrztDhtdVZkrmQz5Q5bonk".to_string(),
+                },
+                1765700637,
+            ),
+            (
+                TokenId {
+                    chain: ChainId::Solana,
+                    address: "3sNToh4Z3WJyqzMMDP34Jjiw9PLcW8KabuewS1EB8ray".to_string(),
+                },
+                1765700637,
+            ),
+            (
+                TokenId {
+                    chain: ChainId::Solana,
+                    address: "55E5Bn6n3L44tjfUBc18turPsdSBvs8MVb22oeM9robo".to_string(),
+                },
+                1765700637,
+            ),
+            (
+                TokenId {
+                    chain: ChainId::Solana,
+                    address: "GTEPYkUDfArmcijxE2Z4g54TuNHECzMnrntYkyPapump".to_string(),
+                },
+                1765700637,
+            ),
+            (
+                TokenId {
+                    chain: ChainId::Solana,
+                    address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                },
+                1765700637,
+            ),
+            (
+                TokenId {
+                    chain: ChainId::Base,
+                    address: "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913".to_string(),
+                },
+                1765700637,
+            ),
+            (
+                TokenId {
+                    chain: ChainId::Ethereum,
+                    address: "0x3fc29836e84e471a053d2d9e80494a867d670ead".to_string(),
+                },
+                1765700637,
+            ),
+        ]);
+
+        let tokens_price = codex_provider
+            .fetch_historical_prices(&tokens.iter().cloned().collect::<Vec<_>>())
+            .await
+            .expect("Failed to get Codex tokens price");
+        println!("Codex tokens price: {:#?}", tokens_price);
+        for token in tokens.into_iter() {
+            assert!(tokens_price.contains_key(&token.0));
         }
     }
 
