@@ -1,13 +1,13 @@
 use crate::error::{Error, EstimatorResult};
+use crate::prices::TokenId;
 use crate::prices::defillama::responses::{DefiLlamaCoinHashMap as _, DefiLlamaTokensResponse};
 use crate::prices::defillama::{DEFILLAMA_COINS_BASE_URL, DefiLlamaChain as _};
-use crate::prices::{PriceProvider, TokenId, TokenPrice};
 use crate::utils::number_conversion::u128_to_f64;
 use error_stack::{ResultExt, report};
 use intents_models::constants::chains::ChainId;
 use intents_models::network::http::handle_reqwest_response;
 use reqwest::Client;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 const TOKEN_PRICE_URI: &str = "/prices/current/";
 
@@ -21,38 +21,6 @@ impl DefiLlamaProvider {
         Self {
             client: Client::new(),
         }
-    }
-}
-
-#[async_trait::async_trait]
-impl PriceProvider for DefiLlamaProvider {
-    async fn get_tokens_price(
-        &self,
-        tokens: HashSet<TokenId>,
-    ) -> EstimatorResult<HashMap<TokenId, TokenPrice>> {
-        let defillama_token_response = get_tokens_data(&self.client, tokens).await?;
-        let mut tokens_price_data = HashMap::new();
-
-        for (defillama_token_id, token_data) in defillama_token_response.coins {
-            let (chain_name, token_address) = defillama_token_id
-                .split_once(':')
-                .ok_or(Error::ChainError("Invalid Defillama response".to_string()))?;
-            let chain_id = ChainId::from_defillama_chain_name(chain_name).ok_or(
-                Error::ChainError("Unknown DefiLlama chain name".to_string()),
-            )?;
-            tokens_price_data.insert(
-                TokenId {
-                    chain: chain_id,
-                    address: token_address.to_string(),
-                },
-                TokenPrice {
-                    price: token_data.price,
-                    decimals: token_data.decimals,
-                },
-            );
-        }
-
-        Ok(tokens_price_data)
     }
 }
 

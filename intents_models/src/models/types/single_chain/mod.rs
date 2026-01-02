@@ -84,7 +84,7 @@ impl SingleChainIntentRequest {
     pub fn get_amount_out_min(&self) -> u128 {
         match self {
             SingleChainIntentRequest::SingleChainLimitOrder(request) => {
-                request.generic_data.common_data.amount_out_min
+                request.generic_data.get_amount_out_min()
             }
             SingleChainIntentRequest::SingleChainDcaOrder(request) => {
                 request.generic_data.common_data.amount_out_min
@@ -137,6 +137,10 @@ impl SingleChainSolverStartPermissionEnum {
                 })
             }
         }
+    }
+
+    pub fn get_intent_id(&self) -> String {
+        self.get_common_data().0.chain_specific_data.get_intent_id()
     }
 }
 

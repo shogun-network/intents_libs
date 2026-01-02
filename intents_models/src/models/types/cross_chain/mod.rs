@@ -65,7 +65,7 @@ impl CrossChainIntentRequest {
     pub fn get_amount_out_min(&self) -> u128 {
         match self {
             CrossChainIntentRequest::CrossChainLimitOrder(intent) => {
-                intent.generic_data.common_data.amount_out_min
+                intent.generic_data.get_amount_out_min()
             }
             CrossChainIntentRequest::CrossChainDcaOrder(intent) => {
                 intent.generic_data.common_data.amount_out_min
@@ -191,6 +191,13 @@ impl CrossChainSolverStartPermissionEnum {
                 SolverStartPermission::CrossChainDca(permission)
             }
         }
+    }
+
+    pub fn get_intent_id(&self) -> String {
+        self.get_common_data()
+            .0
+            .src_chain_specific_data
+            .get_intent_id()
     }
 }
 

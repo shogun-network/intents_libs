@@ -77,6 +77,42 @@ pub fn f64_to_u128(value: f64, decimals: u8) -> EstimatorResult<u128> {
     Ok(scaled_value as u128)
 }
 
+pub fn u128_to_u64(x: u128, ctx: &'static str) -> EstimatorResult<u64> {
+    u64::try_from(x)
+        .change_context(Error::ParseError)
+        .attach_printable(format!("Failed to parse {ctx} from u128 to u64"))
+}
+
+pub fn slippage_to_bps(slippage_percent: f64) -> EstimatorResult<u64> {
+    // 1. Check for non-finite values
+    if !slippage_percent.is_finite() {
+        return Err(
+            report!(Error::ParseError).attach_printable("Slippage percentage is not finite")
+        );
+    }
+
+    // 2. Check that the value is not negative, if your logic assumes non-negative
+    if slippage_percent < 0.0 {
+        return Err(report!(Error::ParseError).attach_printable("Slippage percentage is negative"));
+    }
+
+    // 3. Scale to value in basis points (bps)
+    let scaled = slippage_percent * 100.0;
+
+    // 4. Check that scaled fits in u64
+    if scaled > (u64::MAX as f64) {
+        return Err(report!(Error::ParseError).attach_printable("Slippage percentage is too large"));
+    }
+
+    // 5. truncate to remove any fractional bps
+    let truncated = scaled.trunc();
+
+    // 6. Safe conversion to u64 type
+    let result = truncated as u64;
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,5 +141,31 @@ mod tests {
         assert!(f64_to_u128(-123.456, 6).is_err());
         assert!(f64_to_u128(f64::NAN, 6).is_err());
         assert!(f64_to_u128(f64::INFINITY, 6).is_err());
+    }
+
+    #[test]
+    fn test_slippage_to_bps_monotonic() {
+        let mut last = slippage_to_bps(0.0).unwrap();
+        for s in (1..=10_000).map(|x| x as f64 / 100.0) {
+            let cur = slippage_to_bps(s).unwrap();
+            assert!(cur >= last, "bps should be non-decreasing");
+            last = cur;
+        }
+    }
+
+    #[test]
+    fn test_u128_f64_roundtrip_with_tolerance() {
+        // u128 -> f64 -> u128 loses precision; check bounded error for small magnitudes
+        let decimals = 6u8;
+        for v in [0u128, 1, 123, 123_456, 123_456_789, 9_876_543_210] {
+            let f = u128_to_f64(v, decimals);
+            let v_rt = f64_to_u128(f, decimals).expect("back to u128");
+            // Allow at most 1 unit of the last decimal due to rounding
+            let delta = if v > v_rt { v - v_rt } else { v_rt - v };
+            assert!(
+                delta <= 1,
+                "round-trip too lossy: v={v}, v_rt={v_rt}, delta={delta}"
+            );
+        }
     }
 }

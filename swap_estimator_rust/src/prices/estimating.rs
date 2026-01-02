@@ -1,3 +1,4 @@
+use once_cell::sync::Lazy;
 use std::collections::HashMap;
 
 use error_stack::report;
@@ -7,22 +8,20 @@ use crate::{
     error::{Error, EstimatorResult},
     prices::{
         TokenId, TokenPrice, TokensPriceData, codex::pricing::CodexProvider,
-        defillama::pricing::DefiLlamaProvider, gecko_terminal::pricing::GeckoTerminalProvider,
+        gecko_terminal::pricing::GeckoTerminalProvider,
     },
     utils::number_conversion::{f64_to_u128, u128_to_f64},
 };
 
-lazy_static::lazy_static! {
-    pub static ref DEFILLAMA_PROVIDER: DefiLlamaProvider = DefiLlamaProvider::new();
-    pub static ref GECKO_TERMINAL_PROVIDER: GeckoTerminalProvider = GeckoTerminalProvider::new();
+pub static GECKO_TERMINAL_PROVIDER: Lazy<GeckoTerminalProvider> =
+    Lazy::new(|| GeckoTerminalProvider::new_with_subscriptions(5));
 
-    pub static ref CODEX_PROVIDER: Option<CodexProvider> = {
-        // Load API key from environment variable
-        dotenv::dotenv().ok();
-        let api_key = std::env::var("CODEX_API_KEY").ok()?;
-        Some(CodexProvider::new(api_key))
-    };
-}
+pub static CODEX_PROVIDER: Lazy<Option<CodexProvider>> = Lazy::new(|| {
+    // Load API key from environment variable
+    dotenv::dotenv().ok();
+    let api_key = std::env::var("CODEX_API_KEY").ok()?;
+    Some(CodexProvider::new(api_key))
+});
 
 #[derive(Debug, Clone)]
 pub struct OrderEstimationData {
@@ -38,14 +37,14 @@ pub fn estimate_order_amount_out(
     order_data: &OrderEstimationData,
     tokens_price_data: &TokensPriceData,
 ) -> EstimatorResult<Option<u128>> {
-    let src_token_data = tokens_price_data.get(&TokenId {
-        chain: order_data.src_chain,
-        address: order_data.token_in.clone(),
-    });
-    let dst_token_data = tokens_price_data.get(&TokenId {
-        chain: order_data.dst_chain,
-        address: order_data.token_out.clone(),
-    });
+    let src_token_data = tokens_price_data.get(&TokenId::new(
+        order_data.src_chain,
+        order_data.token_in.clone(),
+    ));
+    let dst_token_data = tokens_price_data.get(&TokenId::new(
+        order_data.dst_chain,
+        order_data.token_out.clone(),
+    ));
 
     if let (Some(src_data), Some(dst_data)) = (src_token_data, dst_token_data) {
         let src_price = src_data.price;

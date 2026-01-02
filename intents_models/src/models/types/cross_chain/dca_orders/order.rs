@@ -18,5 +18,5 @@ pub struct CrossChainOnChainDcaOrderData {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum ExecutionStart {
     TimestampSeconds(u32),
-    IntervalIndex(u32)
+    IntervalIndex(u32),
 }

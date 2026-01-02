@@ -20,7 +20,7 @@ pub struct GeckoTerminalOkResponse {
 #[serde(untagged)]
 pub enum GeckoTerminalOkResponseType {
     Prices(GeckoTerminalPricesData),
-    TokensInfo(Vec<GeckoTerminalTokensInfo>),
+    TokensInfo(Vec<Value>),
 }
 
 #[derive(Debug, Deserialize)]

@@ -11,6 +11,7 @@ use crate::models::types::single_chain::{
 use crate::models::types::user_types::IntentRequest;
 use error_stack::report;
 use serde::{Deserialize, Serialize};
+use serde_with::{StringWithSeparator, formats::CommaSeparator, serde_as};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
@@ -24,18 +25,6 @@ pub enum UserIntentRequest {
 }
 
 impl UserIntentRequest {
-    pub fn try_into_intent_request(self) -> ModelResult<IntentRequest> {
-        Ok(match self {
-            UserIntentRequest::SingleChainLimitOrder(intent) => intent.into_into_intent_request(),
-            UserIntentRequest::SingleChainDcaOrder(intent) => intent.into_into_intent_request(),
-            UserIntentRequest::CrossChainLimitOrder(intent) => {
-                intent.try_into_into_intent_request()?
-            }
-            UserIntentRequest::CrossChainDcaOrder(intent) => {
-                intent.try_into_into_intent_request()?
-            }
-        })
-    }
     pub fn try_get_cross_chain_execution_details(&self) -> ModelResult<String> {
         match self {
             UserIntentRequest::SingleChainLimitOrder(_)
@@ -44,6 +33,19 @@ impl UserIntentRequest {
             ))),
             UserIntentRequest::CrossChainLimitOrder(intent) => Ok(intent.execution_details.clone()),
             UserIntentRequest::CrossChainDcaOrder(intent) => Ok(intent.execution_details.clone()),
+        }
+    }
+}
+
+impl TryFrom<UserIntentRequest> for IntentRequest {
+    type Error = error_stack::Report<Error>;
+
+    fn try_from(value: UserIntentRequest) -> Result<Self, Self::Error> {
+        match value {
+            UserIntentRequest::SingleChainLimitOrder(intent) => Ok(intent.into()),
+            UserIntentRequest::SingleChainDcaOrder(intent) => Ok(intent.into()),
+            UserIntentRequest::CrossChainLimitOrder(intent) => intent.try_into(),
+            UserIntentRequest::CrossChainDcaOrder(intent) => intent.try_into(),
         }
     }
 }
@@ -96,4 +98,19 @@ impl UserRequestGenericData {
             UserRequestGenericData::CrossChain(data) => data.deadline,
         }
     }
+}
+
+#[serde_as]
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GetUserIntentsRequest {
+    #[serde_as(as = "StringWithSeparator<CommaSeparator, String>")]
+    #[serde(default)]
+    pub evm_wallets: Vec<String>,
+    #[serde_as(as = "StringWithSeparator<CommaSeparator, String>")]
+    #[serde(default)]
+    pub solana_wallets: Vec<String>,
+    #[serde_as(as = "StringWithSeparator<CommaSeparator, String>")]
+    #[serde(default)]
+    pub sui_wallets: Vec<String>,
 }

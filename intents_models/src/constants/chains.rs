@@ -1,4 +1,5 @@
 use error_stack::{Report, report};
+use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::fmt;
 use strum::IntoEnumIterator;
@@ -39,6 +40,7 @@ pub enum ChainId {
     Bsc = 56,
     ArbitrumOne = 42161,
     Base = 8453,
+    Monad = 143,
 
     Solana = 7565164,
 
@@ -47,7 +49,7 @@ pub enum ChainId {
     HyperEVM = 999,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, Hash, Serialize, Deserialize)]
 pub enum ChainType {
     EVM,
     Solana,
@@ -88,6 +90,7 @@ impl fmt::Display for ChainId {
             Self::Bsc => write!(f, "BSC"),
             Self::ArbitrumOne => write!(f, "Arbitrum One"),
             Self::Base => write!(f, "Base"),
+            Self::Monad => write!(f, "Monad"),
             Self::Solana => write!(f, "Solana"),
             Self::Sui => write!(f, "Sui"),
             Self::Optimism => write!(f, "Optimism"),
@@ -115,6 +118,7 @@ impl TryFrom<&str> for ChainId {
             "Bsc" | "BSC" | "56" => Ok(Self::Bsc),
             "ArbitrumOne" | "Arbitrum One" | "42161" => Ok(Self::ArbitrumOne),
             "Base" | "8453" => Ok(Self::Base),
+            "Monad" | "143" => Ok(Self::Monad),
             "Solana" => Ok(Self::Solana),
             "Sui" | "101" => Ok(Self::Sui),
             "Optimism" | "10" => Ok(Self::Optimism),
@@ -122,6 +126,36 @@ impl TryFrom<&str> for ChainId {
             _ => Err(report!(Error::ChainError(format!(
                 "Invalid chain name: {value}"
             )))),
+        }
+    }
+}
+
+impl ChainId {
+    pub fn is_native_token(self, address: &str) -> bool {
+        match self {
+            ChainId::Ethereum
+            | ChainId::Bsc
+            | ChainId::ArbitrumOne
+            | ChainId::Base
+            | ChainId::Optimism
+            | ChainId::Monad
+            | ChainId::HyperEVM => is_native_token_evm_address(address),
+            ChainId::Solana => is_native_token_solana_address(address),
+            ChainId::Sui => address == NATIVE_TOKEN_SUI_ADDRESS,
+        }
+    }
+
+    pub fn wrapped_native_token_address(self) -> String {
+        match self {
+            ChainId::Solana => WRAPPED_NATIVE_TOKEN_SOLANA_ADDRESS.to_string(),
+            ChainId::HyperEVM => WRAPPED_NATIVE_TOKEN_HYPE_ADDRESS.to_string(),
+            ChainId::Sui => NATIVE_TOKEN_SUI_ADDRESS.to_string(),
+            ChainId::Bsc => "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c".to_string(),
+            ChainId::Ethereum => "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2".to_string(),
+            ChainId::ArbitrumOne => "0x82af49447d8a07e3bd95bd0d56f35241523fbab1".to_string(),
+            ChainId::Base => "0x4200000000000000000000000000000000000006".to_string(),
+            ChainId::Optimism => "0x4200000000000000000000000000000000000006".to_string(),
+            ChainId::Monad => "0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A".to_string(),
         }
     }
 }

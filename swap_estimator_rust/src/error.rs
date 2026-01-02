@@ -36,6 +36,12 @@ pub enum Error {
     #[error("Serde deserialize error: {0}")]
     SerdeDeserialize(String),
 
+    #[error("Codex error: {0}")]
+    CodexError(String),
+
+    #[error("Logic Error: {0}")]
+    LogicError(String),
+
     #[error("Unknown error")]
     Unknown,
 }

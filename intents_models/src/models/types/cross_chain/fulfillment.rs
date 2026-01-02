@@ -20,6 +20,17 @@ pub enum EvmCrossChainRequestedFulfillment {
     FulfillmentWithExternalCall(EvmRequestedFulfillmentWithExternalCall),
 }
 
+impl EvmCrossChainRequestedFulfillment {
+    pub fn get_intent_id(&self) -> String {
+        match &self {
+            EvmCrossChainRequestedFulfillment::SimpleFulfillment(data) => data.order_id.to_owned(),
+            EvmCrossChainRequestedFulfillment::FulfillmentWithExternalCall(data) => {
+                data.order_id.to_owned()
+            }
+        }
+    }
+}
+
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]

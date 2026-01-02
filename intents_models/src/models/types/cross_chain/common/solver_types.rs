@@ -28,6 +28,14 @@ pub struct CrossChainSolverStartPermission {
     pub min_stablecoins_amount: u128,
     /// Address of stablecoins, tokens IN must be swapped into (if allowed)
     pub stablecoins_address: String,
+    /// Amount of collateral for as solver to lock
+    #[serde_as(as = "DisplayFromStr")]
+    pub collateral_amount: u128,
+    /// Amount of protocol fees to pay for order execution
+    #[serde_as(as = "DisplayFromStr")]
+    pub protocol_fee: u128,
+    /// Address of token that is taken as protocol fee/collateral
+    pub collateral_token_address: String,
     /// Deadline in seconds, by which Solver must execute the intent
     pub solver_deadline: u64,
     /// Contains chain-specific data to start order execution on source chain
@@ -81,6 +89,15 @@ impl CrossChainSolverStartOrderData {
             _ => Err(report!(Error::LogicError(
                 "Non-Sui data passed".to_string()
             ))),
+        }
+    }
+    pub fn get_intent_id(&self) -> String {
+        match &self {
+            CrossChainSolverStartOrderData::EVM(evm_data) => {
+                evm_data.order_type_data.get_intent_id()
+            }
+            CrossChainSolverStartOrderData::Solana(solana_data) => solana_data.order.to_owned(),
+            CrossChainSolverStartOrderData::Sui(sui_data) => sui_data.order_id.to_owned(),
         }
     }
 }

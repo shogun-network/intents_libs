@@ -1,3 +1,4 @@
+use crate::constants::chains::ChainId;
 use crate::error::{Error, ModelResult};
 use crate::models::types::cross_chain::{
     CrossChainOnChainDcaOrderData, CrossChainOnChainLimitOrderData, CrossChainOnChainOrderDataEnum,
@@ -8,9 +9,10 @@ use crate::models::types::single_chain::{
     SingleChainOnChainOrderDataEnum, SingleChainUserDcaOrderResponse,
     SingleChainUserLimitOrderResponse,
 };
-use error_stack::{ResultExt, report};
+use error_stack::report;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::str::FromStr;
 
 mod execution;
 mod order_data_request;
@@ -136,21 +138,24 @@ impl fmt::Display for OrderStatus {
     }
 }
 
-// Helper functions to parse string status into enums
-pub fn parse_order_status(status: &str) -> ModelResult<OrderStatus> {
-    Ok(match status {
-        "Auction" => OrderStatus::Auction,
-        "NoBids" => OrderStatus::NoBids,
-        "Executing" => OrderStatus::Executing,
-        "DcaIntervalFulfilled" => OrderStatus::DcaIntervalFulfilled,
-        "Fulfilled" => OrderStatus::Fulfilled,
-        "Cancelled" => OrderStatus::Cancelled,
-        "Outdated" => OrderStatus::Outdated,
-        _ => Err(Error::ParseError).attach_printable(format!("Invalid order status: {status}"))?,
-    })
+impl FromStr for OrderStatus {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Auction" => Ok(OrderStatus::Auction),
+            "NoBids" => Ok(OrderStatus::NoBids),
+            "Executing" => Ok(OrderStatus::Executing),
+            "DcaIntervalFulfilled" => Ok(OrderStatus::DcaIntervalFulfilled),
+            "Fulfilled" => Ok(OrderStatus::Fulfilled),
+            "Cancelled" => Ok(OrderStatus::Cancelled),
+            "Outdated" => Ok(OrderStatus::Outdated),
+            _ => Err(Error::ParseError),
+        }
+    }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 /// List of orders provided to user on request
 pub struct UserOrders {
@@ -158,4 +163,201 @@ pub struct UserOrders {
     pub single_chain_dca_orders: Vec<SingleChainUserDcaOrderResponse>,
     pub cross_chain_limit_orders: Vec<CrossChainUserLimitOrderResponse>,
     pub cross_chain_dca_orders: Vec<CrossChainUserDcaOrderResponse>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum UserOrderType {
+    CrossChainLimitOrder(CrossChainUserLimitOrderResponse),
+    CrossChainDCAOrder(CrossChainUserDcaOrderResponse),
+    SingleChainLimitOrder(SingleChainUserLimitOrderResponse),
+    SingleChainDCAOrder(SingleChainUserDcaOrderResponse),
+}
+
+impl UserOrderType {
+    pub fn order_type(&self) -> OrderType {
+        match self {
+            UserOrderType::CrossChainLimitOrder(_) => OrderType::CrossChainLimitOrder,
+            UserOrderType::CrossChainDCAOrder(_) => OrderType::CrossChainDCAOrder,
+            UserOrderType::SingleChainLimitOrder(_) => OrderType::SingleChainLimitOrder,
+            UserOrderType::SingleChainDCAOrder(_) => OrderType::SingleChainDCAOrder,
+        }
+    }
+
+    pub fn order_id(&self) -> &String {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => &order.order_id,
+            UserOrderType::CrossChainDCAOrder(order) => &order.order_id,
+            UserOrderType::SingleChainLimitOrder(order) => &order.order_id,
+            UserOrderType::SingleChainDCAOrder(order) => &order.order_id,
+        }
+    }
+
+    pub fn src_chain_id(&self) -> ChainId {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => {
+                order.generic_data.common_data.src_chain_id
+            }
+            UserOrderType::CrossChainDCAOrder(order) => order.generic_data.common_data.src_chain_id,
+            UserOrderType::SingleChainLimitOrder(order) => order.generic_data.common_data.chain_id,
+            UserOrderType::SingleChainDCAOrder(order) => order.generic_data.common_data.chain_id,
+        }
+    }
+
+    pub fn dest_chain_id(&self) -> ChainId {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => {
+                order.generic_data.common_data.dest_chain_id
+            }
+            UserOrderType::CrossChainDCAOrder(order) => {
+                order.generic_data.common_data.dest_chain_id
+            }
+            UserOrderType::SingleChainLimitOrder(order) => order.generic_data.common_data.chain_id,
+            UserOrderType::SingleChainDCAOrder(order) => order.generic_data.common_data.chain_id,
+        }
+    }
+
+    pub fn order_status(&self) -> OrderStatus {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => order.order_status,
+            UserOrderType::CrossChainDCAOrder(order) => order.order_status,
+            UserOrderType::SingleChainLimitOrder(order) => order.order_status,
+            UserOrderType::SingleChainDCAOrder(order) => order.order_status,
+        }
+    }
+
+    pub fn token_in(&self) -> &String {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => &order.generic_data.common_data.token_in,
+            UserOrderType::CrossChainDCAOrder(order) => &order.generic_data.common_data.token_in,
+            UserOrderType::SingleChainLimitOrder(order) => &order.generic_data.common_data.token_in,
+            UserOrderType::SingleChainDCAOrder(order) => &order.generic_data.common_data.token_in,
+        }
+    }
+
+    pub fn token_out(&self) -> &String {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => &order.generic_data.common_data.token_out,
+            UserOrderType::CrossChainDCAOrder(order) => &order.generic_data.common_data.token_out,
+            UserOrderType::SingleChainLimitOrder(order) => {
+                &order.generic_data.common_data.token_out
+            }
+            UserOrderType::SingleChainDCAOrder(order) => &order.generic_data.common_data.token_out,
+        }
+    }
+
+    pub fn amount_in(&self) -> u128 {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => order.generic_data.amount_in,
+            UserOrderType::CrossChainDCAOrder(order) => {
+                order
+                    .generic_data
+                    .common_dca_order_data
+                    .amount_in_per_interval
+            }
+            UserOrderType::SingleChainLimitOrder(order) => order.generic_data.amount_in,
+            UserOrderType::SingleChainDCAOrder(order) => {
+                order
+                    .generic_data
+                    .common_dca_order_data
+                    .amount_in_per_interval
+            }
+        }
+    }
+
+    pub fn amount_out(&self) -> Option<u128> {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => order.amount_out,
+            UserOrderType::CrossChainDCAOrder(_) => None,
+            UserOrderType::SingleChainLimitOrder(order) => order.amount_out,
+            UserOrderType::SingleChainDCAOrder(_) => None,
+        }
+    }
+
+    pub fn order_creation_time(&self) -> u64 {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => order.order_creation_time,
+            UserOrderType::CrossChainDCAOrder(order) => order.order_creation_time,
+            UserOrderType::SingleChainLimitOrder(order) => order.order_creation_time,
+            UserOrderType::SingleChainDCAOrder(order) => order.order_creation_time,
+        }
+    }
+
+    pub fn order_fulfillment_timestamp(&self) -> Option<u64> {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => order.order_fulfillment_timestamp,
+            UserOrderType::CrossChainDCAOrder(_) => None,
+            UserOrderType::SingleChainLimitOrder(order) => order.order_fulfillment_timestamp,
+            UserOrderType::SingleChainDCAOrder(_) => None,
+        }
+    }
+
+    pub fn get_amount_out_min(&self) -> Option<u128> {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => {
+                Some(order.generic_data.get_amount_out_min())
+            }
+            UserOrderType::CrossChainDCAOrder(_) => None,
+            UserOrderType::SingleChainLimitOrder(order) => {
+                Some(order.generic_data.get_amount_out_min())
+            }
+            UserOrderType::SingleChainDCAOrder(_) => None,
+        }
+    }
+
+    pub fn stop_loss_trigger_price(&self) -> Option<f64> {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => {
+                order
+                    .generic_data
+                    .common_limit_order_data
+                    .stop_loss_trigger_price
+            }
+            UserOrderType::CrossChainDCAOrder(_) => None,
+            UserOrderType::SingleChainLimitOrder(order) => {
+                order
+                    .generic_data
+                    .common_limit_order_data
+                    .stop_loss_trigger_price
+            }
+            UserOrderType::SingleChainDCAOrder(_) => None,
+        }
+    }
+
+    pub fn stop_loss_triggered(&self) -> Option<bool> {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => Some(
+                order
+                    .generic_data
+                    .common_limit_order_data
+                    .stop_loss_triggered,
+            ),
+            UserOrderType::CrossChainDCAOrder(_) => None,
+            UserOrderType::SingleChainLimitOrder(order) => Some(
+                order
+                    .generic_data
+                    .common_limit_order_data
+                    .stop_loss_triggered,
+            ),
+            UserOrderType::SingleChainDCAOrder(_) => None,
+        }
+    }
+
+    pub fn take_profit_min_out(&self) -> Option<u128> {
+        match self {
+            UserOrderType::CrossChainLimitOrder(order) => {
+                order
+                    .generic_data
+                    .common_limit_order_data
+                    .take_profit_min_out
+            }
+            UserOrderType::CrossChainDCAOrder(_) => None,
+            UserOrderType::SingleChainLimitOrder(order) => {
+                order
+                    .generic_data
+                    .common_limit_order_data
+                    .take_profit_min_out
+            }
+            UserOrderType::SingleChainDCAOrder(_) => None,
+        }
+    }
 }
