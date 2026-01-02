@@ -73,10 +73,8 @@ pub struct GeckoTerminalTokensInfoAttributes {
     pub image_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub coingecko_coin_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub price_usd: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fdv_usd: Option<String>,
+    pub price_usd: String,
+    pub fdv_usd: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub market_cap_usd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
