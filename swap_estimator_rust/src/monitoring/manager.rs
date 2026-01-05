@@ -1195,14 +1195,18 @@ fn estimate_required_token_in_price_for_stablecoin_swap(
         return Err(report!(Error::ParseError));
     }
     let token_price = Decimal::from_f64(token_data.price).ok_or(Error::ParseError)?;
-    if token_price.is_sign_negative() || token_price.is_zero() {
-        return Err(report!(Error::ZeroPriceError));
-    }
 
     let required_min_stablecoins_dec =
         Decimal::from_u128(pending_swap.required_min_stablecoins).ok_or(Error::ParseError)?;
     let estimated_stablecoins_dec =
         Decimal::from_u128(pending_swap.estimated_stablecoins).ok_or(Error::ParseError)?;
+
+    if token_price.is_sign_negative()
+        || token_price.is_zero()
+        || estimated_stablecoins_dec.is_zero()
+    {
+        return Err(report!(Error::ZeroPriceError));
+    }
 
     // Estimate needed token in price to reach required stablecoins
     let needed_price = (required_min_stablecoins_dec / estimated_stablecoins_dec) * token_price;
@@ -1352,10 +1356,17 @@ fn required_monitor_estimation_for_solver_fulfillment(
         return Err(report!(Error::ParseError).attach_printable("Estimated monitor amount is zero"));
     }
 
+    let denom = bid_solver + fulfillment_expenses_in_tokens_out;
+    if denom == 0 {
+        return Err(
+            report!(Error::ParseError).attach_printable("Bid solver amount plus expenses is zero")
+        );
+    }
+
     let required_monitor_est = mul_div(
         min_user + fulfillment_expenses_in_tokens_out,
         est_monitor + fulfillment_expenses_in_tokens_out,
-        bid_solver + fulfillment_expenses_in_tokens_out,
+        denom,
         false, // being optimistic
     )? - fulfillment_expenses_in_tokens_out;
 
