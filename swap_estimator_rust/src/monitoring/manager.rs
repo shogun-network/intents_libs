@@ -39,11 +39,23 @@ pub struct PendingSwap {
     pub extra_expenses: HashMap<TokenId, u128>, // TokenId to amount
 }
 
+#[derive(Debug, Clone)]
+pub struct PendingStablecoinSwap {
+    pub order_id: String,
+    pub chain_id: ChainId,
+    pub token_in: String,
+    pub required_min_stablecoins: u128,
+    pub estimated_stablecoins: u128,
+    pub deadline: u64,
+    pub order_type_fulfillment_data: OrderTypeFulfillmentData,
+}
+
 #[derive(Debug)]
 pub struct MonitorManager {
     pub receiver: Receiver<MonitorRequest>,
     pub alert_sender: tokio::sync::broadcast::Sender<MonitorAlert>,
     pub coin_cache: HashMap<TokenId, TokenPrice>,
+    pub pending_stablecoins_swaps: HashMap<String, (PendingStablecoinSwap, f64)>, // OrderId to pending stablecoins swap and required min price of token in in USD to reach required_min_stablecoins
     pub pending_swaps: HashMap<String, (PendingSwap, Option<u128>)>, // OrderId to pending swap and optionally, estimated amount out calculated
     pub swaps_by_token: HashMap<TokenId, Vec<String>>,               // TokenId to OrderIds
     pub token_metadata: HashMap<TokenId, TokenMetadata>,
@@ -66,6 +78,7 @@ impl MonitorManager {
             receiver,
             alert_sender: sender,
             coin_cache: HashMap::new(),
+            pending_stablecoins_swaps: HashMap::new(),
             pending_swaps: HashMap::new(),
             swaps_by_token: HashMap::new(),
             token_metadata: HashMap::new(),
@@ -127,6 +140,7 @@ impl MonitorManager {
                         }
                     }
                 }
+
                 _ = unsubscriptions_interval.tick() => {
                     tracing::debug!("Checking for tokens to unsubscribe due to no pending orders");
                     // Collect tokens that no longer have pending orders
@@ -179,6 +193,12 @@ impl MonitorManager {
                         .collect();
 
                     tracing::debug!("Polling update for tokens: {:?}", tokens_to_fetch);
+
+                    // Don't fetch if no tokens to poll
+                    if tokens_to_fetch.is_empty() {
+                        tracing::debug!("No tokens to poll, skipping...");
+                        continue;
+                    }
 
                     // Always check for native tokens too.
                     tokens_to_fetch.extend(native_tokens.clone());
@@ -237,6 +257,19 @@ impl MonitorManager {
                                 } => {
                                     if let Err(error) = self.check_swap_feasibility(order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out, deadline, order_type_fulfillment_data, solver_last_bid, extra_expenses).await {
                                         tracing::error!("Error processing CheckSwapFeasibility request: {:?}", error);
+                                    }
+                                }
+                                MonitorRequest::CheckStablecoinsSwapFeasibility {
+                                    order_id,
+                                    chain_id,
+                                    token_in,
+                                    required_min_stablecoins,
+                                    estimated_stablecoins,
+                                    deadline,
+                                    order_type_fulfillment_data,
+                                } => {
+                                    if let Err(error) = self.check_stablecoins_swap_feasibility(order_id, chain_id, token_in, required_min_stablecoins, estimated_stablecoins, deadline, order_type_fulfillment_data).await {
+                                        tracing::error!("Error processing CheckStablecoinsSwapFeasibility request: {:?}", error);
                                     }
                                 }
                                 MonitorRequest::GetCoinsData { token_ids, resp } => {
@@ -312,6 +345,84 @@ impl MonitorManager {
                 Err(e)
             }
         }
+    }
+
+    async fn check_stablecoins_swap_feasibility(
+        &mut self,
+        order_id: String,
+        chain_id: ChainId,
+        token_in: String,
+        required_min_stablecoins: u128,
+        estimated_stablecoins: u128,
+        deadline: u64,
+        order_type_fulfillment_data: OrderTypeFulfillmentData,
+    ) -> EstimatorResult<()> {
+        tracing::debug!(
+            "Checking stablecoins swap feasibility for order_id: {}, chain_id: {}, token_in: {}, required_min_stablecoins: {}, estimated_stablecoins: {}",
+            order_id,
+            chain_id,
+            token_in,
+            required_min_stablecoins,
+            estimated_stablecoins
+        );
+
+        let order_already_present = self.pending_stablecoins_swaps.contains_key(&order_id);
+
+        let token_in_id = TokenId::new_for_codex(chain_id, &token_in);
+
+        let pending_stablecoin_swap = PendingStablecoinSwap {
+            order_id: order_id.clone(),
+            chain_id,
+            token_in: token_in.clone(),
+            required_min_stablecoins,
+            estimated_stablecoins,
+            deadline,
+            order_type_fulfillment_data,
+        };
+
+        let mut token_in_id_set = HashSet::new();
+        token_in_id_set.insert(token_in_id.clone());
+
+        // Subscribe to price updates for token in
+        let tokens_data = self.get_coins_data(token_in_id_set).await?;
+
+        let estimated_token_in_price_calculated =
+            estimate_required_token_in_price_for_stablecoin_swap(
+                &pending_stablecoin_swap,
+                &tokens_data,
+            )?;
+
+        tracing::debug!(
+            "Estimated token in price calculated for order_id {}: {}",
+            order_id,
+            estimated_token_in_price_calculated
+        );
+
+        // Update cache and get updated tokens
+        let updated_tokens = self.update_cache(tokens_data);
+
+        // Re-evaluate impacted orders for updated tokens
+        for updated_token in updated_tokens.into_iter() {
+            self.check_impacted_orders(updated_token).await;
+        }
+
+        // Only add to swaps_by_token if not already present
+        if !order_already_present {
+            self.swaps_by_token
+                .entry(token_in_id)
+                .or_insert_with(Vec::new)
+                .push(order_id.clone());
+        }
+
+        self.pending_stablecoins_swaps.insert(
+            order_id.clone(),
+            (pending_stablecoin_swap, estimated_token_in_price_calculated),
+        );
+        self.orders_by_deadline
+            .entry(deadline)
+            .or_insert_with(HashSet::new)
+            .insert(order_id);
+        Ok(())
     }
 
     async fn check_swap_feasibility(
@@ -685,7 +796,8 @@ impl MonitorManager {
 
         let current_timestamp = get_timestamp();
         // Get the swap data of these orders
-        let mut subset: Vec<(PendingSwap, Option<u128>)> = Vec::new();
+        let mut subset_pending_swap: Vec<(PendingSwap, Option<u128>)> = Vec::new();
+        let mut subset_pending_stablecoin_swap: Vec<(PendingStablecoinSwap, f64)> = Vec::new();
         let mut remaining_orders: Vec<String> = Vec::new();
         for order_id in impacted_orders.iter() {
             if let Some(ps) = self.pending_swaps.get(order_id).cloned() {
@@ -699,16 +811,74 @@ impl MonitorManager {
                     // Remove from pending swaps
                     self.remove_order(&ps.0.order_id).await;
                 } else {
-                    subset.push(ps);
+                    subset_pending_swap.push(ps);
+                }
+            } else if let Some(pss) = self.pending_stablecoins_swaps.get(order_id).cloned() {
+                // Skip expired orders
+                if pss.0.deadline < current_timestamp {
+                    tracing::debug!(
+                        "Skipping expired pending stablecoin swap for order_id: {}, deadline: {}",
+                        order_id,
+                        pss.0.deadline
+                    );
+                    // Remove from pending stablecoin swaps
+                    self.remove_order(&pss.0.order_id).await;
+                } else {
+                    subset_pending_stablecoin_swap.push(pss);
                 }
             }
         }
-        if subset.is_empty() {
+        if subset_pending_swap.is_empty() && subset_pending_stablecoin_swap.is_empty() {
             return;
         }
 
+        // Check stablecoin swaps first
+        match self.coin_cache.get(&token).cloned() {
+            Some(price) => {
+                for (pending_stablecoin_swap, estimated_token_in_price_calculated) in
+                    subset_pending_stablecoin_swap.into_iter()
+                {
+                    // Check if price meets required min stablecoins
+                    if price.price >= estimated_token_in_price_calculated {
+                        tracing::debug!(
+                            "Stablecoins swap is feasible for order_id: {}, sending alert",
+                            pending_stablecoin_swap.order_id
+                        );
+                        if let Err(e) =
+                            self.alert_sender
+                                .send(MonitorAlert::StablecoinSwapIsFeasible {
+                                    order_id: pending_stablecoin_swap.order_id.clone(),
+                                    order_type_fulfillment_data: pending_stablecoin_swap
+                                        .order_type_fulfillment_data,
+                                })
+                        {
+                            tracing::error!(
+                                "Failed to send alert for order_id {}: {:?}",
+                                pending_stablecoin_swap.order_id,
+                                e
+                            );
+                            // Do not remove the swap if we failed to send alert
+                            remaining_orders.push(pending_stablecoin_swap.order_id.clone());
+                            continue;
+                        }
+                        // Remove from pending swaps and every other data structure
+                        self.remove_order(&pending_stablecoin_swap.order_id).await;
+                    } else {
+                        // Still not feasible, keep monitoring
+                        remaining_orders.push(pending_stablecoin_swap.order_id.clone());
+                    }
+                }
+            }
+            None => {
+                tracing::error!(
+                    "Token price not found in cache for token: {:?}, cannot check impacted orders",
+                    token
+                );
+            }
+        }
+
         // Re-evaluate these swaps
-        for (pending_swap, estimated_minimum_monitor_amount) in subset.into_iter() {
+        for (pending_swap, estimated_minimum_monitor_amount) in subset_pending_swap.into_iter() {
             tracing::debug!(
                 "Re-evaluating swap feasibility for order_id: {}, token_in: {}, token_out: {}",
                 pending_swap.order_id,
@@ -817,22 +987,23 @@ impl MonitorManager {
     async fn remove_order(&mut self, order_id: &str) {
         // dbg!("Removing order_id: {} from monitoring", order_id);
         // Remove from pending swaps
-        if let Some((pending_swap, _)) = self.pending_swaps.remove(order_id) {
-            // Remove from orders by deadline
-            if let Some(set) = self.orders_by_deadline.get_mut(&pending_swap.deadline) {
-                set.remove(order_id);
-                if set.is_empty() {
-                    self.orders_by_deadline.remove(&pending_swap.deadline);
-                }
+        let deadline = if let Some((pending_swap, _)) = self.pending_swaps.remove(order_id) {
+            pending_swap.deadline
+        } else if let Some((pending_stablecoin_swap, _)) =
+            self.pending_stablecoins_swaps.remove(order_id)
+        {
+            pending_stablecoin_swap.deadline
+        } else {
+            // Order not found
+            return;
+        };
+
+        // Remove from orders by deadline
+        if let Some(set) = self.orders_by_deadline.get_mut(&deadline) {
+            set.remove(order_id);
+            if set.is_empty() {
+                self.orders_by_deadline.remove(&deadline);
             }
-            // Detach from token->orders map and unsubscribe if needed
-            // let t_in = TokenId::new_for_codex(pending_swap.src_chain, &pending_swap.token_in);
-            // let t_out = TokenId::new_for_codex(pending_swap.dst_chain, &pending_swap.token_out);
-            // self.detach_order_from_token(&t_in, &pending_swap.order_id);
-            // self.detach_order_from_token(&t_out, &pending_swap.order_id);
-            // for token in pending_swap.extra_expenses.keys() {
-            //     self.detach_order_from_token(token, &pending_swap.order_id);
-            // }
         }
     }
 
@@ -1003,6 +1174,40 @@ impl MonitorManager {
         let tokens_data = self.get_coins_data(token_ids).await?;
         Ok(tokens_data)
     }
+}
+
+fn estimate_required_token_in_price_for_stablecoin_swap(
+    pending_swap: &PendingStablecoinSwap,
+    coin_cache: &HashMap<TokenId, TokenPrice>,
+) -> EstimatorResult<f64> {
+    let Some(token_data) = coin_cache.get(&TokenId::new_for_codex(
+        pending_swap.chain_id,
+        &pending_swap.token_in,
+    )) else {
+        return Err(report!(Error::TokenNotFound(format!(
+            "Missing token data on monitor for stablecoin swap: {:?}",
+            pending_swap
+        ))));
+    };
+
+    // Validate price is finite and strictly positive
+    if !token_data.price.is_finite() {
+        return Err(report!(Error::ParseError));
+    }
+    let token_price = Decimal::from_f64(token_data.price).ok_or(Error::ParseError)?;
+    if token_price.is_sign_negative() || token_price.is_zero() {
+        return Err(report!(Error::ZeroPriceError));
+    }
+
+    let required_min_stablecoins_dec =
+        Decimal::from_u128(pending_swap.required_min_stablecoins).ok_or(Error::ParseError)?;
+    let estimated_stablecoins_dec =
+        Decimal::from_u128(pending_swap.estimated_stablecoins).ok_or(Error::ParseError)?;
+
+    // Estimate needed token in price to reach required stablecoins
+    let needed_price = (required_min_stablecoins_dec / estimated_stablecoins_dec) * token_price;
+
+    Ok(needed_price.to_f64().ok_or(Error::ParseError)?)
 }
 
 fn estimate_amount_out(

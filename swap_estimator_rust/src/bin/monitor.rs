@@ -51,6 +51,14 @@ async fn run() -> Result<(), String> {
                         "[ALERT] Swap is feasible for order_id={order_id}, order_type_fulfillment_data={order_type_fulfillment_data:?}"
                     );
                 }
+                MonitorAlert::StablecoinSwapIsFeasible {
+                    order_id,
+                    order_type_fulfillment_data,
+                } => {
+                    println!(
+                        "[ALERT] Stablecoin swap is feasible for order_id={order_id}, order_type_fulfillment_data={order_type_fulfillment_data:?}"
+                    );
+                }
             }
         }
     });

@@ -78,6 +78,31 @@ impl MonitorClient {
         }
     }
 
+    pub async fn check_stablecoins_swap_feasibility(
+        &self,
+        order_id: String,
+        chain_id: ChainId,
+        token_in: String,
+        required_min_stablecoins: u128,
+        estimated_stablecoins: u128,
+        deadline: u64,
+        order_type_fulfillment_data: OrderTypeFulfillmentData,
+    ) -> EstimatorResult<()> {
+        self.client
+            .send(MonitorRequest::CheckStablecoinsSwapFeasibility {
+                order_id,
+                chain_id,
+                token_in,
+                required_min_stablecoins,
+                estimated_stablecoins,
+                deadline,
+                order_type_fulfillment_data,
+            })
+            .await
+            .change_context(Error::ResponseError)
+            .attach_printable("Failed to send result of check stablecoins swap feasibility")
+    }
+
     pub async fn check_swap_feasibility(
         &self,
         order_id: String,

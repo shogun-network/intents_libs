@@ -29,6 +29,15 @@ pub enum MonitorRequest {
         solver_last_bid: Option<u128>,
         extra_expenses: HashMap<TokenId, u128>,
     },
+    CheckStablecoinsSwapFeasibility {
+        order_id: String,
+        chain_id: ChainId,
+        token_in: String,
+        required_min_stablecoins: u128,
+        estimated_stablecoins: u128,
+        deadline: u64,
+        order_type_fulfillment_data: OrderTypeFulfillmentData,
+    },
     RemoveCheckSwapFeasibility {
         order_id: String,
     },
@@ -45,6 +54,10 @@ pub enum MonitorRequest {
 #[derive(Debug, Clone)]
 pub enum MonitorAlert {
     SwapIsFeasible {
+        order_id: String,
+        order_type_fulfillment_data: OrderTypeFulfillmentData,
+    },
+    StablecoinSwapIsFeasible {
         order_id: String,
         order_type_fulfillment_data: OrderTypeFulfillmentData,
     },
