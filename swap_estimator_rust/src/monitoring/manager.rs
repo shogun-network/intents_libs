@@ -874,6 +874,10 @@ impl MonitorManager {
                     "Token price not found in cache for token: {:?}, cannot check impacted orders",
                     token
                 );
+                // Re-add all stablecoin orders for further monitoring
+                for (pending_stablecoin_swap, _) in subset_pending_stablecoin_swap.into_iter() {
+                    remaining_orders.push(pending_stablecoin_swap.order_id.clone());
+                }
             }
         }
 
