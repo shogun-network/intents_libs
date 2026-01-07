@@ -838,6 +838,11 @@ impl MonitorManager {
                 for (pending_stablecoin_swap, estimated_token_in_price_calculated) in
                     subset_pending_stablecoin_swap.into_iter()
                 {
+                    dbg![
+                        &pending_stablecoin_swap.order_id,
+                        price.price,
+                        estimated_token_in_price_calculated
+                    ];
                     // Check if price meets required min stablecoins
                     if price.price >= estimated_token_in_price_calculated {
                         tracing::debug!(
