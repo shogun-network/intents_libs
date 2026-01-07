@@ -37,6 +37,7 @@ pub struct PendingSwap {
     pub deadline: u64,
     pub order_type_fulfillment_data: OrderTypeFulfillmentData,
     pub extra_expenses: HashMap<TokenId, u128>, // TokenId to amount
+    pub min_stablecoins_amount: Option<u128>,
 }
 
 #[derive(Debug)]
@@ -223,19 +224,10 @@ impl MonitorManager {
                                     self.remove_order(&order_id).await;
                                 }
                                 MonitorRequest::CheckSwapFeasibility {
-                                    order_id,
-                                    src_chain,
-                                    dst_chain,
-                                    token_in,
-                                    token_out,
-                                    amount_in,
-                                    amount_out,
-                                    deadline,
-                                    order_type_fulfillment_data,
+                                    pending_swap,
                                     solver_last_bid,
-                                    extra_expenses,
                                 } => {
-                                    if let Err(error) = self.check_swap_feasibility(order_id, src_chain, dst_chain, token_in, token_out, amount_in, amount_out, deadline, order_type_fulfillment_data, solver_last_bid, extra_expenses).await {
+                                    if let Err(error) = self.check_swap_feasibility(pending_swap, solver_last_bid).await {
                                         tracing::error!("Error processing CheckSwapFeasibility request: {:?}", error);
                                     }
                                 }
@@ -316,45 +308,23 @@ impl MonitorManager {
 
     async fn check_swap_feasibility(
         &mut self,
-        order_id: String,
-        src_chain: ChainId,
-        dst_chain: ChainId,
-        token_in: String,
-        token_out: String,
-        amount_in: u128,
-        amount_out: u128,
-        deadline: u64,
-        order_type_fulfillment_data: OrderTypeFulfillmentData,
+        pending_swap: PendingSwap,
         solver_last_bid: Option<u128>,
-        extra_expenses: HashMap<TokenId, u128>,
     ) -> EstimatorResult<()> {
         tracing::debug!(
             "Checking swap feasibility for order_id: {}, token_in: {}, token_out: {}, amount_in: {}, amount_out: {}",
-            order_id,
-            token_in,
-            token_out,
-            amount_in,
-            amount_out
+            pending_swap.order_id,
+            pending_swap.token_in,
+            pending_swap.token_out,
+            pending_swap.amount_in,
+            pending_swap.amount_out
         );
 
-        let order_already_present = self.pending_swaps.contains_key(&order_id);
+        let order_already_present = self.pending_swaps.contains_key(&pending_swap.order_id);
 
-        let token_in_id = TokenId::new_for_codex(src_chain, &token_in);
+        let token_in_id = TokenId::new_for_codex(pending_swap.src_chain, &pending_swap.token_in);
 
-        let token_out_id = TokenId::new_for_codex(dst_chain, &token_out);
-
-        let pending_swap = PendingSwap {
-            order_id: order_id.clone(),
-            src_chain,
-            dst_chain,
-            token_in: token_in.clone(),
-            token_out: token_out.clone(),
-            amount_in,
-            amount_out,
-            deadline,
-            order_type_fulfillment_data,
-            extra_expenses,
-        };
+        let token_out_id = TokenId::new_for_codex(pending_swap.dst_chain, &pending_swap.token_out);
 
         // Subscribe to price updates for both tokens
         let tokens_data = self.get_all_coins_data_from_swap(&pending_swap).await?;
@@ -365,7 +335,7 @@ impl MonitorManager {
             Ok((estimated_amount_out, fulfillment_expenses_in_tokens_out)) => {
                 if let Some(solver_last_bid) = solver_last_bid {
                     // In this case calculate estimated amount out with margin
-                    if solver_last_bid >= amount_out {
+                    if solver_last_bid >= pending_swap.amount_out {
                         return Err(report!(Error::ParseError)
                             .attach_printable("Solver last bid should be less than amount_out"));
                     }
@@ -374,7 +344,7 @@ impl MonitorManager {
                         required_monitor_estimation_for_solver_fulfillment(
                             solver_last_bid,
                             estimated_amount_out,
-                            amount_out,
+                            pending_swap.amount_out,
                             fulfillment_expenses_in_tokens_out,
                         )?;
                     // dbg!(
@@ -385,14 +355,14 @@ impl MonitorManager {
                     // );
                     tracing::debug!(
                         "Required monitor estimation for order_id {}: {}",
-                        order_id,
+                        pending_swap.order_id,
                         req_monitor_estimation
                     );
                     if estimated_amount_out >= req_monitor_estimation {
                         // Send alert immediately
                         tracing::debug!(
                             "Swap is immediately feasible for order_id: {}, sending alert",
-                            order_id
+                            pending_swap.order_id
                         );
                         if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
                             order_id: pending_swap.order_id.clone(),
@@ -411,11 +381,11 @@ impl MonitorManager {
                     Some(req_monitor_estimation)
                 } else {
                     // In this case we just check against amount_out
-                    if estimated_amount_out >= amount_out {
+                    if estimated_amount_out >= pending_swap.amount_out {
                         // Send alert immediately
                         tracing::debug!(
                             "Swap is immediately feasible for order_id: {}, sending alert",
-                            order_id
+                            pending_swap.order_id
                         );
                         if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
                             order_id: pending_swap.order_id.clone(),
@@ -457,13 +427,13 @@ impl MonitorManager {
         // Add the swap to pending swaps
         tracing::debug!(
             "Adding pending swap for order_id: {}, src_chain: {}, dst_chain: {}, token_in: {}, token_out: {}, amount_in: {}, amount_out: {}",
-            order_id,
-            src_chain,
-            dst_chain,
-            token_in,
-            token_out,
-            amount_in,
-            amount_out
+            pending_swap.order_id,
+            pending_swap.src_chain,
+            pending_swap.dst_chain,
+            pending_swap.token_in,
+            pending_swap.token_out,
+            pending_swap.amount_in,
+            pending_swap.amount_out
         );
 
         // Only add to swaps_by_token if not already present
@@ -471,22 +441,23 @@ impl MonitorManager {
             self.swaps_by_token
                 .entry(token_in_id)
                 .or_insert_with(Vec::new)
-                .push(order_id.clone());
+                .push(pending_swap.order_id.clone());
 
             self.swaps_by_token
                 .entry(token_out_id)
                 .or_insert_with(Vec::new)
-                .push(order_id.clone());
+                .push(pending_swap.order_id.clone());
         }
 
+        self.orders_by_deadline
+            .entry(pending_swap.deadline)
+            .or_insert_with(HashSet::new)
+            .insert(pending_swap.order_id.clone());
+
         self.pending_swaps.insert(
-            order_id.clone(),
+            pending_swap.order_id.clone(),
             (pending_swap, estimate_amount_out_calculated),
         );
-        self.orders_by_deadline
-            .entry(deadline)
-            .or_insert_with(HashSet::new)
-            .insert(order_id);
         Ok(())
     }
 
@@ -1199,6 +1170,7 @@ mod tests {
         deadline: u64,
         order_type_fulfillment_data: OrderTypeFulfillmentData,
         extra_expenses: HashMap<TokenId, u128>,
+        min_stablecoins_amount: Option<u128>,
     ) -> PendingSwap {
         PendingSwap {
             order_id,
@@ -1211,6 +1183,7 @@ mod tests {
             deadline,
             order_type_fulfillment_data,
             extra_expenses,
+            min_stablecoins_amount,
         }
     }
 
@@ -1246,6 +1219,7 @@ mod tests {
             get_timestamp() + 300,
             OrderTypeFulfillmentData::Limit,
             HashMap::new(),
+            None,
         );
 
         let result = estimate_amount_out(&pending_swap, &coin_cache);
@@ -1286,6 +1260,7 @@ mod tests {
             get_timestamp() + 300,
             OrderTypeFulfillmentData::Limit,
             HashMap::new(),
+            None,
         );
 
         let result = estimate_amount_out(&pending_swap, &coin_cache);
@@ -1341,6 +1316,7 @@ mod tests {
             get_timestamp() + 300,
             OrderTypeFulfillmentData::Limit,
             extra_expenses,
+            None,
         );
 
         let result = estimate_amount_out(&pending_swap, &coin_cache);
@@ -1372,6 +1348,7 @@ mod tests {
             get_timestamp() + 300,
             OrderTypeFulfillmentData::Limit,
             HashMap::new(),
+            None,
         );
 
         let result = estimate_amount_out(&pending_swap, &coin_cache);

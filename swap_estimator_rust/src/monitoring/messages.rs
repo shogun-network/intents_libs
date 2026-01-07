@@ -1,10 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
-use intents_models::{constants::chains::ChainId, models::types::order::OrderTypeFulfillmentData};
+use intents_models::models::types::order::OrderTypeFulfillmentData;
 use tokio::sync::oneshot;
 
 use crate::{
     error::Error,
+    monitoring::manager::PendingSwap,
     prices::{TokenId, TokenPrice, estimating::OrderEstimationData},
 };
 
@@ -17,17 +18,8 @@ pub enum MonitorRequest {
         resp: Responder<HashMap<TokenId, TokenPrice>>,
     },
     CheckSwapFeasibility {
-        order_id: String,
-        src_chain: ChainId,
-        dst_chain: ChainId,
-        token_in: String,
-        token_out: String,
-        amount_in: u128,
-        amount_out: u128,
-        deadline: u64,
-        order_type_fulfillment_data: OrderTypeFulfillmentData,
+        pending_swap: PendingSwap,
         solver_last_bid: Option<u128>,
-        extra_expenses: HashMap<TokenId, u128>,
     },
     RemoveCheckSwapFeasibility {
         order_id: String,
