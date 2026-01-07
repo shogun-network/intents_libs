@@ -42,6 +42,9 @@ pub enum Error {
     #[error("Logic Error: {0}")]
     LogicError(String),
 
+    #[error("Stablecoin requirement not met")]
+    StablecoinRequirementNotMet,
+
     #[error("Unknown error")]
     Unknown,
 }

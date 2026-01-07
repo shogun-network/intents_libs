@@ -417,11 +417,18 @@ impl MonitorManager {
                 }
             }
             Err(error) => {
-                tracing::error!(
-                    "Error checking swap feasibility for order_id {}: {:?}",
-                    pending_swap.order_id,
-                    error
-                );
+                match error.current_context() {
+                    Error::StablecoinRequirementNotMet => {
+                        // Stablecoin requirement not met, keep monitoring
+                    }
+                    _ => {
+                        tracing::error!(
+                            "Error checking swap feasibility for order_id {}: {:?}",
+                            pending_swap.order_id,
+                            error
+                        );
+                    }
+                }
                 None
             }
         };
@@ -758,11 +765,19 @@ impl MonitorManager {
                     }
                 }
                 Err(error) => {
-                    tracing::error!(
-                        "Error checking swap feasibility for order_id {}: {:?}",
-                        pending_swap.order_id,
-                        error
-                    );
+                    match error.current_context() {
+                        Error::StablecoinRequirementNotMet => {
+                            // Stablecoin requirement not met, keep monitoring
+                        }
+                        _ => {
+                            tracing::error!(
+                                "Error checking swap feasibility for order_id {}: {:?}",
+                                pending_swap.order_id,
+                                error
+                            );
+                        }
+                    }
+                    remaining_orders.push(pending_swap.order_id.clone());
                 }
             }
         }
@@ -975,6 +990,13 @@ impl MonitorManager {
         let mut token_ids = HashSet::new();
         token_ids.insert(TokenId::new_for_codex(swap.src_chain, &swap.token_in));
         token_ids.insert(TokenId::new_for_codex(swap.dst_chain, &swap.token_out));
+        // Get stablecoin data if needed
+        if let Some(stablecoin_swap_info) = &swap.stablecoin_swap_info {
+            token_ids.insert(TokenId::new_for_codex(
+                swap.src_chain,
+                &stablecoin_swap_info.stablecoin_address,
+            ));
+        }
         for expense in swap.extra_expenses.iter() {
             token_ids.insert(TokenId::new_for_codex(
                 expense.0.chain.clone(),
@@ -1037,6 +1059,41 @@ fn estimate_amount_out(
         // Value of input in dollars
         let src_amount_dec = amount_to_decimal(pending_swap.amount_in, src_data.decimals)?;
         let in_usd_value = src_amount_dec * src_price;
+
+        // Check if we can reach min stablecoins that user wants in exchange for token_in
+        if let Some(stablecoin_swap_info) = &pending_swap.stablecoin_swap_info {
+            let Some(stablecoin_data) = coin_cache.get(&TokenId::new_for_codex(
+                pending_swap.src_chain,
+                &stablecoin_swap_info.stablecoin_address,
+            )) else {
+                return Err(report!(Error::TokenNotFound(format!(
+                    "Missing token data on monitor for stablecoin in swap: {:?}",
+                    pending_swap
+                ))));
+            };
+
+            validate_decimals(stablecoin_data.decimals)?;
+
+            // token_in_usd_value * 0.99 < min_stablecoins
+            // Could just ignore this as we are going to always use USD stablecoins, but just in case
+            let stablecoin_price =
+                Decimal::from_f64(stablecoin_data.price).ok_or(Error::ParseError)?;
+            let stablecoin_amount_dec = amount_to_decimal(
+                stablecoin_swap_info.min_stablecoins_amount,
+                stablecoin_data.decimals,
+            )?;
+            let stablecoin_usd_value = stablecoin_amount_dec * stablecoin_price;
+
+            if in_usd_value * Decimal::new(99, 2) < stablecoin_usd_value {
+                tracing::debug!(
+                    "Stablecoin requirement not met for pending swap {:?}: in_usd_value * 0.99 = {}, stablecoin_usd_value = {}",
+                    pending_swap,
+                    in_usd_value * Decimal::new(99, 2),
+                    stablecoin_usd_value
+                );
+                return Err(report!(Error::StablecoinRequirementNotMet));
+            }
+        }
 
         // Value of expenses in dollars
         let mut expenses_usd_value = Decimal::ZERO;
