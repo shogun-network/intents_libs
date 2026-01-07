@@ -1,6 +1,8 @@
 use error_stack::report;
 use futures_util::future;
 use intents_models::{constants::chains::ChainId, models::types::order::OrderTypeFulfillmentData};
+use serde::{Deserialize, Serialize};
+use serde_with::{DisplayFromStr, serde_as};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
@@ -37,7 +39,15 @@ pub struct PendingSwap {
     pub deadline: u64,
     pub order_type_fulfillment_data: OrderTypeFulfillmentData,
     pub extra_expenses: HashMap<TokenId, u128>, // TokenId to amount
-    pub min_stablecoins_amount: Option<u128>,
+    pub stablecoin_swap_info: Option<StablecoinsSwapInfo>,
+}
+
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StablecoinsSwapInfo {
+    #[serde_as(as = "DisplayFromStr")]
+    pub min_stablecoins_amount: u128,
+    pub stablecoin_address: String,
 }
 
 #[derive(Debug)]
@@ -1170,7 +1180,7 @@ mod tests {
         deadline: u64,
         order_type_fulfillment_data: OrderTypeFulfillmentData,
         extra_expenses: HashMap<TokenId, u128>,
-        min_stablecoins_amount: Option<u128>,
+        min_stablecoins_amount: Option<StablecoinsSwapInfo>,
     ) -> PendingSwap {
         PendingSwap {
             order_id,
@@ -1183,7 +1193,7 @@ mod tests {
             deadline,
             order_type_fulfillment_data,
             extra_expenses,
-            min_stablecoins_amount,
+            stablecoin_swap_info: min_stablecoins_amount,
         }
     }
 

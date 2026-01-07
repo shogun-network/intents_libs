@@ -168,7 +168,7 @@ async fn run() -> Result<(), String> {
                             deadline: get_timestamp() + 300,
                             order_type_fulfillment_data: OrderTypeFulfillmentData::Limit,
                             extra_expenses: HashMap::new(),
-                            min_stablecoins_amount: None,
+                            stablecoin_swap_info: None,
                         },
                         solver_last_bid,
                     })
