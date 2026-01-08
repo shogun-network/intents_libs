@@ -604,6 +604,7 @@ impl MonitorManager {
         Ok(())
     }
 
+    #[allow(dead_code)]
     // Handle a PriceEvent: update cache, re-evaluate affected orders, clean up and unsubscribe tokens if there are no trades depending on them anymore.
     async fn on_price_event(&mut self, mut event: PriceEvent) {
         // Sanitizing token id:
@@ -668,18 +669,18 @@ impl MonitorManager {
         let mut subset: Vec<(PendingTrade, Option<u128>)> = Vec::new();
         let mut remaining_orders: Vec<String> = Vec::new();
         for order_id in impacted_orders.iter() {
-            if let Some(ps) = self.pending_trades.get(order_id).cloned() {
+            if let Some(pending_trade) = self.pending_trades.get(order_id).cloned() {
                 // Skip expired orders
-                if ps.0.deadline < current_timestamp {
+                if pending_trade.0.deadline < current_timestamp {
                     tracing::debug!(
                         "Skipping expired pending swap for order_id: {}, deadline: {}",
                         order_id,
-                        ps.0.deadline
+                        pending_trade.0.deadline
                     );
                     // Remove from pending trades
-                    self.remove_order(&ps.0.order_id).await;
+                    self.remove_order(&pending_trade.0.order_id).await;
                 } else {
-                    subset.push(ps);
+                    subset.push(pending_trade);
                 }
             }
         }

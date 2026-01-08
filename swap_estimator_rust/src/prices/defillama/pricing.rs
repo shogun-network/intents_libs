@@ -13,13 +13,13 @@ const TOKEN_PRICE_URI: &str = "/prices/current/";
 
 #[derive(Debug, Clone)]
 pub struct DefiLlamaProvider {
-    client: Client,
+    _client: Client,
 }
 
 impl DefiLlamaProvider {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            _client: Client::new(),
         }
     }
 }
