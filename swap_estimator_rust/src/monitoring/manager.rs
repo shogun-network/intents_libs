@@ -1194,12 +1194,21 @@ fn required_monitor_estimation_for_solver_fulfillment(
         return Err(report!(Error::ParseError).attach_printable("Estimated monitor amount is zero"));
     }
 
-    let required_monitor_est = mul_div(
+    let required_monitor_est_with_expenses = mul_div(
         min_user + fulfillment_expenses_in_tokens_out,
         est_monitor + fulfillment_expenses_in_tokens_out,
         bid_solver + fulfillment_expenses_in_tokens_out,
         false, // being optimistic
-    )? - fulfillment_expenses_in_tokens_out;
+    )?;
+
+    if required_monitor_est_with_expenses <= fulfillment_expenses_in_tokens_out {
+        return Err(report!(Error::ParseError).attach_printable(
+            "Calculated required monitor estimation is less than fulfillment expenses",
+        ));
+    }
+
+    let required_monitor_est =
+        required_monitor_est_with_expenses - fulfillment_expenses_in_tokens_out;
 
     Ok(required_monitor_est)
 }
