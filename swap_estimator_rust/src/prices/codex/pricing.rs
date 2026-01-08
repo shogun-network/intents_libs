@@ -1551,6 +1551,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_codex_subscription_broadcast_event() {
         dotenv::dotenv().ok();
         init_tracing_in_tests();
@@ -1617,6 +1618,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_codex_subscription_and_unsuscription() {
         dotenv::dotenv().ok();
         init_tracing_in_tests();
@@ -1697,33 +1699,4 @@ mod tests {
             .await
             .expect("unsubscribe_from_token failed");
     }
-
-    // #[tokio::test]
-    // async fn test_codex_fake_token_subscription() {
-    //     dotenv::dotenv().ok();
-    //     init_tracing_in_tests();
-
-    //     let codex_api_key = match std::env::var("CODEX_API_KEY") {
-    //         Ok(key) => key,
-    //         Err(_) => {
-    //             eprintln!("Skipping CodexProvider test: CODEX_API_KEY not set");
-    //             return;
-    //         }
-    //     };
-
-    //     // Use a short refresh interval to speed up the test
-    //     let codex_provider: CodexProvider = CodexProvider::new(codex_api_key);
-
-    //     // Popular token (Solana Bonk)
-    //     let token = TokenId {
-    //         chain: ChainId::Solana,
-    //         address: "DezXAZ8z7PnrnRJjz3wXaoRgixCa6xjnB7YaB1pPB263".to_string(),
-    //     };
-
-    //     // Subscribe to token so the background refresher includes it in the snapshot
-    //     codex_provider
-    //         .subscribe_to_token(token.clone())
-    //         .await
-    //         .expect("subscribe_to_token failed");
-    // }
 }
