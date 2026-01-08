@@ -4,7 +4,7 @@ use std::process;
 use intents_models::constants::chains::ChainId;
 use intents_models::log::init_tracing;
 use intents_models::models::types::order::OrderTypeFulfillmentData;
-use swap_estimator_rust::monitoring::manager::{MonitorManager, PendingSwap};
+use swap_estimator_rust::monitoring::manager::{MonitorManager, PendingTrade};
 use swap_estimator_rust::monitoring::messages::{MonitorAlert, MonitorRequest};
 use swap_estimator_rust::prices::TokenId;
 use swap_estimator_rust::utils::get_timestamp;
@@ -157,7 +157,7 @@ async fn run() -> Result<(), String> {
 
                 if let Err(e) = monitor_tx
                     .send(MonitorRequest::CheckSwapFeasibility {
-                        pending_swap: PendingSwap {
+                        pending_swap: PendingTrade {
                             order_id,
                             src_chain,
                             dst_chain,

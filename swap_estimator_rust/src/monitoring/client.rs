@@ -5,7 +5,7 @@ use tokio::sync::{mpsc::Sender, oneshot};
 
 use crate::{
     error::{Error, EstimatorResult},
-    monitoring::{manager::PendingSwap, messages::MonitorRequest},
+    monitoring::{manager::PendingTrade, messages::MonitorRequest},
     prices::{TokenId, TokenPrice, estimating::OrderEstimationData},
 };
 
@@ -79,7 +79,7 @@ impl MonitorClient {
 
     pub async fn check_swap_feasibility(
         &self,
-        pending_swap: PendingSwap,
+        pending_swap: PendingTrade,
         solver_last_bid: Option<u128>,
     ) -> EstimatorResult<()> {
         self.client

@@ -5,7 +5,7 @@ use tokio::sync::oneshot;
 
 use crate::{
     error::Error,
-    monitoring::manager::PendingSwap,
+    monitoring::manager::PendingTrade,
     prices::{TokenId, TokenPrice, estimating::OrderEstimationData},
 };
 
@@ -18,7 +18,7 @@ pub enum MonitorRequest {
         resp: Responder<HashMap<TokenId, TokenPrice>>,
     },
     CheckSwapFeasibility {
-        pending_swap: PendingSwap,
+        pending_swap: PendingTrade,
         solver_last_bid: Option<u128>,
     },
     RemoveCheckSwapFeasibility {
