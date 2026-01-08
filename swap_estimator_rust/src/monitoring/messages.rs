@@ -18,7 +18,7 @@ pub enum MonitorRequest {
         resp: Responder<HashMap<TokenId, TokenPrice>>,
     },
     CheckSwapFeasibility {
-        pending_swap: PendingTrade,
+        pending_trade: PendingTrade,
         solver_last_bid: Option<u128>,
     },
     RemoveCheckSwapFeasibility {

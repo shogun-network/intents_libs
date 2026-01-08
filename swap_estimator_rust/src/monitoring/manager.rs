@@ -236,10 +236,10 @@ impl MonitorManager {
                                     self.remove_order(&order_id).await;
                                 }
                                 MonitorRequest::CheckSwapFeasibility {
-                                    pending_swap,
+                                    pending_trade,
                                     solver_last_bid,
                                 } => {
-                                    if let Err(error) = self.check_swap_feasibility(pending_swap, solver_last_bid).await {
+                                    if let Err(error) = self.check_swap_feasibility(pending_trade, solver_last_bid).await {
                                         tracing::error!("Error processing CheckSwapFeasibility request: {:?}", error);
                                     }
                                 }
@@ -320,29 +320,30 @@ impl MonitorManager {
 
     async fn check_swap_feasibility(
         &mut self,
-        pending_swap: PendingTrade,
+        pending_trade: PendingTrade,
         solver_last_bid: Option<u128>,
     ) -> EstimatorResult<()> {
         tracing::debug!(
             "Checking swap feasibility for order_id: {}, token_in: {}, token_out: {}, amount_in: {}, amount_out: {}",
-            pending_swap.order_id,
-            pending_swap.token_in,
-            pending_swap.token_out,
-            pending_swap.amount_in,
-            pending_swap.amount_out
+            pending_trade.order_id,
+            pending_trade.token_in,
+            pending_trade.token_out,
+            pending_trade.amount_in,
+            pending_trade.amount_out
         );
 
-        let order_already_present = self.pending_trades.contains_key(&pending_swap.order_id);
+        let order_already_present = self.pending_trades.contains_key(&pending_trade.order_id);
 
-        let token_in_id = TokenId::new_for_codex(pending_swap.src_chain, &pending_swap.token_in);
+        let token_in_id = TokenId::new_for_codex(pending_trade.src_chain, &pending_trade.token_in);
 
-        let token_out_id = TokenId::new_for_codex(pending_swap.dst_chain, &pending_swap.token_out);
+        let token_out_id =
+            TokenId::new_for_codex(pending_trade.dst_chain, &pending_trade.token_out);
 
         // Subscribe to price updates for both tokens
-        let tokens_data = self.get_all_coins_data_from_swap(&pending_swap).await?;
+        let tokens_data = self.get_all_coins_data_from_swap(&pending_trade).await?;
 
         // Check immediate feasibility
-        let estimate_amount_out_calculated = match estimate_amount_out(&pending_swap, &tokens_data)
+        let estimate_amount_out_calculated = match estimate_amount_out(&pending_trade, &tokens_data)
         {
             Ok((
                 estimated_amount_out,
@@ -355,18 +356,12 @@ impl MonitorManager {
                         required_monitor_estimation_for_solver_fulfillment(
                             solver_last_bid,
                             estimated_amount_out,
-                            pending_swap.amount_out,
+                            pending_trade.amount_out,
                             fulfillment_expenses_in_tokens_out,
                         )?;
-                    // dbg!(
-                    //     &pending_swap.order_id,
-                    //     estimated_amount_out,
-                    //     solver_last_bid,
-                    //     req_monitor_estimation
-                    // );
                     tracing::debug!(
                         "Required monitor estimation for order_id {}: {}",
-                        pending_swap.order_id,
+                        pending_trade.order_id,
                         req_monitor_estimation
                     );
                     if estimated_amount_out >= req_monitor_estimation && stablecoin_swap_is_feasible
@@ -374,15 +369,15 @@ impl MonitorManager {
                         // Send alert immediately
                         tracing::debug!(
                             "Swap is immediately feasible for order_id: {}, sending alert",
-                            pending_swap.order_id
+                            pending_trade.order_id
                         );
                         if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
-                            order_id: pending_swap.order_id.clone(),
-                            order_type_fulfillment_data: pending_swap.order_type_fulfillment_data,
+                            order_id: pending_trade.order_id.clone(),
+                            order_type_fulfillment_data: pending_trade.order_type_fulfillment_data,
                         }) {
                             tracing::error!(
                                 "Failed to send alert for order_id {}: {:?}",
-                                pending_swap.order_id,
+                                pending_trade.order_id,
                                 e
                             );
                         } else {
@@ -393,21 +388,21 @@ impl MonitorManager {
                     Some(req_monitor_estimation)
                 } else {
                     // In this case we just check against amount_out
-                    if estimated_amount_out >= pending_swap.amount_out
+                    if estimated_amount_out >= pending_trade.amount_out
                         && stablecoin_swap_is_feasible
                     {
                         // Send alert immediately
                         tracing::debug!(
                             "Swap is immediately feasible for order_id: {}, sending alert",
-                            pending_swap.order_id
+                            pending_trade.order_id
                         );
                         if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
-                            order_id: pending_swap.order_id.clone(),
-                            order_type_fulfillment_data: pending_swap.order_type_fulfillment_data,
+                            order_id: pending_trade.order_id.clone(),
+                            order_type_fulfillment_data: pending_trade.order_type_fulfillment_data,
                         }) {
                             tracing::error!(
                                 "Failed to send alert for order_id {}: {:?}",
-                                pending_swap.order_id,
+                                pending_trade.order_id,
                                 e
                             );
                             None
@@ -423,7 +418,7 @@ impl MonitorManager {
             Err(error) => {
                 tracing::error!(
                     "Error checking swap feasibility for order_id {}: {:?}",
-                    pending_swap.order_id,
+                    pending_trade.order_id,
                     error
                 );
                 None
@@ -441,13 +436,13 @@ impl MonitorManager {
         // Add the swap to pending trades
         tracing::debug!(
             "Adding pending swap for order_id: {}, src_chain: {}, dst_chain: {}, token_in: {}, token_out: {}, amount_in: {}, amount_out: {}",
-            pending_swap.order_id,
-            pending_swap.src_chain,
-            pending_swap.dst_chain,
-            pending_swap.token_in,
-            pending_swap.token_out,
-            pending_swap.amount_in,
-            pending_swap.amount_out
+            pending_trade.order_id,
+            pending_trade.src_chain,
+            pending_trade.dst_chain,
+            pending_trade.token_in,
+            pending_trade.token_out,
+            pending_trade.amount_in,
+            pending_trade.amount_out
         );
 
         // Only add to trades_by_token if not already present
@@ -455,22 +450,22 @@ impl MonitorManager {
             self.trades_by_token
                 .entry(token_in_id)
                 .or_insert_with(Vec::new)
-                .push(pending_swap.order_id.clone());
+                .push(pending_trade.order_id.clone());
 
             self.trades_by_token
                 .entry(token_out_id)
                 .or_insert_with(Vec::new)
-                .push(pending_swap.order_id.clone());
+                .push(pending_trade.order_id.clone());
         }
 
         self.orders_by_deadline
-            .entry(pending_swap.deadline)
+            .entry(pending_trade.deadline)
             .or_insert_with(HashSet::new)
-            .insert(pending_swap.order_id.clone());
+            .insert(pending_trade.order_id.clone());
 
         self.pending_trades.insert(
-            pending_swap.order_id.clone(),
-            (pending_swap, estimate_amount_out_calculated),
+            pending_trade.order_id.clone(),
+            (pending_trade, estimate_amount_out_calculated),
         );
         Ok(())
     }
@@ -693,30 +688,30 @@ impl MonitorManager {
         }
 
         // Re-evaluate these trades
-        for (pending_swap, estimated_minimum_monitor_amount) in subset.into_iter() {
+        for (pending_trade, estimated_minimum_monitor_amount) in subset.into_iter() {
             tracing::debug!(
                 "Re-evaluating swap feasibility for order_id: {}, token_in: {}, token_out: {}",
-                pending_swap.order_id,
-                pending_swap.token_in,
-                pending_swap.token_out
+                pending_trade.order_id,
+                pending_trade.token_in,
+                pending_trade.token_out
             );
-            let tokens_data = match self.get_all_coins_data_from_swap(&pending_swap).await {
+            let tokens_data = match self.get_all_coins_data_from_swap(&pending_trade).await {
                 Ok(data) => data,
                 Err(error) => {
                     tracing::error!(
                         "Error fetching tokens data for order_id {}: {:?}",
-                        pending_swap.order_id,
+                        pending_trade.order_id,
                         error
                     );
-                    remaining_orders.push(pending_swap.order_id.clone());
+                    remaining_orders.push(pending_trade.order_id.clone());
                     continue;
                 }
             };
-            match estimate_amount_out(&pending_swap, &tokens_data) {
+            match estimate_amount_out(&pending_trade, &tokens_data) {
                 Ok((estimated_amount_out, _, stablecoin_swap_is_feasible)) => {
                     tracing::debug!(
                         "Estimated amount out for order_id {}: {}",
-                        pending_swap.order_id,
+                        pending_trade.order_id,
                         estimated_amount_out
                     );
                     let needed_amount_out = if let Some(estimated_minimum_monitor_amount) =
@@ -724,59 +719,54 @@ impl MonitorManager {
                     {
                         estimated_minimum_monitor_amount
                     } else {
-                        pending_swap.amount_out
+                        pending_trade.amount_out
                     };
-                    // dbg!(
-                    //     &pending_swap.order_id,
-                    //     estimated_amount_out,
-                    //     needed_amount_out
-                    // );
                     tracing::debug!(
                         "Needed amount out for order_id {}: {}",
-                        pending_swap.order_id,
+                        pending_trade.order_id,
                         needed_amount_out
                     );
                     if !stablecoin_swap_is_feasible {
                         tracing::debug!(
                             "Stablecoin swap requirement not met for order_id: {}, keeping monitoring",
-                            pending_swap.order_id
+                            pending_trade.order_id
                         );
                         // Still not feasible, keep monitoring
-                        remaining_orders.push(pending_swap.order_id.clone());
+                        remaining_orders.push(pending_trade.order_id.clone());
                         continue;
                     }
                     if estimated_amount_out >= needed_amount_out {
                         tracing::debug!(
                             "Swap is feasible for order_id: {}, sending alert",
-                            pending_swap.order_id
+                            pending_trade.order_id
                         );
                         if let Err(e) = self.alert_sender.send(MonitorAlert::SwapIsFeasible {
-                            order_id: pending_swap.order_id.clone(),
-                            order_type_fulfillment_data: pending_swap.order_type_fulfillment_data,
+                            order_id: pending_trade.order_id.clone(),
+                            order_type_fulfillment_data: pending_trade.order_type_fulfillment_data,
                         }) {
                             tracing::error!(
                                 "Failed to send alert for order_id {}: {:?}",
-                                pending_swap.order_id,
+                                pending_trade.order_id,
                                 e
                             );
                             // Do not remove the swap if we failed to send alert
-                            remaining_orders.push(pending_swap.order_id.clone());
+                            remaining_orders.push(pending_trade.order_id.clone());
                             continue;
                         }
                         // Remove from pending trades and every other data structure
-                        self.remove_order(&pending_swap.order_id).await;
+                        self.remove_order(&pending_trade.order_id).await;
                     } else {
                         // Still not feasible, keep monitoring
-                        remaining_orders.push(pending_swap.order_id.clone());
+                        remaining_orders.push(pending_trade.order_id.clone());
                     }
                 }
                 Err(error) => {
                     tracing::error!(
                         "Error checking swap feasibility for order_id {}: {:?}",
-                        pending_swap.order_id,
+                        pending_trade.order_id,
                         error
                     );
-                    remaining_orders.push(pending_swap.order_id.clone());
+                    remaining_orders.push(pending_trade.order_id.clone());
                 }
             }
         }
@@ -812,12 +802,12 @@ impl MonitorManager {
     async fn remove_order(&mut self, order_id: &str) {
         // dbg!("Removing order_id: {} from monitoring", order_id);
         // Remove from pending trades
-        if let Some((pending_swap, _)) = self.pending_trades.remove(order_id) {
+        if let Some((pending_trade, _)) = self.pending_trades.remove(order_id) {
             // Remove from orders by deadline
-            if let Some(set) = self.orders_by_deadline.get_mut(&pending_swap.deadline) {
+            if let Some(set) = self.orders_by_deadline.get_mut(&pending_trade.deadline) {
                 set.remove(order_id);
                 if set.is_empty() {
-                    self.orders_by_deadline.remove(&pending_swap.deadline);
+                    self.orders_by_deadline.remove(&pending_trade.deadline);
                 }
             }
         }
@@ -991,16 +981,16 @@ impl MonitorManager {
 }
 
 fn estimate_amount_out(
-    pending_swap: &PendingTrade,
+    pending_trade: &PendingTrade,
     coin_cache: &HashMap<TokenId, TokenPrice>,
 ) -> EstimatorResult<(u128, u128, bool)> {
     let src_chain_data = coin_cache.get(&TokenId::new_for_codex(
-        pending_swap.src_chain,
-        &pending_swap.token_in,
+        pending_trade.src_chain,
+        &pending_trade.token_in,
     ));
     let dst_chain_data = coin_cache.get(&TokenId::new_for_codex(
-        pending_swap.dst_chain,
-        &pending_swap.token_out,
+        pending_trade.dst_chain,
+        &pending_trade.token_out,
     ));
 
     if let (Some(src_data), Some(dst_data)) = (src_chain_data, dst_chain_data) {
@@ -1039,20 +1029,20 @@ fn estimate_amount_out(
         }
 
         // Value of input in dollars
-        let src_amount_dec = amount_to_decimal(pending_swap.amount_in, src_data.decimals)?;
+        let src_amount_dec = amount_to_decimal(pending_trade.amount_in, src_data.decimals)?;
         let in_usd_value = src_amount_dec * src_price;
 
         // Check if we can reach min stablecoins that user wants in exchange for token_in
         let stablecoin_swap_is_feasible = if let Some(stablecoin_swap_info) =
-            &pending_swap.stablecoin_swap_info
+            &pending_trade.stablecoin_swap_info
         {
             let Some(stablecoin_data) = coin_cache.get(&TokenId::new_for_codex(
-                pending_swap.src_chain,
+                pending_trade.src_chain,
                 &stablecoin_swap_info.stablecoin_address,
             )) else {
                 return Err(report!(Error::TokenNotFound(format!(
                     "Missing token data on monitor for stablecoin in swap: {:?}",
-                    pending_swap
+                    pending_trade
                 ))));
             };
 
@@ -1071,7 +1061,7 @@ fn estimate_amount_out(
             if in_usd_value * stablecoin_safety_margin < stablecoin_usd_value {
                 tracing::debug!(
                     "Stablecoin requirement not met for pending swap {:?}: in_usd_value * 0.99 = {}, stablecoin_usd_value = {}",
-                    pending_swap,
+                    pending_trade,
                     in_usd_value * stablecoin_safety_margin,
                     stablecoin_usd_value
                 );
@@ -1085,7 +1075,7 @@ fn estimate_amount_out(
 
         // Value of expenses in dollars
         let mut expenses_usd_value = Decimal::ZERO;
-        for expense in pending_swap.extra_expenses.iter() {
+        for expense in pending_trade.extra_expenses.iter() {
             // sanitize expense token id
             let token_id = TokenId::new_for_codex(expense.0.chain.clone(), &expense.0.address);
             let Some(expense_data) = coin_cache.get(&token_id) else {
@@ -1118,11 +1108,9 @@ fn estimate_amount_out(
 
         tracing::debug!(
             "Estimated amount out for pending swap {:?}: {}",
-            pending_swap,
+            pending_trade,
             estimated_amount_out
         );
-
-        // dbg!(&pending_swap.order_id, estimated_amount_out);
 
         Ok((
             estimated_amount_out,
@@ -1132,7 +1120,7 @@ fn estimate_amount_out(
     } else {
         Err(report!(Error::TokenNotFound(format!(
             "Missing token data on monitor for swap: {:?}",
-            pending_swap
+            pending_trade
         ))))
     }
 }
@@ -1227,7 +1215,7 @@ mod tests {
         }
     }
 
-    fn create_pending_swap(
+    fn create_pending_trade(
         order_id: String,
         src_chain: ChainId,
         dst_chain: ChainId,
@@ -1276,7 +1264,7 @@ mod tests {
             create_coin_data(50.0, 6), // $50 per token
         );
 
-        let pending_swap = create_pending_swap(
+        let pending_trade = create_pending_trade(
             "order_1".to_string(),
             ChainId::Ethereum,
             ChainId::Base,
@@ -1290,7 +1278,7 @@ mod tests {
             None,
         );
 
-        let result = estimate_amount_out(&pending_swap, &coin_cache);
+        let result = estimate_amount_out(&pending_trade, &coin_cache);
 
         // The swap should be feasible: real_price = 100/50 = 2, expected = 1.9/1 = 1.9
         assert!(result.unwrap().0 > 1_900_000);
@@ -1317,7 +1305,7 @@ mod tests {
             create_coin_data(49.9, 18),
         );
 
-        let pending_swap = create_pending_swap(
+        let pending_trade = create_pending_trade(
             "order_1".to_string(),
             ChainId::Ethereum,
             ChainId::Base,
@@ -1331,7 +1319,7 @@ mod tests {
             None,
         );
 
-        let result = estimate_amount_out(&pending_swap, &coin_cache);
+        let result = estimate_amount_out(&pending_trade, &coin_cache);
 
         // real_price_limit = 50/100 = 0.5
         assert!(result.unwrap().0 > 2_000_000_000_000_000_000);
@@ -1373,7 +1361,7 @@ mod tests {
             1_000_000_000_000_000_000u128, // 1 token
         )]);
 
-        let pending_swap = create_pending_swap(
+        let pending_trade = create_pending_trade(
             "order_1".to_string(),
             ChainId::Ethereum,
             ChainId::Base,
@@ -1387,7 +1375,7 @@ mod tests {
             None,
         );
 
-        let result = estimate_amount_out(&pending_swap, &coin_cache);
+        let result = estimate_amount_out(&pending_trade, &coin_cache);
 
         // real_price_limit = 50/100 = 0.5
         assert!(result.unwrap().0 < 2_000_000_000_000_000_000);
@@ -1405,7 +1393,7 @@ mod tests {
             create_coin_data(100.0, 18),
         );
 
-        let pending_swap = create_pending_swap(
+        let pending_trade = create_pending_trade(
             "order_1".to_string(),
             ChainId::Ethereum,
             ChainId::Base,
@@ -1419,201 +1407,11 @@ mod tests {
             None,
         );
 
-        let result = estimate_amount_out(&pending_swap, &coin_cache);
+        let result = estimate_amount_out(&pending_trade, &coin_cache);
 
         // Should not process the swap due to missing data
         assert!(result.is_err());
     }
-
-    // #[tokio::test]
-    // async fn test_check_swaps_feasibility_multiple_swaps_mixed_results() {
-    //     let (alert_sender, mut alert_receiver) = mpsc::channel(10);
-
-    //     let mut coin_cache = HashMap::new();
-    //     coin_cache.insert(
-    //         TokenId {
-    //             chain: ChainId::Ethereum,
-    //             address: "token_a".to_string(),
-    //         },
-    //         create_coin_data(100.0, 18),
-    //     );
-    //     coin_cache.insert(
-    //         TokenId {
-    //             chain: ChainId::Base,
-    //             address: "token_b".to_string(),
-    //         },
-    //         create_coin_data(50.0, 18),
-    //     );
-
-    //     let mut pending_trades = HashMap::new();
-
-    //     // Feasible swap
-    //     pending_trades.insert(
-    //         "feasible_order".to_string(),
-    //         create_pending_swap(
-    //             "order_1".to_string(),
-    //             ChainId::Ethereum,
-    //             ChainId::Base,
-    //             "token_a".to_string(),
-    //             "token_b".to_string(),
-    //             1_000_000_000_000_000_000,
-    //             2_000_000_000_000_000_000,
-    //             0.0,
-    //         ),
-    //     );
-
-    //     // Non-feasible swap
-    //     pending_trades.insert(
-    //         "non_feasible_order".to_string(),
-    //         create_pending_swap(
-    //             "order_1".to_string(),
-    //             ChainId::Ethereum,
-    //             ChainId::Base,
-    //             "token_a".to_string(),
-    //             "token_b".to_string(),
-    //             1_000_000_000_000_000_000,
-    //             2_000_000_000_000_000_000,
-    //             0.0,
-    //         ),
-    //     );
-
-    //     let result = check_swaps_feasibility(0.1, coin_cache, pending_trades, alert_sender).await;
-
-    //     // Only non-feasible swap should remain
-    //     assert_eq!(result.len(), 1);
-    //     assert!(result.contains_key("non_feasible_order"));
-
-    //     // Should receive one alert for feasible swap
-    //     let alert = alert_receiver.try_recv().unwrap();
-    //     assert!(
-    //         matches!(alert, MonitorAlert::SwapIsFeasible { order_id } if order_id == "feasible_order")
-    //     );
-
-    //     // No more alerts
-    //     assert!(alert_receiver.try_recv().is_err());
-    // }
-
-    // #[tokio::test]
-    // async fn test_check_swaps_feasibility_different_decimals() {
-    //     let (alert_sender, mut alert_receiver) = mpsc::channel(10);
-
-    //     let mut coin_cache = HashMap::new();
-    //     coin_cache.insert(
-    //         TokenId {
-    //             chain: ChainId::Ethereum,
-    //             address: "token_a".to_string(),
-    //         },
-    //         create_coin_data(1.0, 6), // 6 decimals
-    //     );
-    //     coin_cache.insert(
-    //         TokenId {
-    //             chain: ChainId::Base,
-    //             address: "token_b".to_string(),
-    //         },
-    //         create_coin_data(2.0, 18), // 18 decimals
-    //     );
-
-    //     let mut pending_trades = HashMap::new();
-    //     pending_trades.insert(
-    //         "order_1".to_string(),
-    //         create_pending_swap(
-    //             "order_1".to_string(),
-    //             ChainId::Ethereum,
-    //             ChainId::Base,
-    //             "token_a".to_string(),
-    //             "token_b".to_string(),
-    //             1_000_000,               // 1 token with 6 decimals
-    //             500_000_000_000_000_000, // 0.5 tokens with 18 decimals
-    //             0.0,
-    //             None,
-    //         ),
-    //     );
-
-    //     let result = check_swaps_feasibility(
-    //         0.0, // No margin for easier calculation
-    //         coin_cache,
-    //         pending_trades,
-    //         alert_sender,
-    //     )
-    //     .await;
-
-    //     // price_limit = 0.5 / 1.0 = 0.5
-    //     // real_price_limit = 2.0 / 1.0 = 2.0
-    //     // 2.0 >= 0.5, so swap should be feasible
-    //     assert_eq!(result.len(), 0);
-
-    //     let alert = alert_receiver.try_recv().unwrap();
-    //     assert!(
-    //         matches!(alert, MonitorAlert::SwapIsFeasible { order_id } if order_id == "order_1")
-    //     );
-    // }
-
-    // #[tokio::test]
-    // async fn test_check_swaps_feasibility_edge_case_zero_amounts() {
-    //     let (alert_sender, _alert_receiver) = mpsc::channel(10);
-
-    //     let mut coin_cache = HashMap::new();
-    //     coin_cache.insert(
-    //         TokenId {
-    //             chain: ChainId::Ethereum,
-    //             address: "token_a".to_string(),
-    //         },
-    //         create_coin_data(100.0, 18),
-    //     );
-    //     coin_cache.insert(
-    //         TokenId {
-    //             chain: ChainId::Base,
-    //             address: "token_b".to_string(),
-    //         },
-    //         create_coin_data(50.0, 18),
-    //     );
-
-    //     let mut pending_trades = HashMap::new();
-    //     pending_trades.insert(
-    //         "zero_amount_order".to_string(),
-    //         create_pending_swap(
-    //             "order_1".to_string(),
-    //             ChainId::Ethereum,
-    //             ChainId::Base,
-    //             "token_a".to_string(),
-    //             "token_b".to_string(),
-    //             0, // Zero amount_in - this would cause division by zero
-    //             1_000_000_000_000_000_000,
-    //             0.0,
-    //             None,
-    //         ),
-    //     );
-
-    //     // This test should either handle zero gracefully or panic
-    //     // Currently the code will panic on division by zero
-    //     // You should fix this in the actual implementation
-    //     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-    //         tokio::runtime::Runtime::new()
-    //             .unwrap()
-    //             .block_on(check_swaps_feasibility(
-    //                 0.05,
-    //                 coin_cache,
-    //                 pending_trades,
-    //                 alert_sender,
-    //             ))
-    //     }));
-
-    //     // Currently this will panic - you should fix the implementation
-    //     assert!(result.is_err());
-    // }
-
-    // #[tokio::test]
-    // async fn test_check_swaps_feasibility_empty_inputs() {
-    //     let (alert_sender, mut alert_receiver) = mpsc::channel(10);
-
-    //     let coin_cache = HashMap::new();
-    //     let pending_trades = HashMap::new();
-
-    //     let result = check_swaps_feasibility(0.05, coin_cache, pending_trades, alert_sender).await;
-
-    //     assert_eq!(result.len(), 0);
-    //     assert!(alert_receiver.try_recv().is_err());
-    // }
 
     #[tokio::test]
     async fn test_get_coins_data_zero_price() {

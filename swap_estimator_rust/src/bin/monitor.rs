@@ -157,7 +157,7 @@ async fn run() -> Result<(), String> {
 
                 if let Err(e) = monitor_tx
                     .send(MonitorRequest::CheckSwapFeasibility {
-                        pending_swap: PendingTrade {
+                        pending_trade: PendingTrade {
                             order_id,
                             src_chain,
                             dst_chain,

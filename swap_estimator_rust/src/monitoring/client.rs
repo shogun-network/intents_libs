@@ -79,12 +79,12 @@ impl MonitorClient {
 
     pub async fn check_swap_feasibility(
         &self,
-        pending_swap: PendingTrade,
+        pending_trade: PendingTrade,
         solver_last_bid: Option<u128>,
     ) -> EstimatorResult<()> {
         self.client
             .send(MonitorRequest::CheckSwapFeasibility {
-                pending_swap,
+                pending_trade,
                 solver_last_bid,
             })
             .await
