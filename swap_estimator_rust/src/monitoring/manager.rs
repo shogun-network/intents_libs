@@ -24,6 +24,8 @@ use crate::{
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
 
+const STABLECOIN_SAFETY_MARGIN: i64 = 99; // 0.99
+
 // For limit order on solver src_token and dst_tokens are same as order,
 // and for stop loss on auctioneer, src_token and dst_token are switched to check when the
 // stop_loss_max_out of dst_token can buy amount_in of src_token
@@ -342,13 +344,12 @@ impl MonitorManager {
         // Check immediate feasibility
         let estimate_amount_out_calculated = match estimate_amount_out(&pending_swap, &tokens_data)
         {
-            Ok((estimated_amount_out, fulfillment_expenses_in_tokens_out)) => {
+            Ok((
+                estimated_amount_out,
+                fulfillment_expenses_in_tokens_out,
+                stablecoin_swap_is_feasible,
+            )) => {
                 if let Some(solver_last_bid) = solver_last_bid {
-                    // In this case calculate estimated amount out with margin
-                    if solver_last_bid >= pending_swap.amount_out {
-                        return Err(report!(Error::ParseError)
-                            .attach_printable("Solver last bid should be less than amount_out"));
-                    }
                     // Calculate required monitor estimation for solver to be able to reach amount_out
                     let req_monitor_estimation =
                         required_monitor_estimation_for_solver_fulfillment(
@@ -368,7 +369,8 @@ impl MonitorManager {
                         pending_swap.order_id,
                         req_monitor_estimation
                     );
-                    if estimated_amount_out >= req_monitor_estimation {
+                    if estimated_amount_out >= req_monitor_estimation && stablecoin_swap_is_feasible
+                    {
                         // Send alert immediately
                         tracing::debug!(
                             "Swap is immediately feasible for order_id: {}, sending alert",
@@ -391,7 +393,9 @@ impl MonitorManager {
                     Some(req_monitor_estimation)
                 } else {
                     // In this case we just check against amount_out
-                    if estimated_amount_out >= pending_swap.amount_out {
+                    if estimated_amount_out >= pending_swap.amount_out
+                        && stablecoin_swap_is_feasible
+                    {
                         // Send alert immediately
                         tracing::debug!(
                             "Swap is immediately feasible for order_id: {}, sending alert",
@@ -417,18 +421,11 @@ impl MonitorManager {
                 }
             }
             Err(error) => {
-                match error.current_context() {
-                    Error::StablecoinRequirementNotMet => {
-                        // Stablecoin requirement not met, keep monitoring
-                    }
-                    _ => {
-                        tracing::error!(
-                            "Error checking swap feasibility for order_id {}: {:?}",
-                            pending_swap.order_id,
-                            error
-                        );
-                    }
-                }
+                tracing::error!(
+                    "Error checking swap feasibility for order_id {}: {:?}",
+                    pending_swap.order_id,
+                    error
+                );
                 None
             }
         };
@@ -716,7 +713,7 @@ impl MonitorManager {
                 }
             };
             match estimate_amount_out(&pending_swap, &tokens_data) {
-                Ok((estimated_amount_out, _)) => {
+                Ok((estimated_amount_out, _, stablecoin_swap_is_feasible)) => {
                     tracing::debug!(
                         "Estimated amount out for order_id {}: {}",
                         pending_swap.order_id,
@@ -739,6 +736,15 @@ impl MonitorManager {
                         pending_swap.order_id,
                         needed_amount_out
                     );
+                    if !stablecoin_swap_is_feasible {
+                        tracing::debug!(
+                            "Stablecoin swap requirement not met for order_id: {}, keeping monitoring",
+                            pending_swap.order_id
+                        );
+                        // Still not feasible, keep monitoring
+                        remaining_orders.push(pending_swap.order_id.clone());
+                        continue;
+                    }
                     if estimated_amount_out >= needed_amount_out {
                         tracing::debug!(
                             "Swap is feasible for order_id: {}, sending alert",
@@ -765,18 +771,11 @@ impl MonitorManager {
                     }
                 }
                 Err(error) => {
-                    match error.current_context() {
-                        Error::StablecoinRequirementNotMet => {
-                            // Stablecoin requirement not met, keep monitoring
-                        }
-                        _ => {
-                            tracing::error!(
-                                "Error checking swap feasibility for order_id {}: {:?}",
-                                pending_swap.order_id,
-                                error
-                            );
-                        }
-                    }
+                    tracing::error!(
+                        "Error checking swap feasibility for order_id {}: {:?}",
+                        pending_swap.order_id,
+                        error
+                    );
                     remaining_orders.push(pending_swap.order_id.clone());
                 }
             }
@@ -1011,7 +1010,7 @@ impl MonitorManager {
 fn estimate_amount_out(
     pending_swap: &PendingSwap,
     coin_cache: &HashMap<TokenId, TokenPrice>,
-) -> EstimatorResult<(u128, u128)> {
+) -> EstimatorResult<(u128, u128, bool)> {
     let src_chain_data = coin_cache.get(&TokenId::new_for_codex(
         pending_swap.src_chain,
         &pending_swap.token_in,
@@ -1061,7 +1060,9 @@ fn estimate_amount_out(
         let in_usd_value = src_amount_dec * src_price;
 
         // Check if we can reach min stablecoins that user wants in exchange for token_in
-        if let Some(stablecoin_swap_info) = &pending_swap.stablecoin_swap_info {
+        let stablecoin_swap_is_feasible = if let Some(stablecoin_swap_info) =
+            &pending_swap.stablecoin_swap_info
+        {
             let Some(stablecoin_data) = coin_cache.get(&TokenId::new_for_codex(
                 pending_swap.src_chain,
                 &stablecoin_swap_info.stablecoin_address,
@@ -1074,7 +1075,6 @@ fn estimate_amount_out(
 
             validate_decimals(stablecoin_data.decimals)?;
 
-            // token_in_usd_value * 0.99 < min_stablecoins
             // Could just ignore this as we are going to always use USD stablecoins, but just in case
             let stablecoin_price =
                 Decimal::from_f64(stablecoin_data.price).ok_or(Error::ParseError)?;
@@ -1083,17 +1083,22 @@ fn estimate_amount_out(
                 stablecoin_data.decimals,
             )?;
             let stablecoin_usd_value = stablecoin_amount_dec * stablecoin_price;
+            let stablecoin_safety_margin = Decimal::new(STABLECOIN_SAFETY_MARGIN, 2);
 
-            if in_usd_value * Decimal::new(99, 2) < stablecoin_usd_value {
+            if in_usd_value * stablecoin_safety_margin < stablecoin_usd_value {
                 tracing::debug!(
                     "Stablecoin requirement not met for pending swap {:?}: in_usd_value * 0.99 = {}, stablecoin_usd_value = {}",
                     pending_swap,
-                    in_usd_value * Decimal::new(99, 2),
+                    in_usd_value * stablecoin_safety_margin,
                     stablecoin_usd_value
                 );
-                return Err(report!(Error::StablecoinRequirementNotMet));
+                false
+            } else {
+                true
             }
-        }
+        } else {
+            true
+        };
 
         // Value of expenses in dollars
         let mut expenses_usd_value = Decimal::ZERO;
@@ -1136,7 +1141,11 @@ fn estimate_amount_out(
 
         // dbg!(&pending_swap.order_id, estimated_amount_out);
 
-        Ok((estimated_amount_out, fulfillment_expenses_in_tokens_out))
+        Ok((
+            estimated_amount_out,
+            fulfillment_expenses_in_tokens_out,
+            stablecoin_swap_is_feasible,
+        ))
     } else {
         Err(report!(Error::TokenNotFound(format!(
             "Missing token data on monitor for swap: {:?}",
