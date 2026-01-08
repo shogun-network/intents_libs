@@ -43,9 +43,6 @@ pub struct TrendingTokenData {
 }
 
 #[derive(Debug, Deserialize)]
-struct CodexTokenInfo {}
-
-#[derive(Debug, Deserialize)]
 pub struct CodexGetPricesAndMetaData {
     pub prices: Vec<Option<CodexPricePayload>>,
     pub meta: Vec<Option<CodexMetadataPayload>>,

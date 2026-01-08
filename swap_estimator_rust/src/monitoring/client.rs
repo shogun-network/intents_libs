@@ -1,12 +1,11 @@
 use std::collections::{HashMap, HashSet};
 
 use error_stack::{ResultExt, report};
-use intents_models::{constants::chains::ChainId, models::types::order::OrderTypeFulfillmentData};
 use tokio::sync::{mpsc::Sender, oneshot};
 
 use crate::{
     error::{Error, EstimatorResult},
-    monitoring::messages::MonitorRequest,
+    monitoring::{manager::PendingTrade, messages::MonitorRequest},
     prices::{TokenId, TokenPrice, estimating::OrderEstimationData},
 };
 
@@ -80,30 +79,12 @@ impl MonitorClient {
 
     pub async fn check_swap_feasibility(
         &self,
-        order_id: String,
-        src_chain: ChainId,
-        dst_chain: ChainId,
-        token_in: String,
-        token_out: String,
-        amount_in: u128,
-        amount_out: u128,
-        deadline: u64,
-        order_type_fulfillment_data: OrderTypeFulfillmentData,
-        extra_expenses: HashMap<TokenId, u128>,
+        pending_trade: PendingTrade,
         solver_last_bid: Option<u128>,
     ) -> EstimatorResult<()> {
         self.client
             .send(MonitorRequest::CheckSwapFeasibility {
-                order_id,
-                src_chain,
-                dst_chain,
-                token_in,
-                token_out,
-                amount_in,
-                amount_out,
-                deadline,
-                order_type_fulfillment_data,
-                extra_expenses,
+                pending_trade,
                 solver_last_bid,
             })
             .await

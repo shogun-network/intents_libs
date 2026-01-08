@@ -441,6 +441,7 @@ mod tests {
         let generic_estimate_request = GenericEstimateRequest::from(request.clone());
         let result =
             estimate_swap_zero_x(&client, &zero_x_api_key, generic_estimate_request, None).await;
+        println!("Result: {:#?}", result);
         assert!(
             result.is_ok(),
             "Expected a successful estimate swap response"
