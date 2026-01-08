@@ -1573,4 +1573,153 @@ mod tests {
             }
         }
     }
+
+    #[tokio::test]
+    async fn test_stablecoin_requirement_not_met_returns_false() {
+        let mut coin_cache = HashMap::new();
+
+        coin_cache.insert(
+            TokenId {
+                chain: ChainId::Base,
+                address: "token_in".to_string(),
+            },
+            create_coin_data(1.0, 6), // $1
+        );
+        coin_cache.insert(
+            TokenId {
+                chain: ChainId::Base,
+                address: "token_out".to_string(),
+            },
+            create_coin_data(1.0, 6), // $1
+        );
+        coin_cache.insert(
+            TokenId {
+                chain: ChainId::Base,
+                address: "stablecoin".to_string(),
+            },
+            create_coin_data(1.0, 6), // $1
+        );
+
+        // in_usd_value = 100 * $1 = 100
+        // safety margin: 100 * 0.99 = 99 < 100 => NOT feasible
+        let pending_trade = create_pending_trade(
+            "order_stablecoin_fail".to_string(),
+            ChainId::Base,
+            ChainId::Base,
+            "token_in".to_string(),
+            "token_out".to_string(),
+            100_000_000u128, // 100.000000
+            0,
+            get_timestamp() + 300,
+            OrderTypeFulfillmentData::Limit,
+            HashMap::new(),
+            Some(StablecoinsSwapInfo {
+                min_stablecoins_amount: 100_000_000u128,
+                stablecoin_address: "stablecoin".to_string(),
+            }),
+        );
+
+        let result = estimate_amount_out(&pending_trade, &coin_cache).unwrap();
+        assert_eq!(
+            result.2, false,
+            "Stablecoin check should fail due to 0.99 safety margin"
+        );
+        assert_eq!(
+            result.0, 100_000_000u128,
+            "Estimated amount out should still be computed"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stablecoin_requirement_met_returns_true() {
+        let mut coin_cache = HashMap::new();
+
+        coin_cache.insert(
+            TokenId {
+                chain: ChainId::Base,
+                address: "token_in".to_string(),
+            },
+            create_coin_data(1.0, 6),
+        );
+        coin_cache.insert(
+            TokenId {
+                chain: ChainId::Base,
+                address: "token_out".to_string(),
+            },
+            create_coin_data(1.0, 6),
+        );
+        coin_cache.insert(
+            TokenId {
+                chain: ChainId::Base,
+                address: "stablecoin".to_string(),
+            },
+            create_coin_data(1.0, 6),
+        );
+
+        // in_usd_value = 102
+        // 102 * 0.99 = 100.98 >= 100 => feasible
+        let pending_trade = create_pending_trade(
+            "order_stablecoin_pass".to_string(),
+            ChainId::Base,
+            ChainId::Base,
+            "token_in".to_string(),
+            "token_out".to_string(),
+            102_000_000u128, // 102.000000
+            0,
+            get_timestamp() + 300,
+            OrderTypeFulfillmentData::Limit,
+            HashMap::new(),
+            Some(StablecoinsSwapInfo {
+                min_stablecoins_amount: 100_000_000u128, // 100.000000 stablecoins
+                stablecoin_address: "stablecoin".to_string(),
+            }),
+        );
+
+        let result = estimate_amount_out(&pending_trade, &coin_cache).unwrap();
+        assert_eq!(result.2, true, "Stablecoin check should pass");
+        assert_eq!(
+            result.0, 102_000_000u128,
+            "Estimated amount out should match input value at $1/$1"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stablecoin_token_missing_returns_error() {
+        let mut coin_cache = HashMap::new();
+
+        coin_cache.insert(
+            TokenId {
+                chain: ChainId::Base,
+                address: "token_in".to_string(),
+            },
+            create_coin_data(1.0, 6),
+        );
+        coin_cache.insert(
+            TokenId {
+                chain: ChainId::Base,
+                address: "token_out".to_string(),
+            },
+            create_coin_data(1.0, 6),
+        );
+
+        let pending_trade = create_pending_trade(
+            "order_stablecoin_missing".to_string(),
+            ChainId::Base,
+            ChainId::Base,
+            "token_in".to_string(),
+            "token_out".to_string(),
+            100_000_000u128,
+            0,
+            get_timestamp() + 300,
+            OrderTypeFulfillmentData::Limit,
+            HashMap::new(),
+            Some(StablecoinsSwapInfo {
+                min_stablecoins_amount: 100_000_000u128,
+                stablecoin_address: "stablecoin".to_string(), // not in cache
+            }),
+        );
+
+        let result = estimate_amount_out(&pending_trade, &coin_cache);
+        assert!(result.is_err());
+    }
 }
