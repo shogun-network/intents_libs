@@ -33,6 +33,12 @@ pub enum Error {
     #[error("Logic Error: {0}")]
     LogicError(String),
 
+    #[error("Client message error: {0}")]
+    ClientMessageError(String),
+
+    #[error("Module stopped: {0}")]
+    ModuleStopped(String),
+
     #[error("Unknown error")]
     Unknown,
 }
