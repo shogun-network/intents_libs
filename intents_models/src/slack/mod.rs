@@ -1,4 +1,7 @@
-use crate::error::ModelResult;
+use crate::{
+    error::ModelResult,
+    slack::{client::SlackClient, manager::SlackManager},
+};
 
 pub mod actions;
 pub mod api;
@@ -7,6 +10,13 @@ pub mod constants;
 pub mod manager;
 pub mod responses;
 pub mod worker;
+
+#[derive(Debug, Clone)]
+pub struct SlackConfig {
+    pub token: String,
+    pub info_channel: Option<String>,
+    pub errors_channel: Option<String>,
+}
 
 #[derive(Debug, Clone)]
 pub struct SlackClients {
@@ -33,6 +43,36 @@ impl SlackClients {
             return errors_client.send_message(text).await;
         }
         Ok(())
+    }
+}
+
+pub fn initialize_slack_messages(
+    slack_config: Option<SlackConfig>,
+) -> (SlackClients, Option<SlackManager>) {
+    {
+        match slack_config {
+            Some(slack_config) => {
+                let (slack_action_sender, slack_action_receiver) = tokio::sync::mpsc::channel(1000);
+
+                let slack_manager = SlackManager::new(slack_config.token, slack_action_receiver);
+
+                let slack_info = slack_config.info_channel.as_ref().map(|info_channel| {
+                    SlackClient::new(slack_action_sender.clone(), info_channel.clone())
+                });
+                let slack_errors = slack_config.errors_channel.as_ref().map(|errors_channel| {
+                    SlackClient::new(slack_action_sender.clone(), errors_channel.clone())
+                });
+
+                (
+                    SlackClients::new(slack_info, slack_errors),
+                    Some(slack_manager),
+                )
+            }
+            None => {
+                tracing::info!("Slack config is not set, skipping SlackManager initialization");
+                (SlackClients::new(None, None), None)
+            }
+        }
     }
 }
 
