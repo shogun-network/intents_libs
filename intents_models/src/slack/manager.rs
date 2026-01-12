@@ -96,6 +96,7 @@ impl SlackManager {
         tracing::info!("SlackManager shutting down, input channel closed");
 
         // Drop all senders so workers can exit cleanly
+        // TODO: If we want to wait for workers to finish, we can keep track of JoinHandles specially if we want to handle graceful shutdown
         workers.clear();
 
         Err(report!(Error::ModuleStopped("SlackManager".to_string())))
