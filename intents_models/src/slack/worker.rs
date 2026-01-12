@@ -123,7 +123,7 @@ impl SlackWorker {
                                     );
                                     break;
                                 }
-                                // Exponential backoff fallback
+                                // Linear backoff fallback
                                 self.next_allowed_at =
                                     Instant::now() + Duration::from_secs(retry_attempts);
                             }
