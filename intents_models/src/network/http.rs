@@ -1,6 +1,11 @@
+use std::time::{Duration, SystemTime};
+
 use crate::error::{Error, ModelResult};
 use error_stack::{ResultExt, report};
-use reqwest::Response;
+use reqwest::{
+    Response,
+    header::{HeaderMap, RETRY_AFTER},
+};
 use serde::de::DeserializeOwned;
 use serde_json::value::Value;
 use tracing::error;
@@ -122,6 +127,10 @@ pub async fn handle_reqwest_response<T: DeserializeOwned>(response: Response) ->
 
             Ok(response_body)
         }
+        429 => {
+            let retry_after = parse_retry_after(response.headers());
+            Err(report!(Error::RatelimitExceeded(retry_after)))
+        }
         _ => {
             let error_body = response.text().await.change_context(Error::ReqwestError(
                 "Failed to get text from response".to_string(),
@@ -131,6 +140,19 @@ pub async fn handle_reqwest_response<T: DeserializeOwned>(response: Response) ->
 
             Err(report!(Error::ReqwestError(error_body)))
         }
+    }
+}
+
+fn parse_retry_after(headers: &HeaderMap) -> Option<Duration> {
+    let value = headers.get(RETRY_AFTER)?.to_str().ok()?;
+    let now = SystemTime::now();
+
+    if let Ok(seconds) = value.parse::<u64>() {
+        Some(Duration::from_secs(seconds))
+    } else if let Ok(datetime) = httpdate::parse_http_date(value) {
+        datetime.duration_since(now).ok()
+    } else {
+        None
     }
 }
 

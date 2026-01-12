@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use error_stack::{AttachmentKind, FrameKind, Report};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -20,6 +22,9 @@ pub enum Error {
 
     #[error("Reqwest error: {0}")]
     ReqwestError(String),
+
+    #[error("Ratelimit exceeded: Retry after {0:?}")]
+    RatelimitExceeded(Option<Duration>),
 
     #[error("Nats error: {0}")]
     NatsError(String),
