@@ -1,6 +1,6 @@
 use crate::{
     error::ModelResult,
-    slack::{client::SlackClient, manager::SlackManager},
+    slack::{self, client::SlackClient, manager::SlackManager},
 };
 
 pub mod actions;
@@ -62,6 +62,13 @@ pub fn initialize_slack_messages(
                 let slack_errors = slack_config.errors_channel.as_ref().map(|errors_channel| {
                     SlackClient::new(slack_action_sender.clone(), errors_channel.clone())
                 });
+
+                if slack_info.is_none() && slack_errors.is_none() {
+                    tracing::warn!(
+                        "Slack config provided but no channels configured. SlackManager will not be started."
+                    );
+                    return (SlackClients::new(None, None), None);
+                }
 
                 (
                     SlackClients::new(slack_info, slack_errors),

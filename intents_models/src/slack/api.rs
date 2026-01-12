@@ -1,19 +1,18 @@
 use crate::{
     error::{Error, ModelResult},
-    network::http::{HttpMethod, handle_reqwest_response, value_to_sorted_querystring},
+    network::{
+        client_rate_limit::Client,
+        http::{HttpMethod, handle_reqwest_response, value_to_sorted_querystring},
+    },
 };
 use error_stack::{ResultExt, report};
-use once_cell::sync::Lazy;
-use reqwest::{Client, header::CONTENT_TYPE};
+use reqwest::header::CONTENT_TYPE;
 use serde_json::Value;
-use std::sync::Arc;
 
 use super::{
     constants::SLACK_API_URL,
     responses::{PostMessageResponse, SlackResponse},
 };
-
-pub static HTTP_CLIENT: Lazy<Arc<Client>> = Lazy::new(|| Arc::new(Client::new()));
 
 /// Sends a request to the Slack API with the provided parameters.
 ///
@@ -37,6 +36,7 @@ pub static HTTP_CLIENT: Lazy<Arc<Client>> = Lazy::new(|| Arc::new(Client::new())
 /// - Invalid HTTP method is provided
 /// - Slack API returns an error response
 async fn send_slack_api_request(
+    client: &Client,
     token: &str,
     uri_path: &str,
     query: Option<Value>,
@@ -44,7 +44,6 @@ async fn send_slack_api_request(
     method: HttpMethod,
 ) -> ModelResult<SlackResponse> {
     let url = format!("{SLACK_API_URL}{uri_path}");
-    let client = HTTP_CLIENT.clone();
     let url_and_query = match query {
         Some(q) => {
             let query_string = value_to_sorted_querystring(&q)
@@ -54,32 +53,36 @@ async fn send_slack_api_request(
         }
         None => url,
     };
-    let request = match method {
-        HttpMethod::GET => client.get(url_and_query),
-        HttpMethod::POST => match body {
-            Some(body) => client
-                .post(url_and_query)
-                .header(CONTENT_TYPE, "application/json")
-                .json(&body),
-            None => client.post(url_and_query),
-        },
-        _ => {
-            return Err(report!(Error::Unknown)
-                .attach_printable(format!("Invalid http method: {method:?}")));
-        }
+    let request = {
+        let client = client.inner_client();
+        let mut request = match method {
+            HttpMethod::GET => client.get(url_and_query),
+            HttpMethod::POST => match body {
+                Some(body) => client
+                    .post(url_and_query)
+                    .header(CONTENT_TYPE, "application/json")
+                    .json(&body),
+                None => client.post(url_and_query),
+            },
+            _ => {
+                return Err(report!(Error::Unknown)
+                    .attach_printable(format!("Invalid http method: {method:?}")));
+            }
+        };
+        request = request.bearer_auth(token);
+        request.build().change_context(Error::ReqwestError(
+            "Failed to build Jupiter request".to_string(),
+        ))?
     };
-    let response = request
-        .bearer_auth(token)
-        // .header(AUTHORIZATION, format!("Bearer {}", token))
-        .send()
+
+    let response = client
+        .execute(request)
         .await
         .change_context(Error::ReqwestError("Failed to send request".to_string()))?;
 
     match handle_reqwest_response(response).await {
         Ok(val) => Ok(val),
-        Err(e) => {
-            Err(e.change_context(Error::ReqwestError("Failed to handle response".to_string())))
-        }
+        Err(e) => Err(e.attach_printable("Error handling Slack response")),
     }
 }
 
@@ -144,14 +147,19 @@ fn handle_slack_response(response: SlackResponse) -> ModelResult<SlackResponse> 
 /// - The response from Slack contains an error
 /// - The response is not of the expected type
 ///
-pub async fn post_msg(token: &str, channel: &str, text: &str) -> ModelResult<PostMessageResponse> {
+pub async fn post_msg(
+    client: &Client,
+    token: &str,
+    channel: &str,
+    text: &str,
+) -> ModelResult<PostMessageResponse> {
     let uri_path = "/chat.postMessage";
     let body = serde_json::json!({
         "channel": channel,
         "text": text,
     });
     let response: SlackResponse =
-        send_slack_api_request(token, uri_path, None, Some(body), HttpMethod::POST).await?;
+        send_slack_api_request(client, token, uri_path, None, Some(body), HttpMethod::POST).await?;
     match handle_slack_response(response)? {
         SlackResponse::PostMessage(post_message_response) => Ok(post_message_response),
         response => Err(report!(Error::Unknown)
@@ -178,7 +186,8 @@ mod tests {
         };
         let text = "Testing message";
 
-        let result = post_msg(&token, &channel, text).await;
+        let client = Client::Unrestricted(reqwest::Client::new());
+        let result = post_msg(&client, &token, &channel, text).await;
         assert!(result.is_ok());
     }
 

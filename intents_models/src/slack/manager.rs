@@ -6,11 +6,20 @@
 //! messages and the rate-limited worker implementation that interacts with
 //! the Slack API.
 
+use std::collections::HashMap;
+
 use crate::error::{Error, ModelResult};
 use error_stack::report;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::task::JoinHandle;
 
 use super::{actions::SlackAction, worker::SlackWorker};
+
+#[derive(Debug)]
+struct WorkerHandle {
+    sender: Sender<String>,
+    _task: JoinHandle<()>,
+}
 
 /// Manager for coordinating Slack messaging operations.
 ///
@@ -45,33 +54,49 @@ impl SlackManager {
     /// 3. Runs until the input channel is closed
     /// 4. Ensures all pending messages are processed before shutting down
     pub async fn run(mut self) -> ModelResult<()> {
-        // Create channel for internal communication with worker
-        let (worker_sender, worker_receiver) = tokio::sync::mpsc::channel(1000);
-        // Start the message worker in a separate task
-        let worker = SlackWorker::new(self.token.clone(), worker_receiver);
+        tracing::info!("SlackManager started");
 
-        // Spawn the worker in a separate task
-        let worker_handle = tokio::spawn(async move {
-            worker.run().await;
-        });
+        // Workers indexed by channel id
+        let mut workers: HashMap<String, WorkerHandle> = HashMap::new();
 
-        // Receive msgs at external channel and handle them
         while let Some(action) = self.input_channel.recv().await {
             match action {
                 SlackAction::SendMessage { channel, text } => {
-                    // Send message to internal channel
-                    if let Err(e) = worker_sender
-                        .send(SlackAction::SendMessage { channel, text })
-                        .await
-                    {
-                        tracing::error!("Failed to send message to internal channel: {e}");
+                    let worker = workers.entry(channel.clone()).or_insert_with(|| {
+                        tracing::info!(
+                            channel = %channel,
+                            "Spawning SlackWorker for channel"
+                        );
+
+                        let (tx, rx) = tokio::sync::mpsc::channel::<String>(1024);
+
+                        let worker = SlackWorker::new(self.token.clone(), channel.clone(), rx);
+
+                        let task = tokio::spawn(async move {
+                            worker.run().await;
+                        });
+
+                        WorkerHandle {
+                            sender: tx,
+                            _task: task,
+                        }
+                    });
+
+                    if let Err(e) = worker.sender.send(text).await {
+                        tracing::error!(
+                            channel = %channel,
+                            error = %e,
+                            "Failed to send message to SlackWorker"
+                        );
                     }
                 }
             }
         }
 
-        // Input channel is closed, wait for worker to finish processing remaining messages
-        let _ = worker_handle.await;
+        tracing::info!("SlackManager shutting down, input channel closed");
+
+        // Drop all senders so workers can exit cleanly
+        workers.clear();
 
         Err(report!(Error::ModuleStopped("SlackManager".to_string())))
     }

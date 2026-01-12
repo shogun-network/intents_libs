@@ -4,11 +4,15 @@
 //! asynchronously through a channel, implementing rate limiting to comply
 //! with Slack API restrictions.
 
+use std::num::NonZeroU32;
+use std::time::Instant;
+
+use crate::error::Error;
+use crate::network::RateLimitWindow;
+use crate::network::client_rate_limit::{Client, RateLimitedClient};
 use crate::slack::api;
 use tokio::sync::mpsc::Receiver;
 use tokio::time::{Duration, sleep};
-
-use super::actions::SlackAction;
 
 /// A worker that processes Slack message requests asynchronously.
 ///
@@ -22,15 +26,30 @@ use super::actions::SlackAction;
 /// (with a small buffer) to comply with Slack's API requirements.
 #[derive(Debug)]
 pub struct SlackWorker {
-    /// Slack API authentication token
+    client: Client,
     token: String,
-    /// Channel receiver for incoming Slack action requests
-    receiver: Receiver<SlackAction>,
+    channel: String,
+    receiver: Receiver<String>,
+    /// Earliest instant at which we are allowed to send a message
+    next_allowed_at: Instant,
+    /// Base throttle for unknown retry (Slack ≈ 1 msg / sec / channel)
+    base_throttle: Duration,
 }
 
 impl SlackWorker {
-    pub fn new(token: String, receiver: Receiver<SlackAction>) -> Self {
-        SlackWorker { token, receiver }
+    pub fn new(token: String, channel: String, receiver: Receiver<String>) -> Self {
+        Self {
+            client: Client::RateLimited(RateLimitedClient::new(
+                // 1 msg per second with burst of 3
+                RateLimitWindow::PerSecond(NonZeroU32::new(1).expect("NonZeroU32::new(1) failed")), // Safe unwrap
+                Some(NonZeroU32::new(3).expect("NonZeroU32::new(3) failed")), // Safe unwrap
+            )),
+            token,
+            channel,
+            receiver,
+            next_allowed_at: Instant::now(),
+            base_throttle: Duration::from_secs(1),
+        }
     }
 
     /// Starts the worker processing loop.
@@ -42,26 +61,67 @@ impl SlackWorker {
     /// 4. Terminates when the channel is closed
     ///
     pub async fn run(mut self) {
-        tracing::info!("Slack Worker started");
+        tracing::info!(
+            channel = %self.channel,
+            "SlackWorker started."
+        );
 
-        // Slack's rate limit is around 1 message per second
-        const RATE_LIMIT: Duration = Duration::from_millis(1050);
+        while let Some(text) = self.receiver.recv().await {
+            // Retry loop for the message
+            loop {
+                let now = Instant::now();
+                if now < self.next_allowed_at {
+                    sleep(self.next_allowed_at - now).await;
+                }
 
-        while let Some(action) = self.receiver.recv().await {
-            match action {
-                SlackAction::SendMessage { channel, text } => {
-                    // Call Slack API to send the message
-                    match api::post_msg(&self.token, &channel, &text).await {
-                        Ok(_) => tracing::info!("Slack Message sent successfully"),
-                        Err(e) => tracing::error!("Failed to send  slack message: {e}"),
+                match api::post_msg(&self.client, &self.token, &self.channel, &text).await {
+                    Ok(_) => {
+                        tracing::info!(
+                            channel = %self.channel,
+                            "Slack message sent successfully."
+                        );
+                        break;
                     }
 
-                    // Respect rate limits
-                    sleep(RATE_LIMIT).await;
+                    Err(e) => {
+                        match e.current_context() {
+                            Error::RatelimitExceeded(Some(retry_after)) => {
+                                tracing::warn!(
+                                    channel = %self.channel,
+                                    "Slack rate limit exceeded. Retry after {:?}",
+                                    retry_after
+                                );
+
+                                // Update global window and retry same message
+                                self.next_allowed_at = Instant::now() + *retry_after;
+                            }
+
+                            Error::RatelimitExceeded(None) => {
+                                tracing::warn!(
+                                    channel = %self.channel,
+                                    "Slack rate limit exceeded without Retry-After",
+                                );
+
+                                // Conservative fallback
+                                self.next_allowed_at = Instant::now() + self.base_throttle;
+                            }
+
+                            other => {
+                                tracing::error!(
+                                    channel = %self.channel,
+                                    "Slack message failed with non-retriable error: {:?}",
+                                    other
+                                );
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        tracing::info!("SlackWorker shutting down - channel closed");
+        tracing::info!(
+            channel = %self.channel,
+            "SlackWorker shutting down."
+        );
     }
 }
