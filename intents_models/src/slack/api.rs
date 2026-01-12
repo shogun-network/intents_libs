@@ -120,33 +120,28 @@ fn handle_slack_response(response: SlackResponse) -> ModelResult<SlackResponse> 
     }
 }
 
-/// Sends a message to a Slack channel.
-///
-/// This function composes and sends a message to the specified Slack channel using
-/// the Slack Chat API. It allows for optional customization of the sender's username
-/// that will be displayed in the Slack message.
+/// Sends a message to a Slack channel using `chat.postMessage`.
 ///
 /// # Arguments
 ///
-/// * `token` - The Slack authentication token for API access
-/// * `channel` - The target channel ID or name (e.g., "#general" or "C012AB3CD")
-/// * `text` - The message content to send
-/// * `username` - Optional username to display as the message sender
+/// * `client` - HTTP client used to execute the request.
+/// * `token` - Slack Bot/User OAuth token used for authentication (sent as `Authorization: Bearer ...`).
+/// * `channel` - Target channel identifier. Typically a channel ID like `C012AB3CD`
+/// * `text` - Message content to send.
 ///
 /// # Returns
 ///
-/// * `ModelResult<PostMessageResponse>` - A result containing the Slack API response with
-///   message details on success
+/// On success, returns a [`PostMessageResponse`](intents_models/src/slack/responses.rs) containing
+/// Slack's response payload for the posted message.
 ///
 /// # Errors
 ///
-/// Will return an error if:
-/// - The Slack API request fails to send
-/// - The authentication token is invalid or lacks necessary permissions
-/// - The channel doesn't exist or the bot isn't a member
-/// - The response from Slack contains an error
-/// - The response is not of the expected type
-///
+/// Returns an error if:
+/// - The request cannot be built or sent.
+/// - Slack returns a non-success HTTP status (including rate limiting via `429 Retry-After`).
+/// - The response cannot be deserialized into the expected Slack response type.
+/// - Slack returns an application-level error (`ok: false`) in the JSON body.
+/// - The response is not the expected variant for this endpoint.
 pub async fn post_msg(
     client: &Client,
     token: &str,

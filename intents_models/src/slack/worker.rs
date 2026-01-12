@@ -110,7 +110,7 @@ impl SlackWorker {
                             other => {
                                 tracing::error!(
                                     channel = %self.channel,
-                                    "Slack message failed with non-retriable error: {:?}",
+                                    "Slack message failed with unexpected error: {:?}",
                                     other
                                 );
                                 retry_attempts += 1;
@@ -123,6 +123,9 @@ impl SlackWorker {
                                     );
                                     break;
                                 }
+                                // Exponential backoff fallback
+                                self.next_allowed_at =
+                                    Instant::now() + Duration::from_secs(retry_attempts);
                             }
                         }
                     }

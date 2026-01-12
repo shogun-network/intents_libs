@@ -2,12 +2,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum SlackResponse {
-    #[serde(untagged)]
     PostMessage(PostMessageResponse),
-    #[serde(untagged)]
     Error(SlackError),
-    #[serde(untagged)]
     UnknownResponse(Value),
 }
 
