@@ -71,7 +71,7 @@ async fn send_slack_api_request(
         };
         request = request.bearer_auth(token);
         request.build().change_context(Error::ReqwestError(
-            "Failed to build Jupiter request".to_string(),
+            "Failed to build Slack request".to_string(),
         ))?
     };
 

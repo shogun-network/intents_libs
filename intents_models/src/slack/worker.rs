@@ -68,6 +68,7 @@ impl SlackWorker {
 
         while let Some(text) = self.receiver.recv().await {
             // Retry loop for the message
+            let mut retry_attempts = 0;
             loop {
                 let now = Instant::now();
                 if now < self.next_allowed_at {
@@ -112,6 +113,16 @@ impl SlackWorker {
                                     "Slack message failed with non-retriable error: {:?}",
                                     other
                                 );
+                                retry_attempts += 1;
+                                if retry_attempts >= 5 {
+                                    tracing::error!(
+                                        channel = %self.channel,
+                                        "Slack message failed after {} attempts, giving up. Message: {}",
+                                        retry_attempts,
+                                        text
+                                    );
+                                    break;
+                                }
                             }
                         }
                     }

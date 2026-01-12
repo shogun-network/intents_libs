@@ -1,6 +1,6 @@
 use crate::{
     error::ModelResult,
-    slack::{self, client::SlackClient, manager::SlackManager},
+    slack::{client::SlackClient, manager::SlackManager},
 };
 
 pub mod actions;
