@@ -21,3 +21,8 @@ futures            = { workspace = true }
 rustls             = { workspace = true }
 governor           = { workspace = true }
 tokio              = { workspace = true }
+once_cell          = { workspace = true }
+httpdate           = { workspace = true }
+
+[dev-dependencies]
+dotenv = { workspace = true }
