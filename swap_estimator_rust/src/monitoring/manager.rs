@@ -191,6 +191,11 @@ impl MonitorManager {
                         })
                         .collect();
 
+                    if tokens_to_fetch.is_empty() {
+                        tracing::debug!("No tokens to fetch prices for; skipping polling cycle");
+                        continue;
+                    }
+
                     tracing::debug!("Polling update for tokens: {:?}", tokens_to_fetch);
 
                     // Always check for native tokens too.
