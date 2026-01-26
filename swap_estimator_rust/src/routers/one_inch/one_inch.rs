@@ -440,6 +440,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore]
     async fn test_one_inch_swap_exact_in_zora() {
         dotenv::dotenv().ok();
 

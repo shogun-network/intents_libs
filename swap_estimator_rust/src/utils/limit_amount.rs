@@ -101,7 +101,7 @@ pub fn get_slippage_percentage(
     // If it is negative, return error
     if raw_pct.is_sign_negative() {
         return Err(report!(Error::ParseError)
-            .attach_printable("Calculated slippage percentage is invalid"));
+            .attach_printable(format!("Calculated slippage percentage is invalid. amount_estimated: {}, amount_limit: {}, trade_type: {:?}", amount_estimated, amount_limit, trade_type)));
     }
 
     raw_pct
