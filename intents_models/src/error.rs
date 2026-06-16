@@ -44,6 +44,9 @@ pub enum Error {
     #[error("Module stopped: {0}")]
     ModuleStopped(String),
 
+    #[error("Retry exhausted")]
+    RetryExhausted,
+
     #[error("Unknown error")]
     Unknown,
 }
