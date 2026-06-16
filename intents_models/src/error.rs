@@ -47,6 +47,9 @@ pub enum Error {
     #[error("Retry exhausted")]
     RetryExhausted,
 
+    #[error("Concurrency error")]
+    Concurrency,
+
     #[error("Unknown error")]
     Unknown,
 }

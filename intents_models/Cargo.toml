@@ -25,5 +25,11 @@ tokio-util         = { workspace = true }
 once_cell          = { workspace = true }
 httpdate           = { workspace = true }
 
+[features]
+# Enables ShutdownController::trigger_on_signal (SIGINT/SIGTERM on Unix,
+# Ctrl+C on Windows). Off by default; tokio's `signal` support already
+# comes in via the workspace `full` feature.
+signal = []
+
 [dev-dependencies]
 dotenv = { workspace = true }
