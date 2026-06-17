@@ -6,11 +6,13 @@
 //! so callers get a single error taxonomy.
 
 pub mod retry;
+pub mod secret;
 pub mod shutdown;
 pub mod supervisor;
 
 mod backoff;
 
 pub use retry::Retry;
+pub use secret::Secret;
 pub use shutdown::ShutdownController;
 pub use supervisor::Supervisor;
