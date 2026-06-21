@@ -8,6 +8,7 @@ use std::marker::PhantomData;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 use crate::network::validate_and_parse_json;
 
@@ -90,6 +91,29 @@ where
         F: Fn(MsgIn) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = MsgOut> + Send + 'static,
     {
+        // A fresh, never-cancelled token preserves the original "run until the
+        // subscription stream ends" behaviour for callers that don't shut down.
+        self.subscribe_and_process_until(subject, CancellationToken::new(), processor)
+            .await
+    }
+
+    /// Like [`Self::subscribe_and_process`], but stops pulling new messages once
+    /// `shutdown` is cancelled.
+    ///
+    /// In-flight handlers already accepted by `for_each_concurrent` are still
+    /// driven to completion, so a graceful shutdown drains current work (and its
+    /// replies) instead of dropping it mid-flight. Returns `Ok(())` once the
+    /// stream ends — either because the subscription closed or `shutdown` fired.
+    pub async fn subscribe_and_process_until<F, Fut>(
+        self,
+        subject: &'static str,
+        shutdown: CancellationToken,
+        processor: F,
+    ) -> ModelResult<()>
+    where
+        F: Fn(MsgIn) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = MsgOut> + Send + 'static,
+    {
         let subscriber = self
             .client
             .subscribe(subject)
@@ -108,6 +132,7 @@ where
         let processor = Arc::new(processor);
 
         subscriber
+            .take_until(shutdown.cancelled_owned())
             .for_each_concurrent(max_concurrency, |message| {
                 let client = client.clone();
                 let processor = Arc::clone(&processor);
