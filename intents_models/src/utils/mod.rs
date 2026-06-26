@@ -9,6 +9,7 @@ pub mod retry;
 pub mod secret;
 pub mod shutdown;
 pub mod supervisor;
+pub mod task_tracker;
 
 mod backoff;
 
@@ -16,3 +17,4 @@ pub use retry::Retry;
 pub use secret::Secret;
 pub use shutdown::ShutdownController;
 pub use supervisor::Supervisor;
+pub use task_tracker::TaskTracker;
