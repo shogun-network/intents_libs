@@ -40,6 +40,21 @@ pub struct PendingTrade {
     pub amount_out: u128,
     pub deadline: u64,
     pub order_type_fulfillment_data: OrderTypeFulfillmentData,
+    // TODO:
+    /// Native-token expense amounts (gas_units × gas_price) frozen at registration time,
+    /// computed by the solver when it rejected the order. The monitor never recomputes these
+    /// amounts — `estimate_amount_out` only re-values them at fresh USD prices. Likewise,
+    /// expense tokens are not registered in `trades_by_token`, so a gas price change alone
+    /// never triggers re-evaluation (`req_monitor_estimation` is frozen the same way).
+    /// Gas is refreshed per alert cycle, not continuously: on `SwapIsFeasible` the solver
+    /// re-estimates with current gas and, if still infeasible, re-registers with fresh
+    /// expenses (the `pending_trades.insert` overwrite path). If gas drops meanwhile, the
+    /// alert fires late (missed opportunity, no fund risk); if it rises, a premature alert
+    /// is rejected by the solver's re-validation (self-correcting churn).
+    /// Possible improvements: (a) solver periodically re-sends `CheckSwapFeasibility` with
+    /// recomputed expenses — the overwrite path already supports it; (b) index expense
+    /// tokens in `trades_by_token` and recompute amounts in the monitor — needs gas_units
+    /// plus a gas price feed.
     pub extra_expenses: HashMap<TokenId, u128>, // TokenId to amount
     pub stablecoin_swap_info: Option<StablecoinsSwapInfo>,
 }
